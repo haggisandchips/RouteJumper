@@ -4,12 +4,14 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:converters="clr-namespace:RouteJumper.Converters"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="700">
 
     <UserControl.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
-        <converters:IconToGlyphConverter x:Key="IconToGlyphConverter" />
+        <converters:IconToPackIconKindConverter x:Key="IconToPackIconKindConverter" />
+        <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
     </UserControl.Resources>
 
     <Grid Margin="12">
@@ -55,6 +57,7 @@
             </Grid.RowDefinitions>
 
             <DataGrid Grid.Row="0"
+                      Style="{StaticResource MaterialDesignDataGrid}"
                       ItemsSource="{Binding Rows}"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
@@ -68,15 +71,16 @@
                 <DataGrid.Columns>
 
                     <!-- Blank icon column -->
-                    <DataGridTemplateColumn Header="" Width="36">
+                    <DataGridTemplateColumn Header="" Width="Auto" MinWidth="36">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding Icon, Converter={StaticResource IconToGlyphConverter}}"
-                                           Foreground="Green"
-                                           FontWeight="Bold"
-                                           FontSize="14"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
+                                <materialDesign:PackIcon Kind="{Binding Icon, Converter={StaticResource IconToPackIconKindConverter}}"
+                                                          Visibility="{Binding Icon, Converter={StaticResource RowIconToVisibilityConverter}}"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Width="18"
+                                                          Height="18"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

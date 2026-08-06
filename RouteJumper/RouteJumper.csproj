@@ -11,4 +11,9 @@
     <ProjectGuid>{8F1B2C3D-4A5E-4F6B-9C7D-1E2F3A4B5C6D}</ProjectGuid>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="MaterialDesignColors" Version="5.3.2" />
+    <PackageReference Include="MaterialDesignThemes" Version="5.3.2" />
+  </ItemGroup>
+
 </Project>

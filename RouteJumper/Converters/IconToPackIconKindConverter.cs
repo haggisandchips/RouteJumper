@@ -1,24 +1,24 @@
 using System.Globalization;
 using System.Windows.Data;
+using MaterialDesignThemes.Wpf;
 using RouteJumper.Models;
 
 namespace RouteJumper.Converters
 {
     /// <summary>
-    /// Renders the row icon as a coloured glyph:
-    ///   InProgress -> green right-pointing triangle (▶)
-    ///   Complete   -> green tick (✔)
-    ///   None       -> nothing
+    /// Maps a row's icon state to the PackIconKind used to render it:
+    ///   InProgress -> Play (right-pointing triangle)
+    ///   Complete   -> Check (tick)
+    ///   None       -> Play (unused; the icon is hidden via RowIconToVisibilityConverter)
     /// </summary>
-    public class IconToGlyphConverter : IValueConverter
+    public class IconToPackIconKindConverter : IValueConverter
     {
         public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
             return value switch
             {
-                RowIcon.InProgress => "\u25B6", // ▶
-                RowIcon.Complete => "\u2714",   // ✔
-                _ => string.Empty
+                RowIcon.Complete => PackIconKind.Check,
+                _ => PackIconKind.Play
             };
         }
 
