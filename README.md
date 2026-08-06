@@ -21,9 +21,10 @@ A WPF (MVVM) application, targeting .NET 8, with a two-tab main window.
     **Stop** buttons underneath.
 - Clicking **Start**:
   1. Puts a green triangle (▶) in the icon column of row 1.
-  2. Every 2 seconds, advances one step through the sequence for the current
-     row: `Plotting` → `Plotted` → `Jumping` → triangle becomes a tick (✔) →
-     triangle appears on the next row (if any) → `Cooldown` → status cleared.
+  2. Every 0.5 seconds, advances one step through the sequence for the
+     current row: `Plotting` → `Plotted` → `Jumping` → *(triangle becomes a
+     tick ✔, triangle appears on the next row if any, and status becomes
+     `Cooldown` — all three at once, in a single step)* → status cleared.
   3. Repeats for every remaining row, then stops automatically.
 - **Stop** halts the sequence at any point; **Start** resumes a fresh run
   from row 1 (only enabled again once the previous run has stopped).

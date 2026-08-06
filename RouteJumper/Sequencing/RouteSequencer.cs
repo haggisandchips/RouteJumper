@@ -7,8 +7,10 @@ namespace RouteJumper.Sequencing
     /// Builds the flat list of actions for the whole table (icon changes + status changes,
     /// row by row) and executes one action every time the supplied <see cref="ISequenceTrigger"/>
     /// fires. Nothing in here is hardcoded to "a timer" - it just reacts to events - so the
-    /// same class works whether actions are paced by a 2-second timer, a manual trigger,
-    /// or several triggers wired in at once.
+    /// same class works whether actions are paced by a fast timer, a manual trigger,
+    /// or several triggers wired in at once. Note that some actions are intentionally grouped
+    /// into a single SequenceStep (see BuildSteps) when they should happen simultaneously
+    /// rather than one-per-trigger.
     /// </summary>
     public class RouteSequencer
     {
@@ -98,10 +100,13 @@ namespace RouteJumper.Sequencing
         }
 
         /// <summary>
-        /// Builds the ordered action plan described in the spec:
+        /// Builds the ordered action plan:
         /// add triangle to row 1, then for each row in turn:
-        ///   Plotting -> Plotted -> Jumping -> triangle becomes tick ->
-        ///   triangle added to next row (if any) -> Cooldown -> status cleared.
+        ///   Plotting -> Plotted -> Jumping ->
+        ///   [combined: triangle becomes tick + triangle added to next row (if any) + Cooldown] ->
+        ///   status cleared.
+        /// The three combined actions are executed together as a single step/trigger event,
+        /// rather than one trigger firing per action.
         /// </summary>
         private static Queue<SequenceStep> BuildSteps(IReadOnlyList<RouteRowViewModel> rows)
         {
@@ -119,21 +124,24 @@ namespace RouteJumper.Sequencing
             for (var i = 0; i < rows.Count; i++)
             {
                 var row = rows[i];
+                var nextRow = i + 1 < rows.Count ? rows[i + 1] : null;
 
                 steps.Enqueue(new SequenceStep($"Row {row.Number}: Plotting", () => row.Status = "Plotting"));
                 steps.Enqueue(new SequenceStep($"Row {row.Number}: Plotted", () => row.Status = "Plotted"));
                 steps.Enqueue(new SequenceStep($"Row {row.Number}: Jumping", () => row.Status = "Jumping"));
-                steps.Enqueue(new SequenceStep($"Row {row.Number}: complete icon", () => row.Icon = RowIcon.Complete));
 
-                if (i + 1 < rows.Count)
-                {
-                    var nextRow = rows[i + 1];
-                    steps.Enqueue(new SequenceStep(
-                        $"Row {nextRow.Number}: show in-progress icon",
-                        () => nextRow.Icon = RowIcon.InProgress));
-                }
+                steps.Enqueue(new SequenceStep(
+                    $"Row {row.Number}: complete icon + next-row icon + Cooldown",
+                    () =>
+                    {
+                        row.Icon = RowIcon.Complete;
+                        if (nextRow != null)
+                        {
+                            nextRow.Icon = RowIcon.InProgress;
+                        }
+                        row.Status = "Cooldown";
+                    }));
 
-                steps.Enqueue(new SequenceStep($"Row {row.Number}: Cooldown", () => row.Status = "Cooldown"));
                 steps.Enqueue(new SequenceStep($"Row {row.Number}: clear status", () => row.Status = string.Empty));
             }
 

@@ -5,7 +5,7 @@ namespace RouteJumper.Sequencing
     ///
     /// The RouteSequencer does not know or care WHERE the trigger comes from - it just
     /// advances one step every time Triggered fires. This is what makes each action in
-    /// the sequence independently triggerable: today the trigger is a 2-second timer,
+    /// the sequence independently triggerable: today the trigger is a fast timer,
     /// but it could equally be a button click, an incoming message from hardware,
     /// a signal from another part of the app, etc. Multiple triggers can even be wired
     /// up to the same sequencer (e.g. a timer AND a manual "skip" button).
