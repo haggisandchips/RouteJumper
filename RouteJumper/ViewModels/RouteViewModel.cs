@@ -19,11 +19,11 @@ namespace RouteJumper.ViewModels
         {
             Rows = new ObservableCollection<RouteRowViewModel>();
 
-            // The default pacing trigger: fires every 0.5 seconds. Additional triggers
+            // The default pacing trigger: fires every 2 seconds. Additional triggers
             // (e.g. a ManualSequenceTrigger tied to some other UI event) can be attached
             // with _sequencer.AttachTrigger(...) without changing anything else here.
             _sequencer = new RouteSequencer();
-            _sequencer.AttachTrigger(new TimerSequenceTrigger(TimeSpan.FromSeconds(0.5)));
+            _sequencer.AttachTrigger(new TimerSequenceTrigger(TimeSpan.FromSeconds(2)));
             _sequencer.Completed += (_, _) => IsRunning = false;
 
             SaveCommand = new RelayCommand(Save, () => !string.IsNullOrWhiteSpace(RouteText));

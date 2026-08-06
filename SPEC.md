@@ -1,8 +1,9 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.2
-**Status:** Route tab implemented (0.5s cadence, combined completion step);
-Material Design restyle in progress; Control tab reserved for future work
+**Version:** 1.3
+**Status:** Route tab implemented (2s cadence, combined completion step);
+Material Design restyle complete, including per-status action icons and a
+window/taskbar icon; Control tab reserved for future work
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -33,6 +34,8 @@ moving to the next.
 - Single top-level window containing a `TabControl` with exactly two tabs.
 - Tab order: **Route**, **Control**.
 - Window is resizable; content should reflow (no fixed-pixel layouts).
+- Window title: **"ED:FC AutoPilot"**.
+- Window/taskbar icon: see §9.5.
 
 ### 3.2 Tab 1 — "Route"
 Has two mutually exclusive states, **Edit** and **Running**, described below.
@@ -135,8 +138,12 @@ Only one is visible at a time.
 ## 7. Automated Sequence (Start → Stop)
 
 ### 7.1 Trigger cadence
-- Each action below is separated from the next by a **0.5 second** interval
-  in v1.2 (changed from 0.2s during further testing; originally 2s).
+- Each action below is separated from the next by a **2 second** interval
+  in v1.3 (reverted from the 0.5s used in v1.2 — 0.5s made the per-step
+  transitions hard to actually see, and the real-world use case is jumping
+  **fleet carriers**, not ships: fleet carrier jumps are slow in practice,
+  so a snappy cadence undersells what the app is modeling. Interim history:
+  0.2s during testing, then 0.5s in v1.2, originally 2s before that).
 - The sequence must be built so that **advancing to the next action is a
   response to an event**, not a hardcoded delay call, so that the pacing
   mechanism (today: a timer) can later be replaced or supplemented by other
@@ -148,7 +155,7 @@ Only one is visible at a time.
 On **Start**:
 
 1. Immediately: show the "in-progress" icon (§7.3) in row 1's icon column.
-2. Then, once per 0.5-second interval, for the **current row**, in order:
+2. Then, once per 2-second interval, for the **current row**, in order:
    1. `Status` = `Plotting`
    2. `Status` = `Plotted`
    3. `Status` = `Jumping`
@@ -166,11 +173,27 @@ On **Start**:
 
 ### 7.3 Icon states (blank-headed column)
 
-| State | Appearance | When shown |
-|---|---|---|
-| None | *(empty cell)* | Default, and after a row's cycle content is otherwise done (icon is **not** cleared — see note) | 
-| In-progress | Green triangle, pointing right | From the moment a row becomes "current" until it completes step 7.2.4 |
-| Complete | Green tick | From step 7.2.4 onward, permanently (for that run) |
+The icon shown depends on **both** the row's icon state (None / In-progress /
+Complete) and, while In-progress, the row's current `Status` text — the two
+are no longer independent. See §9.2 for the implementation (a
+multi-value converter keyed on `Icon` + `Status`).
+
+| Icon state | `Status` | Glyph (`PackIconKind`) | When shown |
+|---|---|---|---|
+| None | — | *(hidden)* | Default, and after a row's cycle content is otherwise done (icon is **not** cleared — see note) |
+| In-progress | *(blank, just before first tick)* | `Play` (triangle) | The instant a row becomes "current" (step 7.2.1), before its first `Status` update |
+| In-progress | `Plotting` | `Compass` | During step 7.2.2.1 |
+| In-progress | `Plotted` | `Hourglass` | During step 7.2.2.2 |
+| In-progress | `Jumping` | `RocketLaunch` | During step 7.2.2.3 |
+| In-progress | `Cooldown` | `Play` (triangle) | During step 7.2.2.4, until the icon flips to Complete within that same combined step |
+| Complete | *(cleared)* | `Check` (tick) | From step 7.2.4 onward, permanently (for that run) |
+
+- All icon glyphs are rendered via the toolkit's `PackIcon` control, colored
+  from the active Material palette (`MaterialDesign.Brush.Secondary` — see
+  §9.2), not per-icon colors.
+- `Play` is also the fallback for any in-progress status not explicitly
+  listed above, so a new status value added later degrades gracefully
+  instead of showing nothing.
 
 > Note: the spec does not require clearing the icon at any point — once a
 > row reaches "Complete" it keeps the tick for the remainder of the run.
@@ -178,13 +201,13 @@ On **Start**:
 ### 7.4 Timing summary (example, 3 rows)
 
 ```
-t=0.0s  Row1 icon -> in-progress
-t=0.5s  Row1 status -> Plotting
-t=1.0s  Row1 status -> Plotted
-t=1.5s  Row1 status -> Jumping
-t=2.0s  Row1 icon -> complete, Row2 icon -> in-progress, Row1 status -> Cooldown  (combined)
-t=2.5s  Row1 status -> (cleared)
-t=3.0s  Row2 status -> Plotting
+t=0s   Row1 icon -> Play (in-progress, no status yet)
+t=2s   Row1 status -> Plotting   (icon -> Compass)
+t=4s   Row1 status -> Plotted    (icon -> Hourglass)
+t=6s   Row1 status -> Jumping    (icon -> RocketLaunch)
+t=8s   Row1 icon -> Check (complete), Row2 icon -> Play (in-progress), Row1 status -> Cooldown  (combined)
+t=10s  Row1 status -> (cleared)
+t=12s  Row2 status -> Plotting   (icon -> Compass)
 ...
 ```
 
@@ -230,7 +253,7 @@ away from the default Windows control look.
   outputting `▶`/`✔` with a hardcoded `Foreground="Green"`) with the
   toolkit's `PackIcon` control, using an icon-kind converter instead of a
   string-glyph converter.
-- The color used for both icon states must be drawn from the active
+- The color used for all icon states must be drawn from the active
   Material palette (e.g. a success/secondary brush), not a hardcoded
   `Green`, so it stays coherent if the palette changes later.
   > **Update (implemented with MaterialDesignThemes 5.3.2):** the intuitive
@@ -243,6 +266,25 @@ away from the default Windows control look.
   > `Application.Resources` (including merged dictionaries) at startup;
   > verify against the actual package version before reusing this key
   > elsewhere, since it may change again in future releases.
+  > **Update:** the icon glyph now also varies by `Status` while
+  > In-progress (see §7.3), not just by icon state, so a single-value
+  > `IValueConverter` keyed on `Icon` alone is no longer sufficient.
+  > `IconToPackIconKindConverter` was replaced by
+  > `IconStatusToPackIconKindConverter`, an `IMultiValueConverter` bound via
+  > `MultiBinding` to both `Icon` and `Status`. Visibility (hiding the icon
+  > for state `None`) remains a separate single-value converter
+  > (`RowIconToVisibilityConverter`) bound on `Icon` alone, since visibility
+  > doesn't depend on `Status`.
+  > Icon kinds used: `Play` (in-progress default), `Compass` (Plotting),
+  > `Hourglass` (Plotted), `RocketLaunch` (Jumping), `Check` (Complete).
+  > All confirmed to exist in MaterialDesignThemes 5.3.2 before use — verify
+  > against the installed package version before adding more, since
+  > `PackIconKind` names are not guaranteed stable across releases. Note
+  > from exploring candidates: the `Satellite` kind renders as a
+  > broken-image placeholder rather than a glyph in this package version
+  > (`SatelliteVariant` renders correctly) — a reminder that a name existing
+  > in the enum doesn't guarantee it renders correctly; visually confirm any
+  > new kind before relying on it.
 
 ### 9.3 DataGrid
 - The toolkit ships its own DataGrid styling; the existing
@@ -254,6 +296,28 @@ away from the default Windows control look.
 - No dark/light theme toggle in v1.1 (pick one `BaseTheme` and ship it).
 - No change to any ViewModel, command, or sequencing logic — this is a
   view-layer-only change.
+
+### 9.5 Application / window icon
+- The window/taskbar/exe icon is the `RocketLaunch` `PackIconKind` glyph
+  (same family and secondary-palette color as the row icons, for visual
+  consistency), exported to `Resources/AppIcon.ico` containing 16, 32, 48,
+  and 256px frames.
+- `AppIcon.ico` was generated by actually rendering the toolkit's real
+  `PackIcon` (`Kind="RocketLaunch"`) at each target size via
+  `RenderTargetBitmap` (a one-off, temporary `OnStartup` routine, removed
+  after the file was produced) rather than hand-drawing or guessing SVG
+  path data — this keeps the taskbar icon pixel-consistent with the glyph
+  used inside the app.
+- Wired via two places, both required:
+  - `<ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>` in
+    `RouteJumper.csproj` (the exe's embedded Win32 icon resource — used by
+    Explorer, pinned shortcuts, Alt+Tab).
+  - `Icon="Resources/AppIcon.ico"` on `MainWindow`, with the file also
+    included as `<Resource Include="Resources\AppIcon.ico" />` in the
+    csproj so the relative path resolves (the titlebar/taskbar icon at
+    runtime does **not** automatically fall back to `ApplicationIcon` if
+    `Window.Icon` is unset in a way that resolves — both must point at the
+    same file).
 
 ---
 
@@ -269,7 +333,7 @@ that decides *when* the next action in §7.2 runs must be decoupled from
   and executes exactly one action per "proceed" event, regardless of
   source.
 - Multiple triggers must be attachable to the same sequencer simultaneously.
-- v1 ships with one trigger in active use (a fast timer, currently 0.5s)
+- v1 ships with one trigger in active use (a timer, currently 2s)
   and the framework for at least one alternative trigger type, to prove
   the decoupling holds — but wiring up additional real-world triggers
   (hardware signals, other UI events, etc.) is future scope. See §12 for
@@ -290,7 +354,7 @@ that decides *when* the next action in §7.2 runs must be decoupled from
 5. Start is disabled until Save has produced at least one row, and while a
    sequence is running.
 6. Clicking Start immediately shows the in-progress triangle on row 1.
-7. Every 0.5 seconds thereafter, exactly one action from §7.2 occurs (the
+7. Every 2 seconds thereafter, exactly one action from §7.2 occurs (the
    combined tick/next-triangle/Cooldown step counts as one), in the
    specified order, until all rows have completed.
 8. Row 2's triangle appears at the point specified in §7.2 (within the
@@ -309,7 +373,7 @@ that decides *when* the next action in §7.2 runs must be decoupled from
 
 - Should there be a way to return from the table view to the text box
   (e.g. an "Edit" button) without restarting the app?
-- Should the 0.5 second interval be user-configurable?
+- Should the 2 second interval be user-configurable?
 - Should Stop support pausing/resuming mid-row, rather than only a full
   restart?
 - What should populate the Control tab?

@@ -3,7 +3,7 @@ using System.Windows.Threading;
 namespace RouteJumper.Sequencing
 {
     /// <summary>
-    /// Default trigger: fires every <see cref="Interval"/> (0.5 seconds by default) on the
+    /// Default trigger: fires every <see cref="Interval"/> (2 seconds by default) on the
     /// UI dispatcher, so it's safe to update bound ViewModel properties directly from it.
     /// </summary>
     public class TimerSequenceTrigger : ISequenceTrigger
@@ -14,7 +14,7 @@ namespace RouteJumper.Sequencing
         {
             _timer = new DispatcherTimer
             {
-                Interval = interval ?? TimeSpan.FromSeconds(0.5)
+                Interval = interval ?? TimeSpan.FromSeconds(2)
             };
             _timer.Tick += OnTick;
         }

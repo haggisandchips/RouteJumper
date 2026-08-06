@@ -10,7 +10,7 @@
 
     <UserControl.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
-        <converters:IconToPackIconKindConverter x:Key="IconToPackIconKindConverter" />
+        <converters:IconStatusToPackIconKindConverter x:Key="IconStatusToPackIconKindConverter" />
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
     </UserControl.Resources>
 
@@ -74,13 +74,19 @@
                     <DataGridTemplateColumn Header="" Width="Auto" MinWidth="36">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <materialDesign:PackIcon Kind="{Binding Icon, Converter={StaticResource IconToPackIconKindConverter}}"
-                                                          Visibility="{Binding Icon, Converter={StaticResource RowIconToVisibilityConverter}}"
+                                <materialDesign:PackIcon Visibility="{Binding Icon, Converter={StaticResource RowIconToVisibilityConverter}}"
                                                           Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
                                                           Width="18"
                                                           Height="18"
                                                           HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center" />
+                                                          VerticalAlignment="Center">
+                                    <materialDesign:PackIcon.Kind>
+                                        <MultiBinding Converter="{StaticResource IconStatusToPackIconKindConverter}">
+                                            <Binding Path="Icon" />
+                                            <Binding Path="Status" />
+                                        </MultiBinding>
+                                    </materialDesign:PackIcon.Kind>
+                                </materialDesign:PackIcon>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
