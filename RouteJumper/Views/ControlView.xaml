@@ -3,14 +3,168 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:RouteJumper.ViewModels"
+             xmlns:converters="clr-namespace:RouteJumper.Converters"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="700">
 
-    <Grid>
-        <TextBlock Text="Control tab - to be implemented"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   Foreground="Gray"
-                   FontStyle="Italic" />
+    <UserControl.Resources>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+    </UserControl.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0">
+            <TextBlock Text="{Binding StatusText}"
+                       Visibility="{Binding StatusText, Converter={StaticResource StringToVisibilityConverter}}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       Opacity="0.6"
+                       FontStyle="Italic" />
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*" />
+                    <ColumnDefinition Width="1*" />
+                </Grid.ColumnDefinitions>
+
+                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Instances}" HorizontalContentAlignment="Stretch">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Vertical" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:EliteInstanceViewModel}">
+                            <materialDesign:Card Margin="0,0,0,12" Padding="16">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding CommanderName}"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding ProcessId, StringFormat='PID {0}'}"
+                                               Opacity="0.6"
+                                               Margin="0,0,0,8" />
+
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <materialDesign:PackIcon Grid.Row="0" Grid.Column="0"
+                                                                  Kind="CardAccountDetailsOutline"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,0,8,0" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1"
+                                                    Text="{Binding Fid}"
+                                                    VerticalAlignment="Center"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="1" Grid.Column="0"
+                                                                  Kind="PackageVariantClosed"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                                    Text="{Binding CargoDisplay}"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,6,0,0"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="2" Grid.Column="0"
+                                                                  Kind="MapMarkerOutline"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="2" Grid.Column="1"
+                                                    Text="{Binding LocationDisplay}"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,6,0,0"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="3" Grid.Column="0"
+                                                                  Kind="SpaceStation"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="3" Grid.Column="1"
+                                                    Text="{Binding CarrierDisplay}"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,6,0,0"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="4" Grid.Column="0"
+                                                                  Kind="FileDocumentOutline"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="4" Grid.Column="1"
+                                                    Text="{Binding JournalFileName}"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,6,0,0"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="5" Grid.Column="0"
+                                                                  Kind="ApplicationOutline"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="5" Grid.Column="1"
+                                                    Text="{Binding WindowHandleDisplay}"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,6,0,0"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="6" Grid.Column="0"
+                                                                  Kind="CrosshairsGps"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="6" Grid.Column="1"
+                                                    Text="{Binding WindowPosition}"
+                                                    VerticalAlignment="Center"
+                                                    Margin="0,6,0,0"
+                                                    TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="7" Grid.Column="0"
+                                                                  Kind="Monitor"
+                                                                  VerticalAlignment="Top"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="7" Grid.Column="1"
+                                                    Text="{Binding MonitorInfo}"
+                                                    Margin="0,6,0,0"
+                                                    TextWrapping="Wrap" />
+                                    </Grid>
+                                </StackPanel>
+                            </materialDesign:Card>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,10,0,0">
+            <Button Command="{Binding RefreshCommand}" Padding="8,4">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="Refresh" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBlock Text="Refresh" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
     </Grid>
 </UserControl>
