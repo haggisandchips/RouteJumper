@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>RouteJumper</RootNamespace>
+    <AssemblyName>RouteJumper</AssemblyName>
+    <ProjectGuid>{8F1B2C3D-4A5E-4F6B-9C7D-1E2F3A4B5C6D}</ProjectGuid>
+  </PropertyGroup>
+
+</Project>
