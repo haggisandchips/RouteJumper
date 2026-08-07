@@ -21,6 +21,7 @@ namespace RouteJumper.ViewModels
         private string _routeText = string.Empty;
         private bool _isSaved;
         private bool _isRunning;
+        private bool _autoCopyToClipboardEnabled;
 
         public RouteViewModel(AppSettingsStore settings, IRowEventTrigger? rowEventTrigger = null)
         {
@@ -40,6 +41,12 @@ namespace RouteJumper.ViewModels
             if (rowEventTrigger != null)
             {
                 _sequencer.AttachRowTrigger(rowEventTrigger);
+
+                // A second, independent subscription to the same shared trigger - not routed
+                // through RouteSequencer, since this isn't a route-status mutation (see
+                // RowEventKind.LiveCarrierLocation). Both subscribers receive every event; each
+                // simply ignores the kinds it doesn't care about.
+                rowEventTrigger.RowTriggered += OnLiveCarrierLocation;
             }
 
             SaveCommand = new RelayCommand(Save, () => !string.IsNullOrWhiteSpace(RouteText));
@@ -86,6 +93,20 @@ namespace RouteJumper.ViewModels
                     EditCommand.RaiseCanExecuteChanged();
                 }
             }
+        }
+
+        /// <summary>
+        /// "Auto Copy To Clipboard" (SPEC §5.6): when on, a live-observed CarrierLocation event
+        /// (see RowEventKind.LiveCarrierLocation) copies the *next* row's System text to the
+        /// clipboard automatically. Deliberately session-only - a plain in-memory flag, never
+        /// read from or written to AppSettingsStore, so it always starts off on a fresh app
+        /// launch but survives Edit/Save cycles within the same run (this ViewModel instance
+        /// lives for the app's lifetime; only Rows gets rebuilt on Save).
+        /// </summary>
+        public bool AutoCopyToClipboardEnabled
+        {
+            get => _autoCopyToClipboardEnabled;
+            set => SetProperty(ref _autoCopyToClipboardEnabled, value);
         }
 
         /// <summary>True while the Start/Stop sequence is actively running.</summary>
@@ -218,6 +239,39 @@ namespace RouteJumper.ViewModels
 
             Clipboard.SetText(systemText);
             SystemSounds.Asterisk.Play();
+        }
+
+        /// <summary>
+        /// Drives "Auto Copy To Clipboard" (SPEC §5.6). Ignores every RowEvent kind except
+        /// LiveCarrierLocation. Finds the row named by the event (the system the carrier just
+        /// arrived at - matched by name alone, not by current Icon/Status, since this fires
+        /// ahead of the delayed Arrived transition and so can't rely on that row already
+        /// showing Complete) and, if a next row exists, copies *that* row's System text - no
+        /// confirmation sound, unlike the manual click-to-copy, since this fires unattended.
+        /// </summary>
+        private void OnLiveCarrierLocation(object? sender, RowEvent e)
+        {
+            if (e.Kind != RowEventKind.LiveCarrierLocation || !AutoCopyToClipboardEnabled)
+            {
+                return;
+            }
+
+            var arrivedIndex = -1;
+            for (var i = 0; i < Rows.Count; i++)
+            {
+                if (string.Equals(Rows[i].SystemText, e.SystemName, StringComparison.OrdinalIgnoreCase))
+                {
+                    arrivedIndex = i;
+                    break;
+                }
+            }
+
+            if (arrivedIndex < 0 || arrivedIndex + 1 >= Rows.Count)
+            {
+                return;
+            }
+
+            Clipboard.SetText(Rows[arrivedIndex + 1].SystemText);
         }
 
         private void SetNextSystem(RouteRowViewModel? targetRow)

@@ -10,11 +10,14 @@ namespace RouteJumper.Services
     /// <summary>
     /// Watches one commander's journal file for CarrierJumpRequest/CarrierLocation events
     /// belonging to a specific carrier (the Captain role's assigned carrier - see SPEC §11.5),
-    /// and reports each one via <paramref name="onRowEvent"/> as it's read - immediately for
-    /// Plotted/Arrived, and via a real-time-scheduled follow-up for the derived Jumping (at the
-    /// request's DepartureTime) and CooldownElapsed (5 minutes after arrival) transitions. All
-    /// scheduling lives here, not in RouteSequencer - see SPEC §10's Update on why the two are
-    /// kept separate.
+    /// and reports each one via <paramref name="onRowEvent"/> as it's read. Only Plotted (on the
+    /// CarrierJumpRequest event itself) fires immediately - every other transition is scheduled
+    /// for a real-world instant *offset* from a journal event's own timestamp, not the instant
+    /// the event is read: Jumping 3 minutes before CarrierJumpRequest's DepartureTime; the
+    /// composite Arrived/Cooldown step 1 minute after CarrierLocation's own timestamp;
+    /// CooldownElapsed a further 4 minutes after that (see the field comments below for why
+    /// these specific offsets). All scheduling lives here, not in RouteSequencer - see SPEC §10's
+    /// Update on why the two are kept separate.
     ///
     /// On <see cref="StartAsync"/>, the whole file is read first (oldest to newest), so a
     /// freshly-assigned Captain (or an app restart mid-journey) replays the carrier's full
@@ -38,10 +41,23 @@ namespace RouteJumper.Services
     /// <see cref="HasAnyJumpRequestSoFar"/> seeds the gate as already-open in that case, since a
     /// long multi-session journey otherwise couldn't resume until the very next real jump.
     /// See SPEC §11.5's Update.
+    ///
+    /// Separately from all of the above scheduling, a genuinely live-tailed CarrierLocation
+    /// (never the historical replay) also raises <see cref="RowEventKind.LiveCarrierLocation"/>
+    /// immediately - see that value's doc comment and SPEC §5.6 for what it drives.
     /// </summary>
     public sealed class CarrierRouteJournalWatcher : IDisposable
     {
-        private static readonly TimeSpan CooldownDuration = TimeSpan.FromMinutes(5);
+        // Per explicit instruction (real-world transitions don't line up with the journal
+        // events themselves): Plotted -> Jumping happens 3 minutes *before* CarrierJumpRequest's
+        // own DepartureTime; Jumping -> the composite Arrived/Cooldown step happens 1 minute
+        // *after* CarrierLocation's own timestamp; Cooldown -> cleared happens a further 4
+        // minutes after that (so 5 minutes after CarrierLocation in total, same overall cooldown
+        // length as before - only the split between "still showing Jumping" and "showing
+        // Cooldown" within that window changed).
+        private static readonly TimeSpan JumpingLeadTime = TimeSpan.FromMinutes(3);
+        private static readonly TimeSpan ArrivalToCooldownDelay = TimeSpan.FromMinutes(1);
+        private static readonly TimeSpan CooldownDuration = TimeSpan.FromMinutes(4);
 
         private readonly string _journalPath;
         private readonly long _carrierId;
@@ -80,7 +96,7 @@ namespace RouteJumper.Services
         {
             _hasSeenJumpRequest = !HasAnyJumpRequestSoFar();
 
-            ReadNewLines();
+            ReadNewLines(isLive: false);
 
             if (_disposed)
             {
@@ -98,7 +114,7 @@ namespace RouteJumper.Services
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
             };
-            watcher.Changed += (_, _) => ReadNewLines();
+            watcher.Changed += (_, _) => ReadNewLines(isLive: true);
 
             lock (_readLock)
             {
@@ -113,7 +129,13 @@ namespace RouteJumper.Services
             }
         });
 
-        private void ReadNewLines()
+        /// <summary>
+        /// <paramref name="isLive"/> is true only when called from the FileSystemWatcher
+        /// callback (i.e. a line genuinely newly observed while monitoring) - false for the
+        /// one-off historical catch-up read in StartAsync. See RowEventKind.LiveCarrierLocation
+        /// for what this distinction drives.
+        /// </summary>
+        private void ReadNewLines(bool isLive)
         {
             lock (_readLock)
             {
@@ -150,7 +172,7 @@ namespace RouteJumper.Services
 
                     foreach (var line in complete.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                     {
-                        ProcessLine(line.TrimEnd('\r'));
+                        ProcessLine(line.TrimEnd('\r'), isLive);
                     }
                 }
                 catch (IOException)
@@ -212,7 +234,7 @@ namespace RouteJumper.Services
             return false;
         }
 
-        private void ProcessLine(string line)
+        private void ProcessLine(string line, bool isLive)
         {
             var eventName = JournalEventName.Extract(line);
             if (eventName != "CarrierJumpRequest" && eventName != "CarrierLocation")
@@ -255,7 +277,7 @@ namespace RouteJumper.Services
                         var departureTimeUtc = TryReadTimestampUtc(root, "DepartureTime");
                         if (departureTimeUtc.HasValue)
                         {
-                            ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value);
+                            ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value - JumpingLeadTime);
                         }
                     }
                 }
@@ -272,12 +294,35 @@ namespace RouteJumper.Services
                 }
                 else if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } arrivedSystem)
                 {
-                    _onRowEvent(RowEventKind.Arrived, arrivedSystem);
-
+                    // Both the composite Arrived/Cooldown step and the later status-clear are now
+                    // themselves scheduled (not one immediate + one scheduled, as before) - see
+                    // the field comments above for the timing. If no usable timestamp is found
+                    // (shouldn't happen for a real journal, but defensively possible), fall back
+                    // to firing Arrived immediately rather than losing the event entirely - there
+                    // is nothing to base a schedule on in that case, so CooldownElapsed is skipped
+                    // too (matches the existing "can't schedule what we can't compute" pattern
+                    // Jumping already has when DepartureTime is missing).
                     var arrivedAtUtc = TryReadTimestampUtc(root, "timestamp");
                     if (arrivedAtUtc.HasValue)
                     {
-                        ScheduleRowEvent(RowEventKind.CooldownElapsed, arrivedSystem, arrivedAtUtc.Value + CooldownDuration);
+                        ScheduleRowEvent(RowEventKind.Arrived, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay);
+                        ScheduleRowEvent(RowEventKind.CooldownElapsed, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay + CooldownDuration);
+                    }
+                    else
+                    {
+                        _onRowEvent(RowEventKind.Arrived, arrivedSystem);
+                    }
+
+                    // Deliberately immediate and unscheduled, unlike Arrived above - the
+                    // "Auto Copy To Clipboard" feature (SPEC §5.6) this drives wants the next
+                    // system ready to paste as soon as the carrier's actual arrival is observed,
+                    // not delayed to match the (intentionally lagged) UI transition. Only for a
+                    // genuinely live-tailed line - never during the one-off historical replay a
+                    // fresh Captain assignment does, which would otherwise fire a burst of these
+                    // for old, already-resolved jumps.
+                    if (isLive)
+                    {
+                        _onRowEvent(RowEventKind.LiveCarrierLocation, arrivedSystem);
                     }
                 }
             }

@@ -1,7 +1,35 @@
 # RouteJumper — Application Specification
 
-**Version:** 4.0
-**Status:** Persistence added (§14) - route text, window bounds/maximized
+**Version:** 4.3
+**Status:** "Auto Copy To Clipboard" added (§5.6) - a session-only
+(never persisted) toggle switch above the Route table; while on, a
+live-monitored `CarrierLocation` event for the assigned Captain's
+carrier copies the *next* row's system to the clipboard immediately,
+ahead of the route table's own delayed status update, via a new
+`RowEventKind.LiveCarrierLocation` that `RouteSequencer` ignores and
+`RouteViewModel` reacts to directly. Verified live via UI Automation
+(toggle placement/label/right-alignment/Edit-state hiding/session
+persistence) and a standalone harness driving a real `RouteViewModel`
+through six clipboard-behavior scenarios.
+`Cooldown` status moved to the next row (§7.2/§11.5) - a
+completed row's own `Status` now clears immediately, and (if a next row
+exists) that next row shows `Cooldown` instead for the duration of the
+wait, since the cooldown blocks the *next* jump rather than describing
+the one just finished; a route's last row shows no `Cooldown` at all and
+finishes its cycle one tick sooner in the timer-driven demo sequence.
+Verified live against the real timer-driven sequence (screenshots plus
+UI Automation), and via a standalone synthetic harness driving
+`RouteSequencer` directly through the row-event trigger, covering
+catch-up, last-row, and duplicate-system-name cases.
+Derived transition timings corrected against real-world play
+(§11.5) - `Jumping` now fires 3 minutes before `CarrierJumpRequest`'s
+`DepartureTime` (was: exactly at it); the composite `Arrived`/`Cooldown`
+step now fires 1 minute after `CarrierLocation`'s own timestamp (was:
+immediately on that event); `Cooldown` clears a further 4 minutes after
+that (5 minutes after `CarrierLocation` in total, same overall length as
+before - only the split changed), verified via a standalone synthetic-
+journal harness covering all three offsets independently;
+Persistence added (§14) - route text, window bounds/maximized
 state, and Captain/Engineer role assignment (by commander FID) now survive
 an app restart via a local SQLite store in `%LocalAppData%\RouteJumper`,
 verified live end-to-end with zero manual interaction needed after
@@ -80,6 +108,7 @@ moving to the next.
 | Captain/Engineer role assignment (§11.5), with a real, non-timer trigger (a Captain's journal - §10's Update) wired all the way into the row-addressable sequencing machinery anticipated by §13.1 | |
 | Manual "Set next system" override for when automatic journal-based detection needs correcting (§11.6) | |
 | Persistence (§14) of route text, window bounds, and Captain/Engineer role assignment across sessions, via a local SQLite store | |
+| "Auto Copy To Clipboard" (§5.6) - session-only, deliberately **not** persisted | |
 
 ---
 
@@ -355,6 +384,80 @@ Only one is visible at a time.
   > rather than the no-Captain default, confirming the re-derivation
   > path.
 
+### 5.6 "Auto Copy To Clipboard"
+
+- A labelled toggle switch, right-aligned directly above the table (not
+  shown at all while in Edit state - §4).
+- Session-only: the on/off setting is remembered across Edit/Save cycles
+  within the running app, but is **not** persisted (§14) - it always
+  starts off (unchecked) on a fresh app launch.
+- While on: the instant a `CarrierLocation` event for the assigned
+  Captain's own carrier is observed via **live** journal monitoring (the
+  `FileSystemWatcher` path - never during the one-off historical replay a
+  fresh Captain assignment does, and never for the passive session-start
+  snapshot a real jump hasn't been requested yet this session - same
+  gating as route catch-up, §11.5), the **next** row's `System` text
+  (i.e. the row after the one the carrier just arrived at) is copied to
+  the clipboard automatically - no confirmation sound, unlike the
+  manual click-to-copy (§5.2), since this fires unattended. If the
+  arrived-at row is the last row in the route, or isn't found in the
+  route at all, nothing is copied.
+- This fires **immediately** on the raw journal event, deliberately
+  ahead of the row table's own `Arrived`/`Cooldown` transition (which is
+  scheduled 1 minute later - §11.5) - the point is to have the next
+  system ready to paste into the game before the UI visually catches up.
+
+  > **Implementation:** a real `ToggleButton` styled
+  > `MaterialDesignSwitchToggleButton` (confirmed present in the
+  > installed MaterialDesignThemes 5.3.2 package before use, per §9.2's
+  > standing convention) bound to a new `RouteViewModel.
+  > AutoCopyToClipboardEnabled` bool - chosen over a literal `RadioButton`
+  > specifically because a lone, ungrouped `RadioButton` cannot be
+  > unchecked by clicking it again (standard WPF/radio-group behavior -
+  > there's no "other" option to switch to), which would make the
+  > setting a one-way switch; a `ToggleButton` flips on every click like
+  > any ordinary toggle. `AutoCopyToClipboardEnabled` is a plain
+  > in-memory property - deliberately never read from or written to
+  > `AppSettingsStore` (§14), unlike every other persisted setting.
+  > A new `RowEventKind.LiveCarrierLocation` carries the mechanism:
+  > `CarrierRouteJournalWatcher.ProcessLine` now takes an `isLive` flag
+  > (true only when invoked from the `FileSystemWatcher` callback, false
+  > for the initial historical-replay read in `StartAsync`) and, when a
+  > `CarrierLocation` for the tracked carrier passes the existing
+  > `_hasSeenJumpRequest` gate *and* `isLive` is true, fires
+  > `LiveCarrierLocation` through the same `Action<RowEventKind, string>`
+  > callback the scheduled `Arrived`/`CooldownElapsed` events already use
+  > - unscheduled, immediate, alongside (not instead of) that normal
+  > scheduling. `RouteSequencer.ApplyRowEvent` explicitly ignores this
+  > kind (it's not a route-status mutation); `RouteViewModel` subscribes
+  > to the same shared `IRowEventTrigger` a second time, independently of
+  > its `RouteSequencer`, specifically to react to it - finding the row
+  > matching the event's `SystemName` (by name alone, not by current
+  > `Icon`/`Status`, since this fires ahead of that row's own delayed
+  > transition) and copying the row after it, if one exists and the
+  > toggle is on.
+  > **Verified live**, via UI Automation (not screenshots, after two
+  > separate screenshot attempts in this session captured unrelated
+  > windows instead of the app - `SetForegroundWindow` was not reliably
+  > bringing the app to the foreground from this shell): the toggle's
+  > label ("Auto Copy To Clipboard") and its bounding rectangle confirmed
+  > right-aligned flush with the table's own right edge and positioned
+  > above the header row; clicking it flips `ToggleState` Off -> On;
+  > both the label and toggle are absent entirely while the Edit-state
+  > text box is showing; the On state survives an Edit -> Save round
+  > trip within the same session. The clipboard-copy logic itself
+  > (finding the next row and copying it, respecting the toggle, doing
+  > nothing when arrived-at is the last row or an unrecognized system,
+  > and ignoring every other `RowEventKind`) was verified with a
+  > standalone harness driving a real `RouteViewModel` directly through a
+  > `ManualRowEventTrigger` and reading back `Clipboard.GetText()` - six
+  > scenarios, all passing. Not separately verified against a real,
+  > live-monitored Elite Dangerous journal for this feature specifically
+  > (`CarrierRouteJournalWatcher`'s live-vs-replay distinction and event
+  > delivery were already verified live/synthetically for the scheduled
+  > `Arrived`/`CooldownElapsed` events this reuses the identical
+  > `isLive`-gated code path for).
+
 ---
 
 ## 6. Data Rules
@@ -414,16 +517,72 @@ On **Start**:
    2. `Status` = `Plotted`
    3. `Status` = `Jumping`
    4. **Combined step** (executed together, as a single trigger-driven
-      action, not three separate steps):
+      action, not several separate steps):
       - Icon changes from "in-progress" to "complete" (§7.3)
-      - If a next row exists, show the "in-progress" icon in that row's
-        icon column
-      - `Status` = `Cooldown`
-   5. `Status` = *(cleared / empty string)*
+      - `Status` = *(cleared / empty string)*, for the row that just
+        completed
+      - **If a next row exists**: show the "in-progress" icon in that
+        row's icon column, **and** set *that row's* `Status` = `Cooldown`
+        — see the Update below for why this is on the next row, not the
+        one that just finished
+   5. **Only if a next row existed in step 2.4**: once the cooldown period
+      elapses, that next row's `Status` = *(cleared / empty string)*. If
+      there was no next row (the row that just completed was the last
+      row), this step is skipped entirely — nothing was put into
+      `Cooldown` to begin with.
 3. Repeat step 2 for each subsequent row, in row order, until the last row
-   has completed step 2.5.
+   has completed step 2.4 (its own step 2.5 is skipped — see above).
 4. The sequence then stops automatically (equivalent to Stop being
    pressed); Start becomes available again.
+
+> **Update (Cooldown moved to the next row):** originally `Cooldown` was
+> shown as the `Status` of the row that had just finished (the one now
+> showing the Complete tick), for the duration of the cooldown period,
+> then cleared. Per explicit feedback, this didn't make sense: the
+> cooldown is what's blocking the *next* jump, not anything about the row
+> that just completed (which is done, permanently, the instant its tick
+> appears) - so `Cooldown` now shows against the row that's actually
+> waiting on it instead. This also means a completed row's `Status` is
+> now *always* blank the instant its icon becomes Complete, with no
+> one-tick delay before that - a minor side effect that incidentally
+> brings actual behavior in line with what §7.3's icon table already
+> claimed for the `Complete` state ("*(cleared)*").
+> A consequence for the last row specifically: since there's no row after
+> it to receive `Cooldown`, nothing is shown at all once it completes -
+> its cycle is one tick (2s) shorter than every other row's, and the
+> sequence finishes and stops itself that much sooner. See §11.5's
+> parallel Update for the equivalent change to the real, journal-driven
+> Captain flow, and §7.3/§7.4 (updated below) for the icon/timing
+> implications.
+> Implementation: `RouteSequencer.BuildSteps`'s combined step now clears
+> the just-completed row's own `Status` immediately and, only if a next
+> row exists, sets that row's icon/`Status` instead; the following
+> "clear status" step is only enqueued at all when a next row existed,
+> which is what shortens the last row's cycle. The journal-driven path
+> (`RouteSequencer.ApplyRowEvent`'s `Arrived` case, plus a new
+> `ApplyCooldownElapsed` method - see §11.5) mirrors this exactly, since
+> both paths ultimately drive the same `RouteRowViewModel` state.
+> **Verified live** (timer-driven demo sequence, 3 real rows, at the
+> normal 2s cadence): at the tick where row 1 completes, row 1 showed the
+> Complete tick with a blank status and row 2 showed the in-progress
+> triangle with `Cooldown` (not row 1) - confirmed via a live screenshot;
+> at the next tick, row 2's `Cooldown` cleared (still in-progress,
+> nothing shown) while row 1 remained blank throughout. For the last row,
+> confirmed via UI Automation (not a screenshot, to avoid the risk of
+> capturing unrelated screen content) that the sequence had already
+> stopped itself (`Start` re-enabled, `Stop` disabled) with every row's
+> `Status` blank - i.e. the last row never showed `Cooldown` at all.
+> Also verified with a standalone synthetic harness exercising
+> `RouteSequencer.ApplyRowEvent`/`ApplyCooldownElapsed` directly (no UI):
+> normal progression (Cooldown lands on and clears from the next row);
+> catch-up landing `Arrived` on the last row (no Cooldown appears
+> anywhere, and a later `CooldownElapsed` for it is a safe no-op);
+> catch-up landing `Arrived` on a middle row (Cooldown correctly lands on
+> the row after the catch-up target, not after wherever the route
+> started); duplicate system names in the route (Cooldown targeting
+> still resolves to the correct row instance, not an unrelated row
+> sharing the same name); and `Reset` still unconditionally clears
+> everything regardless of any of the above.
 
 ### 7.3 Icon states (blank-headed column)
 
@@ -439,8 +598,8 @@ multi-value converter keyed on `Icon` + `Status`).
 | In-progress | `Plotting` | `Compass` | During step 7.2.2.1 |
 | In-progress | `Plotted` | `Hourglass` | During step 7.2.2.2 |
 | In-progress | `Jumping` | `RocketLaunch` | During step 7.2.2.3 |
-| In-progress | `Cooldown` | `Play` (triangle) | During step 7.2.2.4, until the icon flips to Complete within that same combined step |
-| Complete | *(cleared)* | `Check` (tick) | From step 7.2.4 onward, permanently (for that run) |
+| In-progress | `Cooldown` | `Play` (triangle) | The row *after* the one that just completed, for the duration of its cooldown wait - set in step 7.2.2.4, cleared in step 7.2.2.5 (see that section's Update: this is a real, persistently-shown state now, not a same-step transient) |
+| Complete | *(cleared)* | `Check` (tick) | From step 7.2.2.4 onward, permanently (for that run) - the row's own `Status` is always blank the instant it reaches Complete |
 
 - All icon glyphs are rendered via the toolkit's `PackIcon` control, colored
   from the active Material palette (`MaterialDesign.Brush.Secondary` — see
@@ -459,10 +618,15 @@ t=0s   Row1 icon -> Play (in-progress, no status yet)
 t=2s   Row1 status -> Plotting   (icon -> Compass)
 t=4s   Row1 status -> Plotted    (icon -> Hourglass)
 t=6s   Row1 status -> Jumping    (icon -> RocketLaunch)
-t=8s   Row1 icon -> Check (complete), Row2 icon -> Play (in-progress), Row1 status -> Cooldown  (combined)
-t=10s  Row1 status -> (cleared)
+t=8s   Row1 icon -> Check (complete), Row1 status -> (cleared),
+       Row2 icon -> Play (in-progress), Row2 status -> Cooldown  (combined)
+t=10s  Row2 status -> (cleared)
 t=12s  Row2 status -> Plotting   (icon -> Compass)
 ...
+(for a 3-row route, Row3's own combined step at t=28s has no next row to
+put into Cooldown, so there's no equivalent of the t=10s step for it -
+the sequence stops itself immediately afterward, at t=28s total rather
+than t=30s)
 ```
 
 ---
@@ -908,6 +1072,11 @@ that decides *when* the next action in §7.2 runs must be decoupled from
   >   `Plotted` -> `Jumping` transition for its row.
   > - `CarrierLocation`'s own `timestamp` field + 5 minutes schedules
   >   clearing that row's `Status` (ending the `Cooldown` display).
+  >   > **Update (retimed against real-world observation - see below):**
+  >   > this offset (and the `DepartureTime` one above) were both later
+  >   > found to not match what actually happens in-game; superseded by the
+  >   > "Update (transition timings corrected...)" block near the end of
+  >   > this section.
   > - Two new `RowEventKind` values (`Jumping`, `CooldownElapsed`) carry
   >   these through the same `IRowEventTrigger` pipeline as `Plotted`/
   >   `Arrived` (§10's Update) - `RouteSequencer.FindTargetIndex` matches
@@ -1087,6 +1256,108 @@ that decides *when* the next action in §7.2 runs must be decoupled from
   > rows 1-3 Complete and row 4 InProgress again - matching the pre-
   > regression result.
 
+  > **Update (transition timings corrected against real-world
+  > observation):** reported live: the derived transitions didn't happen
+  > when expected during actual play - `Jumping` should not appear at the
+  > instant `DepartureTime` is reached, and `Cooldown` should not appear
+  > at the instant `CarrierLocation` is logged; both lag the real in-game
+  > moment. Retimed as follows (all three offsets are measured from a
+  > journal event's own timestamp, never from when the app happens to
+  > read the line):
+  > - `Plotted` -> `Jumping`: **3 minutes before** `CarrierJumpRequest`'s
+  >   own `DepartureTime` (previously: exactly at `DepartureTime`).
+  > - `Jumping` -> the composite `Arrived`/`Cooldown` step: **1 minute
+  >   after** `CarrierLocation`'s own `timestamp` (previously: immediately
+  >   on that event).
+  > - `Cooldown` -> cleared: a further **4 minutes after** the `Arrived`
+  >   step above (i.e. 5 minutes after `CarrierLocation`'s own timestamp
+  >   in total - the overall cooldown length is unchanged from before this
+  >   Update; only the split between "still showing `Jumping`" and
+  >   "showing `Cooldown`" within that window changed).
+  > Implementation: `CarrierRouteJournalWatcher` gained three named
+  > `TimeSpan` constants (`JumpingLeadTime` = 3 min, `ArrivalToCooldownDelay`
+  > = 1 min, `CooldownDuration` = 4 min, redefined to mean "duration of the
+  > `Cooldown` status itself after `Arrived`", not "duration after
+  > `CarrierLocation` directly" as it did before this Update) in place of
+  > the single prior 5-minute constant. The `CarrierLocation` branch of
+  > `ProcessLine`, which previously fired `Arrived` immediately and only
+  > scheduled `CooldownElapsed`, now schedules **both** `Arrived` and
+  > `CooldownElapsed` (falling back to firing `Arrived` immediately only if
+  > the event is missing a usable `timestamp` at all, in which case
+  > `CooldownElapsed` is skipped too - nothing to schedule it from). No
+  > change was needed in `RouteSequencer`: `FindTargetIndex`'s existing
+  > matching (`Arrived` matches any not-yet-Complete row regardless of its
+  > current status text; `CooldownElapsed` requires `Icon == Complete &&
+  > Status == "Cooldown"`) already tolerates `Arrived` now itself being a
+  > scheduled/delayed event rather than an immediate one.
+  > **Verified** with a standalone harness (`CarrierRouteJournalWatcher`
+  > pointed at synthetic journal files, no game/app involved, same
+  > approach as the earlier harness verification above) covering all three
+  > offsets independently: (1) `Jumping` fires ~3 minutes before a
+  > synthetic `DepartureTime`, confirmed by placing `DepartureTime` a few
+  > seconds beyond the 3-minute lead so `Jumping` fires within the test's
+  > short wait window; (2) `Arrived` fires ~1 minute after a synthetic
+  > `CarrierLocation` timestamp, with `CooldownElapsed` confirmed **not**
+  > to fire prematurely within the same short window (it was still ~4
+  > minutes out); (3) with the synthetic `CarrierLocation` timestamp placed
+  > far enough in the past that only `CooldownElapsed`'s target remained in
+  > the future, `Arrived` fired immediately (already-past instant - the
+  > existing immediate-fire path) and `CooldownElapsed` fired at the
+  > correct wall-clock instant relative to it, confirming the 4-minute gap
+  > between the two is computed from `Arrived`'s own scheduled instant, not
+  > from `CarrierLocation`'s raw timestamp a second time. All three matched
+  > their expected wall-clock instants to within ~1 second (consistent with
+  > the test journal's ISO timestamps only carrying whole-second precision,
+  > not a scheduling inaccuracy). Not yet re-verified against a real,
+  > full-length live jump (the ~16-minute `CarrierJumpRequest` ->
+  > `CarrierLocation` gap noted earlier in this section) - the underlying
+  > mechanism (`ScheduleRowEvent`) is unchanged by this Update, only the
+  > offsets fed into it, so the earlier live verification of that mechanism
+  > still applies.
+
+  > **Update (Cooldown moved to the next row):** per the same feedback and
+  > for the same reason as §7.2's parallel Update (the demo timer
+  > sequence) - the cooldown blocks the *next* jump, not anything about
+  > the row the carrier just arrived at - `Arrived` no longer puts
+  > `Cooldown` on the row it names. Instead: that row goes straight to
+  > `Icon = Complete`, `Status = ""`; **if a next row exists**, *that*
+  > row's `Icon -> InProgress` and `Status -> "Cooldown"` instead. If
+  > there's no next row (the carrier's just-arrived-at system is the last
+  > row in the route), nothing is put into `Cooldown` at all.
+  > `CooldownElapsed` still carries the *arrived-at* system's name (that's
+  > all the originating `CarrierLocation` event ever gave it - see
+  > `CarrierRouteJournalWatcher`, which needed **no changes** for this
+  > Update, since it has no notion of "row" at all and only ever dealt in
+  > system names), so `RouteSequencer` now resolves it in two hops: find
+  > the (by now Complete) row matching that name, then clear `Cooldown` on
+  > the row *after* it - not on the matching row itself. This is a new
+  > method, `ApplyCooldownElapsed`, replacing `CooldownElapsed`'s old path
+  > through the shared `FindTargetIndex` (which matched `Icon == Complete
+  > && Status == "Cooldown"` directly against the named row - no longer
+  > correct, since that row's own status is now always blank). A safe
+  > no-op, matching the existing stale/duplicate-timer tolerance, if the
+  > named row isn't found, or if the row after it isn't currently showing
+  > `InProgress`/`Cooldown` (e.g. a manual "Set next system" override,
+  > §11.6, ran in between and moved things on independently).
+  > **Verified** with a standalone synthetic harness driving
+  > `RouteSequencer` directly through a `ManualRowEventTrigger` (no
+  > journal/UI involved): normal progression (`Plotted`/`Jumping`/`Arrived`
+  > on row 1 puts `Cooldown` on row 2; `CooldownElapsed` named `Arrived`'s
+  > row correctly clears row 2, not row 1); `Arrived` catching up to the
+  > *last* row (no `Cooldown` anywhere, and a subsequent `CooldownElapsed`
+  > for it a safe no-op); `Arrived` catching up to a *middle* row
+  > (`Cooldown` lands on the row immediately after the catch-up target,
+  > not the route's first row); duplicate system names in the route
+  > (targeting still resolves to the correct row instance); and `Reset`
+  > still unconditionally clearing every row regardless of any in-flight
+  > `Cooldown` state. Not separately re-verified against a real live
+  > journal for this Update specifically (the underlying event
+  > choreography - `CarrierJumpRequest`/`CarrierLocation` -> `Plotted`/
+  > `Arrived` -> `RouteSequencer` - is unchanged; only which row
+  > `RouteSequencer` applies `Cooldown` to changed, which the synthetic
+  > harness exercises directly against the exact same `RouteSequencer`
+  > code the real journal path calls into).
+
 ### 11.6 Manual override - "Set next system"
 
 Automatic detection from a Captain's journal (§11.5) is a best-effort
@@ -1196,12 +1467,15 @@ indirection.
 21. The Engineer button is disabled on a card whose available cargo
     capacity is zero, and also on a card whose available cargo capacity
     isn't known at all.
-22. A row that receives `Cooldown` (via `Arrived`) has its status cleared
-    exactly 5 minutes after that `CarrierLocation` event's own timestamp -
-    immediately, if replaying history where that time has already passed;
-    otherwise at the correct future moment. A row that receives `Plotted`
-    transitions to `Jumping` at its `CarrierJumpRequest`'s `DepartureTime`
-    the same way.
+22. A row that receives `Plotted` transitions to `Jumping` 3 minutes
+    before its `CarrierJumpRequest`'s own `DepartureTime`. The composite
+    `Arrived` step (row -> Complete, blank status; next row, if any -> in
+    progress with `Cooldown` - see item 37) happens 1 minute after that
+    row's `CarrierLocation` event's own timestamp, and the next row's
+    `Cooldown` is cleared a further 4 minutes after that (5 minutes after
+    `CarrierLocation` in total). All three: immediately, if replaying
+    history where the computed time has already passed; otherwise at the
+    correct future moment (§11.5's Update on transition timings).
 23. Unassigning Captain, or its instance no longer running, leaves the
     route exactly as displayed. Assigning Captain to an instance - whether
     or not a different instance held the role a moment ago - resets the
@@ -1266,6 +1540,25 @@ indirection.
     full journal replay for Captain - with no manual reassignment
     required. Explicitly unassigning a role clears the persisted FID, so
     it does not get automatically reassigned again.
+37. When a row completes (icon -> Complete, in both the timer-driven demo
+    sequence and the real Captain/journal-driven flow), its own `Status`
+    is blank immediately - `Cooldown` is never shown on it. If a next row
+    exists, `Cooldown` is shown on *that* row instead (alongside its
+    in-progress icon) for the duration of the cooldown wait, then clears
+    - after which that row proceeds through its own normal cycle. If
+    there is no next row (the row that just completed was the last one),
+    no `Cooldown` is shown anywhere, and - for the timer-driven sequence
+    specifically - that row's cycle is correspondingly shorter, with the
+    sequence stopping itself immediately after (§7.2's Update).
+38. "Auto Copy To Clipboard" (§5.6): a toggle switch, right-aligned above
+    the table, hidden entirely while in Edit state; its on/off state
+    survives Edit/Save within a session but resets to off on app restart
+    (never persisted). While on, a live-monitored `CarrierLocation` event
+    for the assigned Captain's carrier copies the row *after* the
+    arrived-at one to the clipboard immediately - not during the initial
+    historical journal replay, not for the passive session-start
+    snapshot, and not at all if the arrived-at row is the route's last
+    row or isn't found in the route.
 
 ---
 
@@ -1461,3 +1754,6 @@ suggested but deliberately left out this round.
   no in-app way to reset persisted state short of deleting
   `routejumper.db` by hand. Worth adding once there's more persisted
   state for a reset to meaningfully affect.
+- "Auto Copy To Clipboard" (§5.6) - unlike everything else in this
+  section, explicitly requested as **session-only**, not persisted. Kept
+  entirely separate from `AppSettingsStore`, by design, not oversight.

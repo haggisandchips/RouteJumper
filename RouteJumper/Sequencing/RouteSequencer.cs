@@ -68,11 +68,16 @@ namespace RouteJumper.Sequencing
         /// every earlier not-yet-complete row along the way. That catch-up is what lets one
         /// event bring the whole route up to date in a single step - e.g. after the app
         /// restarts mid-journey and several rows must be marked complete at once, rather than
-        /// replaying each one individually. See SPEC §11.5/§13.1. Jumping/CooldownElapsed never
-        /// need to catch up earlier rows - by construction they only ever target the row a
-        /// prior Plotted/Arrived event already brought current. Reset is not row-targeted at
-        /// all - it clears every row unconditionally (see SPEC §11.5's Update on Captain
-        /// reassignment) and skips the rest of this method entirely.
+        /// replaying each one individually. See SPEC §11.5/§13.1. Jumping never needs to catch
+        /// up earlier rows - by construction it only ever targets the row a prior Plotted event
+        /// already brought current. CooldownElapsed is handled entirely separately (see
+        /// <see cref="ApplyCooldownElapsed"/>) since - per SPEC §7.2's Update - the Cooldown
+        /// status it clears lives on the row *after* the one its SystemName names, not on that
+        /// row itself. Reset is not row-targeted at all - it clears every row unconditionally
+        /// (see SPEC §11.5's Update on Captain reassignment) and skips the rest of this method
+        /// entirely. LiveCarrierLocation is not a route-mutating event at all - RouteSequencer
+        /// ignores it completely; RouteViewModel has its own separate subscription to the same
+        /// trigger for it (see that value's doc comment and SPEC §5.6).
         /// </summary>
         private static void ApplyRowEvent(IReadOnlyList<RouteRowViewModel> rows, RowEvent e)
         {
@@ -83,6 +88,17 @@ namespace RouteJumper.Sequencing
                     eachRow.Icon = RowIcon.None;
                     eachRow.Status = string.Empty;
                 }
+                return;
+            }
+
+            if (e.Kind == RowEventKind.LiveCarrierLocation)
+            {
+                return;
+            }
+
+            if (e.Kind == RowEventKind.CooldownElapsed)
+            {
+                ApplyCooldownElapsed(rows, e.SystemName);
                 return;
             }
 
@@ -120,42 +136,69 @@ namespace RouteJumper.Sequencing
                     break;
 
                 case RowEventKind.Arrived:
+                    // Per SPEC §7.2's Update: Cooldown belongs to the row that's actually
+                    // waiting on it - the next one - not the row that just finished. The
+                    // just-arrived row goes straight to Complete with a blank status; if
+                    // there's no next row, nothing is put into Cooldown at all.
                     row.Icon = RowIcon.Complete;
+                    row.Status = string.Empty;
                     if (targetIndex + 1 < rows.Count)
                     {
-                        rows[targetIndex + 1].Icon = RowIcon.InProgress;
+                        var nextRow = rows[targetIndex + 1];
+                        nextRow.Icon = RowIcon.InProgress;
+                        nextRow.Status = "Cooldown";
                     }
-                    row.Status = "Cooldown";
                     break;
+            }
+        }
 
-                case RowEventKind.CooldownElapsed:
-                    row.Status = string.Empty;
-                    break;
+        /// <summary>
+        /// CooldownElapsed's SystemName names the row the carrier arrived *at* (the same name
+        /// Arrived above used) - but the Cooldown status it needs to clear was put on the row
+        /// *after* that one, not on the arrived-at row itself (see SPEC §7.2's Update). So this
+        /// looks up the (by now Complete) arrived-at row by name first, then clears Cooldown on
+        /// the row immediately after it, if that row is still showing it. A safe no-op - same
+        /// stale/duplicate-timer tolerance <see cref="FindTargetIndex"/> documents - if no such
+        /// row is found, or the row after it has already moved past Cooldown (e.g. a manual
+        /// "Set next system" override ran in between).
+        /// </summary>
+        private static void ApplyCooldownElapsed(IReadOnlyList<RouteRowViewModel> rows, string arrivedSystemName)
+        {
+            for (var i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].Icon != RowIcon.Complete ||
+                    !string.Equals(rows[i].SystemText, arrivedSystemName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (i + 1 < rows.Count && rows[i + 1].Icon == RowIcon.InProgress && rows[i + 1].Status == "Cooldown")
+                {
+                    rows[i + 1].Status = string.Empty;
+                }
+
+                return;
             }
         }
 
         /// <summary>
         /// Finds which row a row-addressable event targets. Plotted/Arrived match by System
         /// text against any not-yet-complete row (any current status - matches the row a
-        /// catch-up would otherwise skip past). Jumping/CooldownElapsed are derived follow-ups
-        /// (see <see cref="RowEventKind"/>) and are matched more precisely - by System text
-        /// *and* the exact status their originating event left behind - so a stale/duplicate
-        /// timer firing after the row has already moved on (e.g. Arrived beat a late Jumping
-        /// timer to the punch) is a safe no-op rather than corrupting a later state.
+        /// catch-up would otherwise skip past). Jumping is a derived follow-up (see
+        /// <see cref="RowEventKind"/>) and is matched more precisely - by System text *and* the
+        /// exact status Plotted left behind - so a stale/duplicate timer firing after the row
+        /// has already moved on is a safe no-op rather than corrupting a later state.
+        /// CooldownElapsed does not use this method at all - see
+        /// <see cref="ApplyCooldownElapsed"/>.
         /// </summary>
         private static int FindTargetIndex(IReadOnlyList<RouteRowViewModel> rows, RowEventKind kind, string systemName)
         {
-            var (requireComplete, requireStatus) = kind switch
-            {
-                RowEventKind.Jumping => (false, "Plotted"),
-                RowEventKind.CooldownElapsed => (true, "Cooldown"),
-                _ => (false, (string?)null)
-            };
+            var requireStatus = kind == RowEventKind.Jumping ? "Plotted" : null;
 
             for (var i = 0; i < rows.Count; i++)
             {
                 var row = rows[i];
-                if ((row.Icon == RowIcon.Complete) != requireComplete)
+                if (row.Icon == RowIcon.Complete)
                 {
                     continue;
                 }
@@ -242,10 +285,14 @@ namespace RouteJumper.Sequencing
         /// Builds the ordered action plan:
         /// add triangle to row 1, then for each row in turn:
         ///   Plotting -> Plotted -> Jumping ->
-        ///   [combined: triangle becomes tick + triangle added to next row (if any) + Cooldown] ->
-        ///   status cleared.
-        /// The three combined actions are executed together as a single step/trigger event,
-        /// rather than one trigger firing per action.
+        ///   [combined: triangle becomes tick + status cleared + (if a next row exists) triangle
+        ///   added to next row + Cooldown *on that next row*] ->
+        ///   (if a next row exists) that next row's Cooldown status cleared.
+        /// The combined-step actions are executed together as a single step/trigger event,
+        /// rather than one trigger firing per action. Per SPEC §7.2's Update, Cooldown belongs
+        /// to the row that's actually waiting on it (the next one), not the row that just
+        /// finished - so the last row's cycle is one tick shorter than the others: there's no
+        /// next row to put into Cooldown, so there's nothing to clear afterward either.
         /// </summary>
         private static Queue<SequenceStep> BuildSteps(IReadOnlyList<RouteRowViewModel> rows)
         {
@@ -270,18 +317,22 @@ namespace RouteJumper.Sequencing
                 steps.Enqueue(new SequenceStep($"Row {row.Number}: Jumping", () => row.Status = "Jumping"));
 
                 steps.Enqueue(new SequenceStep(
-                    $"Row {row.Number}: complete icon + next-row icon + Cooldown",
+                    $"Row {row.Number}: complete icon" + (nextRow != null ? $" + Row {nextRow.Number}: in-progress icon + Cooldown" : string.Empty),
                     () =>
                     {
                         row.Icon = RowIcon.Complete;
+                        row.Status = string.Empty;
                         if (nextRow != null)
                         {
                             nextRow.Icon = RowIcon.InProgress;
+                            nextRow.Status = "Cooldown";
                         }
-                        row.Status = "Cooldown";
                     }));
 
-                steps.Enqueue(new SequenceStep($"Row {row.Number}: clear status", () => row.Status = string.Empty));
+                if (nextRow != null)
+                {
+                    steps.Enqueue(new SequenceStep($"Row {nextRow.Number}: clear Cooldown status", () => nextRow.Status = string.Empty));
+                }
             }
 
             return steps;
