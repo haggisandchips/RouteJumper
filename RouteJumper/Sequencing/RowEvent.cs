@@ -3,7 +3,7 @@ namespace RouteJumper.Sequencing
     /// <summary>
     /// A single row-addressable event: identifies which row it applies to by the route's own
     /// System text (not by row index/position), since real-world event sources (e.g. a
-    /// carrier's journal) know the system name, not the table position. See SPEC §13.1.
+    /// carrier's journal) know the system name, not the table position.
     /// </summary>
     public sealed class RowEvent : EventArgs
     {

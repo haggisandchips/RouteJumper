@@ -62,7 +62,7 @@ namespace RouteJumper.ViewModels
 
         /// <summary>
         /// Full path to the matched journal file, or null if none was matched. Kept alongside
-        /// the display-only JournalFileName so the Captain role's journal watcher (§11.5) can
+        /// the display-only JournalFileName so the Captain role's journal watcher can
         /// open the file without re-deriving it.
         /// </summary>
         public string? JournalFilePath { get; }
@@ -71,7 +71,7 @@ namespace RouteJumper.ViewModels
         /// The commander's own fleet carrier's CarrierID, resolved the same way as
         /// CarrierSystem/CarrierBody (see EliteInstanceScanner) - null if never established
         /// this session. Used to filter CarrierJumpRequest/CarrierLocation events to "this
-        /// commander's own carrier" when the Captain role is assigned (§11.5).
+        /// commander's own carrier" when the Captain role is assigned.
         /// </summary>
         public long? CarrierId { get; }
 
@@ -148,7 +148,7 @@ namespace RouteJumper.ViewModels
         /// <summary>
         /// False when available capacity is positively known to be zero or less (no cargo
         /// racks, or full), or when it isn't known at all (Loadout/Cargo haven't been read
-        /// yet this session) - per SPEC §11.5.
+        /// yet this session).
         /// </summary>
         public bool CanBeEngineer => AvailableCargoCapacity.HasValue && AvailableCargoCapacity.Value > 0;
 
@@ -196,14 +196,14 @@ namespace RouteJumper.ViewModels
             }
         }
 
-        /// <summary>True while this instance holds the Captain role (see SPEC §11.5).</summary>
+        /// <summary>True while this instance holds the Captain role.</summary>
         public bool IsCaptain
         {
             get => _isCaptain;
             set => SetProperty(ref _isCaptain, value);
         }
 
-        /// <summary>True while this instance holds the Engineer role (see SPEC §11.5).</summary>
+        /// <summary>True while this instance holds the Engineer role.</summary>
         public bool IsEngineer
         {
             get => _isEngineer;

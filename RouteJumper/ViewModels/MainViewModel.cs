@@ -7,10 +7,10 @@ namespace RouteJumper.ViewModels
     /// <summary>
     /// Top-level ViewModel for the main window: hosts the three tab ViewModels, and wires the
     /// shared row-event trigger between them (Roles' Captain journal watcher raises row events;
-    /// Route's sequencer consumes them - see SPEC §11.5/§13.1), plus RouteViewModel.RouteSaved ->
-    /// RolesViewModel.RefreshRouteForCurrentCaptain (see SPEC §4.5's Update) - neither tab
-    /// ViewModel references the other directly; this class is the only place that does. Also
-    /// owns the single AppSettingsStore both tabs persist to/restore from (see SPEC §14).
+    /// Route's sequencer consumes them), plus RouteViewModel.RouteSaved ->
+    /// RolesViewModel.RefreshRouteForCurrentCaptain - neither tab ViewModel references the other
+    /// directly; this class is the only place that does. Also owns the single AppSettingsStore
+    /// both tabs persist to/restore from.
     /// </summary>
     public class MainViewModel : ObservableObject
     {

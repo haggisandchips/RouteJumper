@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace RouteJumper.Services
 {
     /// <summary>
-    /// Thin Win32 wrapper for detecting system clipboard changes (SPEC §5.6's Update).
+    /// Thin Win32 wrapper for detecting system clipboard changes.
     /// AddListener/RemoveListener register/unregister a window to receive WM_CLIPBOARDUPDATE;
     /// GetSequenceNumber reads a counter Windows bumps on every clipboard content change, from
     /// any source (this app or another) - used to tell "this WM_CLIPBOARDUPDATE is just

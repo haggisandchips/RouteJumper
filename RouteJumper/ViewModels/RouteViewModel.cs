@@ -21,7 +21,7 @@ namespace RouteJumper.ViewModels
 
         private string _routeText = string.Empty;
         private bool _isSaved;
-        private bool _isRunning;
+        private bool _isAutoPilotRunning;
         private bool _autoCopyToClipboardEnabled;
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
@@ -31,15 +31,9 @@ namespace RouteJumper.ViewModels
             _settings = settings;
             Rows = new ObservableCollection<RouteRowViewModel>();
 
-            // The default pacing trigger: fires every 2 seconds. Additional triggers
-            // (e.g. a ManualSequenceTrigger tied to some other UI event) can be attached
-            // with _sequencer.AttachTrigger(...) without changing anything else here.
+            // Row-addressable events (from the Roles tab's Captain journal watcher) apply
+            // directly to Rows.
             _sequencer = new RouteSequencer();
-            _sequencer.AttachTrigger(new TimerSequenceTrigger(TimeSpan.FromSeconds(2)));
-            _sequencer.Completed += (_, _) => IsRunning = false;
-
-            // Row-addressable events (e.g. from the Roles tab's Captain journal watcher) apply
-            // directly to Rows, independently of the timer-paced Start/Stop sequence above.
             _sequencer.SetRows(Rows);
             if (rowEventTrigger != null)
             {
@@ -54,9 +48,8 @@ namespace RouteJumper.ViewModels
 
             SaveCommand = new RelayCommand(Save, () => !string.IsNullOrWhiteSpace(RouteText));
             CancelCommand = new RelayCommand(Cancel);
-            EditCommand = new RelayCommand(Edit, () => IsSaved && !IsRunning);
-            StartCommand = new RelayCommand(Start, () => IsSaved && !IsRunning && Rows.Count > 0);
-            StopCommand = new RelayCommand(Stop, () => IsRunning);
+            EditCommand = new RelayCommand(Edit, () => IsSaved && !IsAutoPilotRunning);
+            AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => IsSaved && Rows.Count > 0);
             CopySystemCommand = new RelayCommand<RouteRowViewModel>(CopySystemToClipboard);
             SetNextSystemCommand = new RelayCommand<RouteRowViewModel>(SetNextSystem);
         }
@@ -64,9 +57,9 @@ namespace RouteJumper.ViewModels
         /// <summary>
         /// Raised at the end of every Save (first time or after Edit) - lets MainViewModel tell
         /// the Roles tab to re-derive the freshly-(re)built Rows from the currently-assigned
-        /// Captain's journal, if any (see SPEC §4.5's Update). RouteViewModel deliberately has
-        /// no reference to RolesViewModel itself - this event is the only coupling, same
-        /// decoupling principle as the shared IRowEventTrigger.
+        /// Captain's journal, if any. RouteViewModel deliberately has no reference to
+        /// RolesViewModel itself - this event is the only coupling, same decoupling principle
+        /// as the shared IRowEventTrigger.
         /// </summary>
         public event EventHandler? RouteSaved;
 
@@ -92,14 +85,14 @@ namespace RouteJumper.ViewModels
             {
                 if (SetProperty(ref _isSaved, value))
                 {
-                    StartCommand.RaiseCanExecuteChanged();
+                    AutoPilotCommand.RaiseCanExecuteChanged();
                     EditCommand.RaiseCanExecuteChanged();
                 }
             }
         }
 
         /// <summary>
-        /// "Auto Copy To Clipboard" (SPEC §5.6): when on, a live-observed CarrierLocation event
+        /// "Auto Copy To Clipboard": when on, a live-observed CarrierLocation event
         /// (see RowEventKind.LiveCarrierLocation) copies the *next* row's System text to the
         /// clipboard automatically. Deliberately session-only - a plain in-memory flag, never
         /// read from or written to AppSettingsStore, so it always starts off on a fresh app
@@ -121,16 +114,18 @@ namespace RouteJumper.ViewModels
             }
         }
 
-        /// <summary>True while the Start/Stop sequence is actively running.</summary>
-        public bool IsRunning
+        /// <summary>
+        /// Drives the Auto Pilot button's label ("Auto Pilot" when false, "Stop" when true) and
+        /// disables Edit while engaged. Toggling it has no other effect - a placeholder for
+        /// future automation, not a real running process.
+        /// </summary>
+        public bool IsAutoPilotRunning
         {
-            get => _isRunning;
+            get => _isAutoPilotRunning;
             private set
             {
-                if (SetProperty(ref _isRunning, value))
+                if (SetProperty(ref _isAutoPilotRunning, value))
                 {
-                    StartCommand.RaiseCanExecuteChanged();
-                    StopCommand.RaiseCanExecuteChanged();
                     EditCommand.RaiseCanExecuteChanged();
                 }
             }
@@ -143,9 +138,8 @@ namespace RouteJumper.ViewModels
         /// <summary>Returns to the text box (with its contents unchanged) to revise the route.</summary>
         public RelayCommand EditCommand { get; }
 
-        public RelayCommand StartCommand { get; }
-
-        public RelayCommand StopCommand { get; }
+        /// <summary>Toggles IsAutoPilotRunning, flipping the button's label between "Auto Pilot" and "Stop".</summary>
+        public RelayCommand AutoPilotCommand { get; }
 
         /// <summary>Copies a row's System text to the clipboard and plays a confirmation ping.</summary>
         public RelayCommand<RouteRowViewModel> CopySystemCommand { get; }
@@ -196,6 +190,7 @@ namespace RouteJumper.ViewModels
                 Rows[0].Icon = RowIcon.InProgress;
             }
 
+            IsAutoPilotRunning = false;
             IsSaved = true;
             _settings.SetString(RouteTextSettingKey, RouteText);
             RouteSaved?.Invoke(this, EventArgs.Empty);
@@ -235,16 +230,9 @@ namespace RouteJumper.ViewModels
             Save();
         }
 
-        private void Start()
+        private void ToggleAutoPilot()
         {
-            IsRunning = true;
-            _sequencer.Start(Rows);
-        }
-
-        private void Stop()
-        {
-            _sequencer.Stop();
-            IsRunning = false;
+            IsAutoPilotRunning = !IsAutoPilotRunning;
         }
 
         private void CopySystemToClipboard(RouteRowViewModel? row)
@@ -260,8 +248,8 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Records which row's text was just copied to the clipboard (SPEC §5.6's Update):
-        /// clears the icon off whichever row previously held it (if any, and if different),
+        /// Records which row's text was just copied to the clipboard: clears the icon off
+        /// whichever row previously held it (if any, and if different),
         /// sets it on this one, and snapshots the Win32 clipboard sequence number so
         /// <see cref="OnSystemClipboardChanged"/> can tell "this WM_CLIPBOARDUPDATE is just
         /// confirming the write this call itself just made" apart from a genuinely different
@@ -281,8 +269,8 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Called (via MainWindow's WM_CLIPBOARDUPDATE hook - see SPEC §5.6's Update) whenever
-        /// the system clipboard's contents change, from any source. If the change doesn't match
+        /// Called (via MainWindow's WM_CLIPBOARDUPDATE hook) whenever the system clipboard's
+        /// contents change, from any source. If the change doesn't match
         /// what this ViewModel itself just wrote (see <see cref="MarkRowAsClipboardSource"/>),
         /// the currently-shown clipboard icon is cleared - covers both an external app
         /// overwriting the clipboard and this app doing something else with it later that
@@ -305,7 +293,7 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Drives "Auto Copy To Clipboard" (SPEC §5.6). Ignores every RowEvent kind except
+        /// Drives "Auto Copy To Clipboard". Ignores every RowEvent kind except
         /// LiveCarrierLocation. Finds the row named by the event (the system the carrier just
         /// arrived at - matched by name alone, not by current Icon/Status, since this fires
         /// ahead of the delayed Arrived transition and so can't rely on that row already
@@ -342,7 +330,7 @@ namespace RouteJumper.ViewModels
         /// <summary>
         /// "The next system" outside of a live arrival event (see AutoCopyToClipboardEnabled's
         /// setter) is whichever row is currently the route's one in-progress row - the row
-        /// already displayed as "next" via its icon (§7.3), whether that's row 1 of a freshly
+        /// already displayed as "next" via its icon, whether that's row 1 of a freshly
         /// Saved route, or wherever a Captain's journal / manual "Set next system" override has
         /// since moved it to. A no-op if there is no in-progress row at all (an empty route, or
         /// one that's already fully Complete).

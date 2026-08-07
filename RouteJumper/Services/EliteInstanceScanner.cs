@@ -225,7 +225,7 @@ namespace RouteJumper.Services
             /// <summary>
             /// The CarrierID this session's CarrierSystem/CarrierBody were resolved against -
             /// see the resolution rule below. Used to match live CarrierJumpRequest/
-            /// CarrierLocation events to "this commander's own carrier" (see SPEC §11.5).
+            /// CarrierLocation events to "this commander's own carrier".
             /// </summary>
             public long? CarrierId { get; init; }
         }
@@ -237,14 +237,14 @@ namespace RouteJumper.Services
             int? cargoCapacity = null;
 
             // The ship's Cargo event's own Count includes tritium, so it can't be used directly -
-            // what matters for fleet carrier jump planning is free space *for* tritium (see
-            // SPEC §11.3), and tritium already aboard isn't relevant tonnage. latestRawShipCargo
+            // what matters for fleet carrier jump planning is free space *for* tritium, and
+            // tritium already aboard isn't relevant tonnage. latestRawShipCargo
             // is that raw total (latest "Cargo"/Ship event wins, as with every other field here);
             // trackedTritium is the best-known tritium quantity currently aboard the ship's cargo
             // hold, kept in sync incrementally by every event that can move tritium in or out of
             // it (see the switch below) - not just the Cargo event's own Inventory breakdown,
-            // which turns out to not always be present (confirmed live: a Cargo event immediately
-            // following a CargoTransfer/MarketBuy carried only a bare Count, no Inventory at all).
+            // which isn't always present (a Cargo event immediately following a
+            // CargoTransfer/MarketBuy can carry only a bare Count, no Inventory at all).
             // The final CurrentCargo is computed once, after the full pass, as
             // latestRawShipCargo - trackedTritium.
             int? latestRawShipCargo = null;

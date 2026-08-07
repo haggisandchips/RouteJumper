@@ -65,7 +65,7 @@ namespace RouteJumper
         }
 
         /// <summary>
-        /// Registers this window to receive WM_CLIPBOARDUPDATE (SPEC §5.6's Update) - view-layer
+        /// Registers this window to receive WM_CLIPBOARDUPDATE - view-layer
         /// glue, same carve-out as the window-placement/bounds-persistence logic already in this
         /// file, since it needs a real HWND/message pump that RouteViewModel has no access to.
         /// The actual reaction (clearing whichever row's clipboard icon is stale) is business

@@ -124,7 +124,7 @@
                                              same column, so its icon lines up with where "x"
                                              starts rather than with PackageVariantClosed above -
                                              omitted entirely (TritiumDisplay empty) when there's
-                                             none. See SPEC §11.3's Update. -->
+                                             none. -->
                                         <materialDesign:PackIcon Grid.Row="1" Grid.Column="0"
                                                                   Kind="PackageVariantClosed"
                                                                   VerticalAlignment="Top"

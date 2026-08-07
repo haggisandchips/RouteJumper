@@ -1,1918 +1,430 @@
 # RouteJumper — Application Specification
 
-**Version:** 4.5
-**Status:** A clipboard icon now appears after whichever row's `System`
-text was most recently copied (§5.6's Update), by any of the three copy
-mechanisms or the manual click-to-copy, and disappears the instant the
-system clipboard actually changes for any reason (this app or an
-external one) - detected via a real Win32 `WM_CLIPBOARDUPDATE` push
-notification plus a clipboard-sequence-number comparison, not polling,
-so the app's own writes don't immediately clear the icon they just set.
-Verified with a 13-scenario standalone harness against a real
-`RouteViewModel`; the rendered icon/alignment itself was not
-screenshot-verified this pass after repeated foreground-window capture
-failures in this session (see §5.6's Update for detail) - worth a quick
-visual check next interactive run.
-"Auto Copy To Clipboard" now also copies the current
-in-progress row's system immediately on being switched on (§5.6's
-Update), rather than only reacting to the next live `CarrierLocation`
-event - verified live against the real app's clipboard and a standalone
-harness covering eight scenarios (start/middle/no-in-progress-row/
-empty-route cases, toggling off, re-enabling, and the pre-existing
-live-arrival behavior remaining unaffected).
-"Auto Copy To Clipboard" added (§5.6) - a session-only
-(never persisted) toggle switch above the Route table; while on, a
-live-monitored `CarrierLocation` event for the assigned Captain's
-carrier copies the *next* row's system to the clipboard immediately,
-ahead of the route table's own delayed status update, via a new
-`RowEventKind.LiveCarrierLocation` that `RouteSequencer` ignores and
-`RouteViewModel` reacts to directly. Verified live via UI Automation
-(toggle placement/label/right-alignment/Edit-state hiding/session
-persistence) and a standalone harness driving a real `RouteViewModel`
-through six clipboard-behavior scenarios.
-`Cooldown` status moved to the next row (§7.2/§11.5) - a
-completed row's own `Status` now clears immediately, and (if a next row
-exists) that next row shows `Cooldown` instead for the duration of the
-wait, since the cooldown blocks the *next* jump rather than describing
-the one just finished; a route's last row shows no `Cooldown` at all and
-finishes its cycle one tick sooner in the timer-driven demo sequence.
-Verified live against the real timer-driven sequence (screenshots plus
-UI Automation), and via a standalone synthetic harness driving
-`RouteSequencer` directly through the row-event trigger, covering
-catch-up, last-row, and duplicate-system-name cases.
-Derived transition timings corrected against real-world play
-(§11.5) - `Jumping` now fires 3 minutes before `CarrierJumpRequest`'s
-`DepartureTime` (was: exactly at it); the composite `Arrived`/`Cooldown`
-step now fires 1 minute after `CarrierLocation`'s own timestamp (was:
-immediately on that event); `Cooldown` clears a further 4 minutes after
-that (5 minutes after `CarrierLocation` in total, same overall length as
-before - only the split changed), verified via a standalone synthetic-
-journal harness covering all three offsets independently;
-Persistence added (§14) - route text, window bounds/maximized
-state, and Captain/Engineer role assignment (by commander FID) now survive
-an app restart via a local SQLite store in `%LocalAppData%\RouteJumper`,
-verified live end-to-end with zero manual interaction needed after
-relaunch; Cargo's `x` now includes tritium (the honest total), with
-tritium broken out as an indented sub-line underneath, icon-aligned with
-`x`'s leading digit, omitted when there's none; Roles tab cards reverted
-to full-width/responsive (the 75% cap no longer made sense once role
-assignment moved inside the card - §3.3); Tritium is now tracked across
-every cargo-hold-affecting event
-(Cargo, CargoTransfer, CarrierDepositFuel, MarketBuy, MarketSell - fixing
-a real gap where a Cargo event immediately following a transfer/purchase
-often carries no Inventory breakdown to exclude tritium from at all);
-Engineer eligibility behavior unchanged throughout (§11.3);
-Spec consistency pass - closed out stale §13 open questions and
-§2/§10 scope-table entries that earlier "Update" notes had already
-superseded (the Edit button and row-addressable/non-timer-trigger items),
-so the base requirement text matches what's actually implemented instead
-of only the annotations; no functional code changes.
-Edit button added to return from the table to the text box
-(§5.5) - every Save now produces a fresh table, re-derived from the
-currently-assigned Captain's journal if one is assigned, else defaulting
-row 1 to "next"; row icon no longer visibly resizes the row as it
-appears/disappears (§9.2); context menu vertical padding halved again per
-feedback; Route tab implemented (2s cadence, combined completion step);
-clicking anywhere in a row copies its System text to the clipboard and
-plays a ping, with no leftover per-cell focus border and the grey row-
-selection background kept; Save now trims each line and drops all blank
-lines (not just a trailing one), and the empty text box shows placeholder
-text and receives focus automatically on launch; Engineer role now also
-disabled when cargo capacity is unknown, not just when known to be zero;
-fixed a serious live-found bug (§11.5) where Captain assignment could mark
-an entire freshly-typed route Complete based only on the session's passive
-startup carrier-location snapshot, not actual jump evidence - then found
-and fixed a regression from that same fix (multi-session journeys with no
-jump requested yet in the new session); manual "Set next system" right-
-click override added (§11.6) for whenever automatic detection still gets
-it wrong or the carrier is genuinely off-route;
-Material Design restyle complete, including per-status action icons and a
-window/taskbar icon; former Control tab renamed to **Roles** (Elite Dangerous
-instance detection, including current location and fleet carrier tracking,
-implemented); a new, currently-empty **Controls** tab added after it; tab
-headings moved to the left edge of the window to save vertical space;
-startup window placement on the rightmost monitor implemented; row-addressable
-events implemented (§13.1), and Captain/Engineer role assignment (§11.5) live-
-updates the route from a commander's own journal, verified against a real
-running instance, including the derived `Jumping`/Cooldown-clear timing
-(§11.5) verified both against real historical journal data and a synthetic
-real-time scheduling test; route reset-on-Captain-(re)assignment vs.
-leave-as-is-on-clear (§11.5) verified live against two real concurrent
-instances; a startup-`CarrierLocation`-misread-as-fresh-arrival bug (§11.5)
-found via that same two-instance test, fixed, and reverified
+**Version:** 1.0
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
 
 ## 1. Purpose
 
-RouteJumper is a desktop utility for entering a list of "systems" (one per
-line), then running an automated, timed sequence that visually walks through
-each system in turn — plotting a route, jumping, and cooling down — before
-moving to the next.
+RouteJumper is a desktop utility for Elite Dangerous fleet carrier owners. A user
+pastes a list of star systems (one per line) to form a route. Once a Captain's
+game instance is assigned on the Roles tab, RouteJumper watches that commander's
+journal file and automatically tracks the carrier's progress along the route,
+updating each row's status as the carrier plots, jumps, arrives, and cools down.
 
 ---
 
 ## 2. Scope
 
-| In scope (v1) | Out of scope (v1) |
+| In scope | Out of scope |
 |---|---|
-| Main window with three tabs: **Route**, **Roles**, **Controls** | Configurable timing (fixed at 2s for v1.3+) |
-| Text entry, save-to-table workflow on the Route tab, with an Edit button to return to it (see §5.5) | Sending input (keystrokes etc.) to a detected instance's window |
-| Timed Start/Stop sequence over table rows | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
-| Event-driven sequencing engine, open to future trigger types | Content of the Controls tab (currently an empty placeholder — see §3.4) |
-| Roles tab: detect running Elite Dangerous instances and show FID, commander name, cargo, current location, fleet carrier, journal file, window handle/position, and monitor per instance (see §11) | Configurable 5-minute cooldown / journal-match tolerance (see §11.2/§11.5) |
-| Startup window placement on the rightmost monitor (see §3.5) | Sending input to arbitrary system names not present in the route (§11.6's manual override targets existing rows only) |
-| Tab headings placed on the left edge of the window (see §3.1) | Persisting the route table's actual progress (icon/status per row), the last-selected tab, or an in-app "clear persisted data" action (see §14.3) |
-| Captain/Engineer role assignment (§11.5), with a real, non-timer trigger (a Captain's journal - §10's Update) wired all the way into the row-addressable sequencing machinery anticipated by §13.1 | |
-| Manual "Set next system" override for when automatic journal-based detection needs correcting (§11.6) | |
-| Persistence (§14) of route text, window bounds, and Captain/Engineer role assignment across sessions, via a local SQLite store | |
-| "Auto Copy To Clipboard" (§5.6) - session-only, deliberately **not** persisted | |
+| Route tab: paste a route, save it to a table, track progress against a real journal | Sending input (keystrokes, clicks) to a detected game window |
+| Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
+| Event-driven row-progress engine, driven by a Captain's journal | Content of the Controls tab (currently an empty placeholder) |
+| Manual "Set next system" override for correcting automatic detection | Configurable journal-match tolerance or cooldown timing |
+| Persistence of route text, window bounds, and Captain/Engineer role assignment | Persisting per-row progress (icon/status), or the last-selected tab |
+| "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
+| Material Design styling | |
 
 ---
 
 ## 3. Window Structure
 
 ### 3.1 Main Window
-- Single top-level window containing a `TabControl` with exactly three tabs.
-- Tab order: **Route**, **Roles**, **Controls**.
+- Single top-level window with a `TabControl` holding exactly three tabs, in
+  order: **Route**, **Roles**, **Controls**. Route is selected by default.
 - Tab headings are placed on the **left edge** of the window
-  (`TabStripPlacement="Left"`) rather than across the top, to maximise the
-  vertical space available to each tab's content.
-- Window is resizable; content should reflow (no fixed-pixel layouts).
+  (`TabStripPlacement="Left"`).
+- Window is resizable; content reflows (no fixed-pixel layouts).
 - Window title: **"ED:FC AutoPilot"**.
-- Window/taskbar icon: see §9.5.
+- Window/taskbar icon: `Resources/AppIcon.ico`, a `RocketLaunch` glyph rendered
+  at 16/32/48/256px, matching the row icons' style and color.
 
-### 3.2 Tab 1 — "Route"
-Has two mutually exclusive states, **Edit** and **Running**, described below.
-Only one is visible at a time.
+### 3.2 Startup window placement
+- On launch, the window is positioned against the **right edge** of the
+  physically rightmost connected monitor (10px margin), vertically centered on
+  that monitor — unless a previous session's bounds were persisted and are
+  still reachable (see §6), in which case those are restored instead.
+- The rightmost monitor is determined dynamically each launch (the monitor
+  with the greatest `Left` screen coordinate), not a hardcoded device name.
+- Positioning happens at `SourceInitialized` (HWND exists, window not yet
+  painted), so there is no visible jump on launch. Monitor bounds are
+  converted to WPF device-independent units via the window's own
+  composition-target transform, so this is correct under per-monitor DPI
+  scaling.
 
-### 3.3 Tab 2 — "Roles"
-> Formerly named "Control"; renamed to "Roles" to reflect its actual purpose
-> — surfacing running instances so a role (e.g. which carrier/ship to jump)
-> can be assigned to each one. Its implementation and requirements (§11) are
-> unchanged by the rename.
-
-- A **Refresh** button, right-aligned below the content area (same
-  placement convention as the Route tab's buttons).
-- A vertically-stacked, scrollable list of cards, one per running
-  `EliteDangerous64.exe` process found, each stretching to fill the tab's
-  full available width (responsive - see Update). See §11 for what a
-  card shows and how the data is derived.
-
-  > **Update (reverted to full width):** originally 75% (a `3*`/`1*`
-  > column split, the remaining 25% left empty), on the assumption
-  > something else - role assignment - might eventually occupy that
-  > space. Once role assignment (§11.5) actually shipped *inside* each
-  > card (the Captain/Engineer buttons in its header) rather than
-  > alongside it, the reserved column had nothing left to justify it -
-  > per explicit feedback, reverted to a single-column, full-width,
-  > responsive layout (the column split removed entirely, rather than
-  > changed to a different fixed ratio). Confirmed live at a widened
-  > window size: cards now stretch to fill the available width with no
-  > empty gap, where they'd previously have been capped well short of it.
-- If no instances are found, the card list is replaced with a centered,
-  italic "No running Elite Dangerous instances found." message.
-- The list is refreshed automatically once when the tab's ViewModel is
-  constructed (i.e. on app startup, without requiring the user to click
-  Refresh first) and again on every Refresh click.
-- Refresh runs its scan on a background thread; the button disables itself
-  for the duration of a scan and re-enables once it completes. The rest of
-  the app (including the Route tab) must remain usable while a scan is in
-  progress.
-- Must not error or block the rest of the app if Elite Dangerous isn't
-  running, or if the journal folder doesn't exist.
-
-### 3.4 Tab 3 — "Controls"
-- New tab added after **Roles**. Currently an empty placeholder (no
-  content, no behaviour) — scope and design not yet defined.
-
-### 3.5 Startup window placement
-- On launch, the main window is positioned against the **right edge** of
-  the physically rightmost connected monitor (10px margin from the edge),
-  vertically centered on that monitor.
-- Rationale: on a multi-monitor setup, keeps the app out of the way of
-  other work (e.g. an IDE) on the left/middle monitors, rather than
-  appearing on whichever monitor Windows considers primary/default.
-- The rightmost monitor is determined dynamically each launch (by
-  enumerating all monitors and picking the one with the greatest `Left`
-  screen coordinate) rather than a hardcoded device name, so this still
-  works correctly if a monitor is unplugged/replugged and Windows
-  reassigns device identifiers. On a single-monitor system this just
-  places the window against that monitor's right edge.
-- Positioning happens at `SourceInitialized` (the HWND exists but the
-  window has not yet been shown/painted), so there is no visible jump on
-  launch. Monitor bounds (physical pixels) are converted to WPF
-  device-independent units via the window's own composition-target
-  transform, so this is correct regardless of per-monitor DPI scaling.
+### 3.3 Controls tab
+Empty placeholder — no content, no behavior. Reserved for future use.
 
 ---
 
-## 4. Route Tab — Edit State (default / initial state)
+## 4. Route Tab
 
-### 4.1 Layout
-- A single text box fills the available space of the tab (grows/shrinks
-  with the window).
-- Below the text box, right-aligned: two buttons, **Save** and **Cancel**,
-  in that order.
+The Route tab has two mutually exclusive states: **Edit** and **Table**. Only
+one is visible at a time.
 
-### 4.2 Text box behaviour
-- Multi-line, free text entry.
-- Accepts Enter (new lines) and Tab characters as literal input (not focus
-  navigation).
-- No line count or character limit imposed by the UI.
-- Each line of text, once saved, represents exactly one row of the
-  subsequent table (see §6.1 for blank-line handling and trimming).
+### 4.1 Edit state (default)
+- A single multi-line text box fills the available space of the tab.
+- Accepts Enter and Tab as literal input (not focus navigation). No line
+  count or character limit.
 - When empty, shows placeholder text: "Paste route here, one system per
-  line." (`materialDesign:HintAssist.Hint`, non-floating - it disappears
-  once text is entered rather than shrinking into a caption, since a
-  persistent floating label reads oddly above a large paste area).
-- Receives keyboard focus automatically on app launch, so the user can
-  start typing/pasting immediately without clicking into it first.
+  line."
+- Receives keyboard focus automatically whenever this state becomes visible
+  — on app launch, and every time **Edit** is clicked from the Table state.
+- Below the text box, right-aligned: **Save** and **Cancel** buttons.
+  - **Save** is enabled only when the text box contains at least one
+    non-whitespace character. Splits the text into rows (§4.3) and switches
+    to Table state. Does not clear the text box.
+  - **Cancel** is always enabled; clears all text from the box.
 
-  > **Implementation note:** the declarative WPF idiom for this
-  > (`FocusManager.FocusedElement="{Binding ElementName=...}"` on the
-  > containing element) was tried first and did **not** work - confirmed
-  > live via UI Automation (`HasKeyboardFocus` stayed on the window, not
-  > the box) - because a plain `UserControl` nested inside a `TabControl`
-  > isn't its own focus scope, which that property depends on. Fixed
-  > imperatively instead, in `RouteView.xaml.cs`'s constructor:
-  > `RouteTextBox.Loaded += (_, _) => Keyboard.Focus(RouteTextBox);` - the
-  > standard reliable pattern for this, and pure view-layer behavior (no
-  > business logic), the same carve-out `MainWindow.xaml.cs`'s startup
-  > window placement already relies on. Verified live (`HasKeyboardFocus`
-  > `True`, and the Material text field's focus-indicator underline
-  > visibly switched from grey to the accent color) immediately on
-  > launch, with nothing clicked.
+### 4.2 Table state (after Save)
+- A read-only table (`DataGrid`) fills the available space, with columns:
 
-### 4.3 Save button
-- **Enabled** only when the text box contains at least one non-whitespace
-  character.
-- **On click:**
-  1. Split the text box contents into lines.
-  2. Build one table row per line (see §6.1).
-  3. Transition the Route tab from **Edit** state to **Running** state
-     (§5).
-- Does not clear or otherwise alter the text box contents (so the user can
-  switch back if a "back to edit" feature is added later).
+  | # | Header | Content |
+  |---|--------|---------|
+  | 1 | *(blank)* | Row icon — see §4.4 |
+  | 2 | `#` | Row number, 1-based, in save order |
+  | 3 | `System` | The row's system text, plus a clipboard icon when this row's text is currently on the clipboard (§4.6) |
+  | 4 | `Status` | Current status text — see §4.4 |
 
-  > **Update: that "back to edit" feature is now implemented** - see §5.5.
-  > Every Save (first time, or after Edit) also now sets row 1's icon to
-  > in-progress by default, and - if a Captain is currently assigned -
-  > triggers a fresh re-derivation of the whole table from that Captain's
-  > journal. See §5.5 for both, since they're really properties of *every*
-  > Save, not just the first one.
+- Clicking anywhere in a row copies that row's system name to the clipboard
+  and plays a confirmation sound (see §4.6 for the clipboard-source icon
+  this also sets).
+- Right-clicking a row opens a context menu with **"Set next system"**:
+  every row before the clicked one is marked Complete, the clicked row
+  becomes the current (in-progress) row, and every row after it is reset to
+  not-yet-started — regardless of their prior state. This is a direct,
+  immediate correction for whenever automatic journal-based detection
+  (§5.6) gets it wrong, or the carrier is genuinely off-route.
+- Above the table, right-aligned: an **"Auto Copy To Clipboard"** toggle
+  switch (§4.6). Not shown while in Edit state.
+- Below the table, right-aligned: **Edit** and **Auto Pilot** buttons.
+  - **Edit** returns to Edit state with the text box's contents unchanged
+    (Save never alters them) and focus restored to it. Re-clicking Save
+    afterward always produces a completely fresh table — even if the text
+    is identical to what was there before — discarding any prior
+    icon/status state. If a Captain is currently assigned (§5.5), the fresh
+    table is immediately re-derived from that Captain's journal; otherwise
+    row 1 defaults to "next" (in-progress).
+  - **Auto Pilot** toggles a placeholder running state: its label reads
+    "Auto Pilot" when idle and "Stop" while engaged, and **Edit** is
+    disabled while engaged. Toggling it has no other effect — it is not yet
+    wired to any automation. Re-saving the route (via Edit → Save) resets
+    it to idle.
 
-### 4.4 Cancel button
-- **Always enabled.**
-- **On click:** clears all text from the text box. Does not affect any
-  existing table/rows if one already exists from a previous save.
-
----
-
-## 5. Route Tab — Running State (after Save)
-
-### 5.1 Layout
-- A table (grid) fills the available space of the tab.
-- Below the table, right-aligned: three buttons, **Edit**, **Start**, and
-  **Stop**, in that order (see §5.5 for Edit).
-
-### 5.2 Table columns
-
-| # | Header | Content | Notes |
-|---|--------|---------|-------|
-| 1 | *(blank)* | Icon | See §7.3 for icon states |
-| 2 | `#` | Row number | Sequential integer, starting at 1, in save order |
-| 3 | `System` | Line text | Verbatim text of the corresponding input line |
-| 4 | `Status` | Status text | See §7 for values written during the sequence |
-
-- Table is read-only from the user's perspective (no in-grid editing).
-- Row count equals the number of lines saved from the text box.
-- Clicking anywhere in a row copies that row's system name to the
-  clipboard and plays a confirmation ping. The row's grey selection
-  background is kept; the DataGrid's usual per-cell "current cell" border
-  is suppressed (see Update).
-
-  > **Update (implemented, `RouteViewModel.CopySystemCommand`):** went
-  > through three iterations before landing here, each fixing a problem
-  > the previous one surfaced live:
-  > 1. A `DataGridTemplateColumn` `Button` (`ControlTemplate` replaced
-  >    with a bare `TextBlock`) still picked up the implicit MaterialDesign
-  >    `Button` style's other property Setters (`FontWeight`, sizing) -
-  >    `Style`/`Template` are independent in WPF, so replacing the
-  >    template doesn't stop the style's Setters applying. Confirmed live:
-  >    bolded the `System` text and threw off row alignment against the
-  >    plain-`TextBlock` `#`/`Status` columns (zoomed screenshot
-  >    comparison).
-  > 2. Switched to a bare `TextBlock` with a `MouseBinding` (the same
-  >    element `DataGridTextColumn` renders internally for the other
-  >    columns, so nothing to leak from) - fixed the alignment, confirmed
-  >    live pixel-aligned against `#`. But it only made the `System` text
-  >    itself clickable, not the rest of the row.
-  > 3. Per the user's follow-up ("clicking on any part of the row should
-  >    copy"), moved the click handling from a per-cell template to
-  >    `DataGrid.RowStyle`. `DataGridRow` has no `Command` property to bind
-  >    to, so `Behaviors/ClickCommandBehavior.cs` was added - a small
-  >    attached-property behavior (`Command`/`CommandParameter`, wiring
-  >    `PreviewMouseLeftButtonUp` to `ICommand.Execute`) in the same
-  >    view-layer-glue spirit as `Converters/` - and the `System` column
-  >    reverted back to a plain `DataGridTextColumn` (no per-cell template
-  >    needed any more, which incidentally also removes any future risk of
-  >    alignment drift between it and `#`/`Status`, since it's the
-  >    identical element type again).
-  > A later "remove the black outline, keep the grey background" request
-  > turned out to be a separate mechanism from what the outline looked
-  > like it should be: setting `DataGridCell.FocusVisualStyle="{x:Null}"`
-  > (the adorner-layer focus rectangle) had **no effect** - confirmed live,
-  > the border was still there after that change alone. It's actually
-  > coming from `Style.Triggers` inside the toolkit's own
-  > `MaterialDesignDataGridCell` style (`IsFocused`/`IsSelected`/
-  > `IsKeyboardFocusWithin` setting `BorderThickness`/`BorderBrush` on the
-  > cell template) - a `BasedOn` style's own `Setter`s can't outrank a base
-  > style's `Trigger`s (Style Triggers are a higher WPF precedence tier
-  > than plain Style Setters), so the fix adds matching `Trigger`s of its
-  > own for the same three conditions, each just forcing
-  > `BorderThickness="0"` - a `BasedOn` style's own Triggers *are* applied
-  > after the inherited ones and do take precedence. The grey row
-  > background is a separate, row-level trigger (`RowStyle`) untouched by
-  > any of this - confirmed live, still shows correctly on the selected
-  > row after the fix.
-  > Uses `SystemSounds.Asterisk.Play()` for the ping (a built-in Windows
-  > sound, no bundled audio asset, keeping with §8's no-external-
-  > dependencies rule) and `System.Windows.Clipboard.SetText`.
-
-### 5.3 Start button
-- **Enabled** when: the table has at least one row **and** the sequence is
-  not currently running.
-- **On click:** begins the automated sequence described in §7, starting
-  from row 1.
-- Disabled for the duration of a running sequence.
-
-### 5.4 Stop button
-- **Enabled** only while the sequence is running.
-- **On click:** immediately halts further progression of the sequence.
-  Whatever icon/status values are currently displayed remain as-is (no
-  rollback).
-- After Stop, Start becomes available again and — if pressed — begins a
-  **new** full run from row 1 (v1 does not support resuming mid-sequence).
-
-### 5.5 Edit button
-
-- **Enabled** when: the table is showing (i.e. **Running** state) **and**
-  the timer-paced sequence is not currently running (same guard as
-  Start).
-- **On click:** returns to **Edit** state (§4), showing the text box
-  again with its contents exactly as they were left (Save never alters
-  them - §4.3) - so the user can revise the pasted route without
-  retyping it from scratch.
-- Re-clicking Save afterward always produces a **completely fresh**
-  table, discarding whatever icon/status state the previous table had -
-  even if the text is byte-for-byte identical to what was there before,
-  and regardless of whether that old state came from a manual Start/Stop
-  run or a Captain's journal replay:
-  - Row 1's icon defaults to in-progress (the "next" triangle) and every
-    other row starts blank, **unless** a Captain is currently assigned
-    (§11.5), in which case the table is immediately re-derived from
-    scratch from that Captain's journal history instead - exactly as if
-    Captain had just been (re)assigned. If no Captain is assigned, the
-    row-1-defaults-to-next state is left standing.
-  - This applies identically to the very first Save, not just ones after
-    Edit - "before Captain is initially assigned, the first row should
-    be marked as next" per the request that added this.
-
-  > **Implementation:** `RouteViewModel` has no reference to
-  > `RolesViewModel` (or vice versa) - `RouteViewModel.Save()` raises a
-  > `RouteSaved` event, and `MainViewModel` (the only place that
-  > references both tab ViewModels) wires it to
-  > `RolesViewModel.RefreshRouteForCurrentCaptain()`, which is a no-op if
-  > no Captain is assigned, or restarts that Captain's journal watch
-  > (`StartCaptainWatch`) if one is - the exact same replay mechanism
-  > §11.5 already uses for a fresh assignment, just re-triggered.
-  > `RefreshRouteForCurrentCaptain` doesn't need to fire an explicit
-  > `RowEventKind.Reset` first, unlike `ToggleCaptain`'s assign branch -
-  > `Save()` always builds entirely new `RouteRowViewModel` instances, so
-  > there's no leftover state on them to clear.
-  > **Verified live:** Saved a route with no Captain assigned (row 1
-  > defaulted to next); clicked Edit (text box reappeared with the route
-  > intact, focus returned to it); re-Saved the identical text (fresh
-  > table, row 1 defaulted to next again, not carrying anything over).
-  > Then assigned Captain (route correctly replayed: rows 1-3 Complete,
-  > row 4 in-progress, against real journal data); clicked Edit and
-  > re-Saved with Captain still assigned - the table came back showing
-  > the identical real progress (rows 1-3 Complete, row 4 in-progress)
-  > rather than the no-Captain default, confirming the re-derivation
-  > path.
-
-### 5.6 "Auto Copy To Clipboard"
-
-- A labelled toggle switch, right-aligned directly above the table (not
-  shown at all while in Edit state - §4).
-- Session-only: the on/off setting is remembered across Edit/Save cycles
-  within the running app, but is **not** persisted (§14) - it always
-  starts off (unchecked) on a fresh app launch.
-- While on: the instant a `CarrierLocation` event for the assigned
-  Captain's own carrier is observed via **live** journal monitoring (the
-  `FileSystemWatcher` path - never during the one-off historical replay a
-  fresh Captain assignment does, and never for the passive session-start
-  snapshot a real jump hasn't been requested yet this session - same
-  gating as route catch-up, §11.5), the **next** row's `System` text
-  (i.e. the row after the one the carrier just arrived at) is copied to
-  the clipboard automatically - no confirmation sound, unlike the
-  manual click-to-copy (§5.2), since this fires unattended. If the
-  arrived-at row is the last row in the route, or isn't found in the
-  route at all, nothing is copied.
-- This fires **immediately** on the raw journal event, deliberately
-  ahead of the row table's own `Arrived`/`Cooldown` transition (which is
-  scheduled 1 minute later - §11.5) - the point is to have the next
-  system ready to paste into the game before the UI visually catches up.
-- Turning the toggle **on** also immediately copies whatever system is
-  currently "next" - the route's one in-progress row, whether that's row
-  1 of a freshly-Saved route or wherever a Captain's journal replay or a
-  manual "Set next system" override (§11.6) has since moved it to -
-  rather than doing nothing until the next live `CarrierLocation` event
-  eventually supplies one. A no-op if there's no in-progress row at all
-  (an empty route, or one that's already fully complete). Turning the
-  toggle back off does not copy anything.
-- Whichever row's `System` text is currently believed to be on the
-  clipboard - by any of the three mechanisms above, or the manual
-  click-to-copy (§5.2) - shows a small clipboard icon directly after its
-  text. At most one row shows it at a time. It disappears the instant the
-  system clipboard's contents actually change, for any reason - including
-  an external application - not just when a different row is copied
-  within this app. See the Update below for how an external change is
-  told apart from this app's own write.
-
-  > **Implementation:** a real `ToggleButton` styled
-  > `MaterialDesignSwitchToggleButton` (confirmed present in the
-  > installed MaterialDesignThemes 5.3.2 package before use, per §9.2's
-  > standing convention) bound to a new `RouteViewModel.
-  > AutoCopyToClipboardEnabled` bool - chosen over a literal `RadioButton`
-  > specifically because a lone, ungrouped `RadioButton` cannot be
-  > unchecked by clicking it again (standard WPF/radio-group behavior -
-  > there's no "other" option to switch to), which would make the
-  > setting a one-way switch; a `ToggleButton` flips on every click like
-  > any ordinary toggle. `AutoCopyToClipboardEnabled` is a plain
-  > in-memory property - deliberately never read from or written to
-  > `AppSettingsStore` (§14), unlike every other persisted setting.
-  > A new `RowEventKind.LiveCarrierLocation` carries the mechanism:
-  > `CarrierRouteJournalWatcher.ProcessLine` now takes an `isLive` flag
-  > (true only when invoked from the `FileSystemWatcher` callback, false
-  > for the initial historical-replay read in `StartAsync`) and, when a
-  > `CarrierLocation` for the tracked carrier passes the existing
-  > `_hasSeenJumpRequest` gate *and* `isLive` is true, fires
-  > `LiveCarrierLocation` through the same `Action<RowEventKind, string>`
-  > callback the scheduled `Arrived`/`CooldownElapsed` events already use
-  > - unscheduled, immediate, alongside (not instead of) that normal
-  > scheduling. `RouteSequencer.ApplyRowEvent` explicitly ignores this
-  > kind (it's not a route-status mutation); `RouteViewModel` subscribes
-  > to the same shared `IRowEventTrigger` a second time, independently of
-  > its `RouteSequencer`, specifically to react to it - finding the row
-  > matching the event's `SystemName` (by name alone, not by current
-  > `Icon`/`Status`, since this fires ahead of that row's own delayed
-  > transition) and copying the row after it, if one exists and the
-  > toggle is on.
-  > **Verified live**, via UI Automation (not screenshots, after two
-  > separate screenshot attempts in this session captured unrelated
-  > windows instead of the app - `SetForegroundWindow` was not reliably
-  > bringing the app to the foreground from this shell): the toggle's
-  > label ("Auto Copy To Clipboard") and its bounding rectangle confirmed
-  > right-aligned flush with the table's own right edge and positioned
-  > above the header row; clicking it flips `ToggleState` Off -> On;
-  > both the label and toggle are absent entirely while the Edit-state
-  > text box is showing; the On state survives an Edit -> Save round
-  > trip within the same session. The clipboard-copy logic itself
-  > (finding the next row and copying it, respecting the toggle, doing
-  > nothing when arrived-at is the last row or an unrecognized system,
-  > and ignoring every other `RowEventKind`) was verified with a
-  > standalone harness driving a real `RouteViewModel` directly through a
-  > `ManualRowEventTrigger` and reading back `Clipboard.GetText()` - six
-  > scenarios, all passing. Not separately verified against a real,
-  > live-monitored Elite Dangerous journal for this feature specifically
-  > (`CarrierRouteJournalWatcher`'s live-vs-replay distinction and event
-  > delivery were already verified live/synthetically for the scheduled
-  > `Arrived`/`CooldownElapsed` events this reuses the identical
-  > `isLive`-gated code path for).
-
-  > **Update (copy immediately on enabling, implemented):** per explicit
-  > follow-up, waiting for the next live `CarrierLocation` event left the
-  > toggle looking inert if you turned it on mid-journey (potentially a
-  > long wait until the next arrival). `AutoCopyToClipboardEnabled`'s
-  > setter now calls a new `RouteViewModel.
-  > CopyCurrentInProgressSystemToClipboard` whenever the value actually
-  > transitions false -> true (guarded by `SetProperty`'s own
-  > changed-or-not return value, so re-setting an already-true value is a
-  > no-op, not a re-copy) - it finds `Rows.FirstOrDefault(r => r.Icon ==
-  > RowIcon.InProgress)` and copies that row's `System` text, mirroring
-  > exactly what the icon column already visually calls "next" (§7.3).
-  > This intentionally reuses the *icon* to define "next system" here,
-  > rather than the `LiveCarrierLocation` handler's own name-based
-  > row-after-arrival lookup (§5.6 above) - the two mechanisms answer a
-  > subtly different question ("what's the carrier now heading toward,
-  > independent of any specific event" vs. "what comes after the system
-  > this specific arrival event named") that happen to coincide in the
-  > common case but aren't the same lookup, so they're implemented
-  > separately rather than forced through one shared code path.
-  > **Verified live** against the real app (UI Automation + the real
-  > Windows clipboard, not screenshots): with a persisted route whose
-  > in-progress row was "Col 285 Sector JF-L b22-8" (row 7 of 8, left
-  > over from earlier Captain-assignment testing), setting the clipboard
-  > to a sentinel value and then toggling the switch on changed the
-  > clipboard to exactly that row's text. Also verified with a standalone
-  > harness driving a real `RouteViewModel` directly (no UI): toggling on
-  > with the in-progress row at the start, middle, and reflecting a
-  > completed-route/empty-route no-op case; toggling off copying nothing;
-  > toggling off then on again re-copying; setting the already-true value
-  > again not re-copying; and the pre-existing `LiveCarrierLocation`
-  > live-arrival copy behavior (§5.6 above) still working unaffected -
-  > eight scenarios, all passing.
-
-  > **Update (clipboard icon, implemented):** whichever row's `System`
-  > text is currently believed to be on the clipboard shows a small
-  > clipboard icon directly after its text (not in the leading icon
-  > column - §7.3 - which is unrelated). At most one row shows it at a
-  > time. It appears the instant that row's text is copied - by any of
-  > the three mechanisms above: manual click-to-copy (§5.2), a live
-  > `CarrierLocation` arrival, or switching the toggle on - and disappears
-  > the instant the system clipboard's contents change for *any* reason,
-  > including an external application overwriting it, not just another
-  > row being copied within this app.
-  > Implementation: `RouteRowViewModel.IsCopiedToClipboard` (bool) drives
-  > the icon's visibility. `RouteViewModel` tracks which row (if any)
-  > currently holds it (`_clipboardSourceRow`) via a new
-  > `MarkRowAsClipboardSource` method, called from all three copy sites
-  > right after their own `Clipboard.SetText` - it clears the flag off
-  > whichever row previously had it (if different), sets it on the new
-  > row, and snapshots the Win32 clipboard sequence number
-  > (`GetClipboardSequenceNumber`, wrapped in a new `Services/
-  > ClipboardMonitor.cs`, same thin-P/Invoke-wrapper pattern as
-  > `Win32Monitors`) as `_expectedClipboardSequenceNumber`. Detecting a
-  > genuine external (or otherwise untracked) change uses
-  > `AddClipboardFormatListener`/`WM_CLIPBOARDUPDATE` - a real Windows
-  > push notification, not polling - registered on the main window's HWND
-  > in `MainWindow.xaml.cs` (the same view-layer carve-out its startup
-  > placement and window-bounds persistence already rely on, since this
-  > needs a real HWND/message pump `RouteViewModel` has no access to) and
-  > forwarded to a new `RouteViewModel.OnSystemClipboardChanged()`. That
-  > method compares the clipboard's *current* sequence number against
-  > `_expectedClipboardSequenceNumber`: if they match, the notification is
-  > just confirming this app's own just-made write, so nothing happens
-  > (without this check, an app's own `Clipboard.SetText` call would
-  > immediately - and wrongly - clear the icon it just set, since
-  > `WM_CLIPBOARDUPDATE` fires for every change regardless of source); if
-  > they differ, the icon is cleared and `_clipboardSourceRow` reset to
-  > null, since something changed the clipboard this app didn't account
-  > for. `Save()` also clears `_clipboardSourceRow` up front (the old
-  > `Rows` instances it belonged to are discarded anyway) so nothing
-  > stale lingers across an Edit/re-Save cycle.
-  > The `System` column - a plain `DataGridTextColumn` since an earlier,
-  > unrelated change specifically reverted it away from a template column
-  > (§5.2's own Update, over a `Button`'s implicit style leaking through a
-  > replaced `ControlTemplate`) - had to become a `DataGridTemplateColumn`
-  > again to show text-plus-icon at all; a bare `TextBlock` + `PackIcon`
-  > carries no implicit control style of its own to leak, so that earlier
-  > risk doesn't apply here. Icon: `ClipboardCheckOutline` - confirmed
-  > present in the installed MaterialDesignThemes 5.3.2 package (same
-  > verify-before-use convention as §9.2) by inspecting the compiled
-  > assembly's resource names directly, since this package version ships
-  > its themes as embedded BAML rather than loose `.xaml` files a text
-  > search could otherwise find.
-  > Since `CopySystemCommand` previously received only a row's bare
-  > `System` string (`RelayCommand<string>`, bound via
-  > `ClickCommandBehavior.CommandParameter="{Binding SystemText}"`) with
-  > no way to know *which row* to mark, it was changed to
-  > `RelayCommand<RouteRowViewModel>` - the binding now passes the row
-  > itself (`{Binding}`) - so the manual click-to-copy path can mark the
-  > correct row the same way the other two paths (which already had a
-  > `RouteRowViewModel` reference in hand) do.
-  > **Verified:** the underlying state machine - icon set on copy, moved
-  > when a different row is copied, unaffected by the WM_CLIPBOARDUPDATE
-  > notification an app's own write triggers, cleared by a genuinely
-  > external clipboard change, set correctly by all three copy
-  > mechanisms, and left in a safe (no stale reference, no exception) state
-  > across a Save - was verified with a standalone harness driving a real
-  > `RouteViewModel` directly, 13 checks, all passing. **Not** verified
-  > with a live screenshot of the actual rendered icon/alignment in this
-  > pass - three separate attempts to bring the app window to the
-  > foreground for a screenshot in this session were unsuccessful
-  > (`SetForegroundWindow` reporting success but the captured region
-  > showing unrelated content each time - other open windows, then an
-  > apparently-blank region, then what appeared to be an unrelated running
-  > game), and a workaround attempt using simulated input
-  > (`keybd_event`/`AttachThreadInput`) to force the foreground switch was
-  > correctly flagged and blocked by antivirus software as suspicious
-  > input-injection behavior - not pursued further, since bypassing a
-  > legitimate security control is not appropriate regardless of intent.
-  > The icon glyph's existence in the installed package was confirmed
-  > (not its rendered appearance); worth a quick visual sanity check next
-  > time the app is run interactively.
-
----
-
-## 6. Data Rules
-
-### 6.1 Line-to-row conversion (on Save)
-- Text is split on line breaks.
+### 4.3 Line-to-row conversion (on Save)
+- Text is split on line breaks; `\r\n` is normalized to `\n` first.
 - Each line is trimmed of leading/trailing whitespace.
-- Blank lines (empty, or whitespace-only before trimming) are discarded
-  entirely and do **not** become rows - this includes a trailing blank
-  line from a final newline, but also any interior or leading blank
-  lines, since pasted route lists commonly have stray blank lines mixed
-  in.
-- Every remaining line becomes a row, in order, numbered from 1 (i.e. row
-  numbers count kept lines, not original line positions - a route with a
-  blank line 2 in the input has its second kept line as row 2, not row 3).
-- `System` column = the line's text after trimming (internal whitespace,
-  if any, is preserved as entered).
+- Blank lines (empty, or whitespace-only) are discarded entirely — leading,
+  interior, and trailing — and do not become rows.
+- Every remaining line becomes a row, in order, numbered from 1 (row numbers
+  count kept lines, not original line positions).
+- `System` = the line's trimmed text (internal whitespace preserved).
+- Row `#` values are fixed at Save time and never change afterward.
 
-  > **Update (implemented):** originally only a single trailing blank line
-  > was dropped and internal whitespace was preserved verbatim (interior
-  > blank lines became empty rows, and leading/trailing whitespace within
-  > a line was kept). Changed to trim + drop-all-blank-lines since pasted
-  > route lists (the primary way this text box is actually used - see
-  > `materialDesign:HintAssist.Hint` below) routinely have both. Verified
-  > live: leading/interior/trailing blank lines (including a tab-only
-  > line) and leading/trailing spaces around real system names were all
-  > handled correctly in one Save.
+### 4.4 Row icon and status
 
-### 6.2 Row identity
-- Row `#` values are fixed once assigned at Save time and do not change
-  during a run.
+The icon shown depends on both the row's icon state and, while in-progress,
+its current `Status` text:
 
----
-
-## 7. Automated Sequence (Start → Stop)
-
-### 7.1 Trigger cadence
-- Each action below is separated from the next by a **2 second** interval
-  in v1.3 (reverted from the 0.5s used in v1.2 — 0.5s made the per-step
-  transitions hard to actually see, and the real-world use case is jumping
-  **fleet carriers**, not ships: fleet carrier jumps are slow in practice,
-  so a snappy cadence undersells what the app is modeling. Interim history:
-  0.2s during testing, then 0.5s in v1.2, originally 2s before that).
-- The sequence must be built so that **advancing to the next action is a
-  response to an event**, not a hardcoded delay call, so that the pacing
-  mechanism (today: a timer) can later be replaced or supplemented by other
-  event sources (e.g. a manual "step" trigger, an external signal) without
-  changing the action logic itself. See §10 for the architectural
-  requirement this implies.
-
-### 7.2 Action plan
-On **Start**:
-
-1. Immediately: show the "in-progress" icon (§7.3) in row 1's icon column.
-2. Then, once per 2-second interval, for the **current row**, in order:
-   1. `Status` = `Plotting`
-   2. `Status` = `Plotted`
-   3. `Status` = `Jumping`
-   4. **Combined step** (executed together, as a single trigger-driven
-      action, not several separate steps):
-      - Icon changes from "in-progress" to "complete" (§7.3)
-      - `Status` = *(cleared / empty string)*, for the row that just
-        completed
-      - **If a next row exists**: show the "in-progress" icon in that
-        row's icon column, **and** set *that row's* `Status` = `Cooldown`
-        — see the Update below for why this is on the next row, not the
-        one that just finished
-   5. **Only if a next row existed in step 2.4**: once the cooldown period
-      elapses, that next row's `Status` = *(cleared / empty string)*. If
-      there was no next row (the row that just completed was the last
-      row), this step is skipped entirely — nothing was put into
-      `Cooldown` to begin with.
-3. Repeat step 2 for each subsequent row, in row order, until the last row
-   has completed step 2.4 (its own step 2.5 is skipped — see above).
-4. The sequence then stops automatically (equivalent to Stop being
-   pressed); Start becomes available again.
-
-> **Update (Cooldown moved to the next row):** originally `Cooldown` was
-> shown as the `Status` of the row that had just finished (the one now
-> showing the Complete tick), for the duration of the cooldown period,
-> then cleared. Per explicit feedback, this didn't make sense: the
-> cooldown is what's blocking the *next* jump, not anything about the row
-> that just completed (which is done, permanently, the instant its tick
-> appears) - so `Cooldown` now shows against the row that's actually
-> waiting on it instead. This also means a completed row's `Status` is
-> now *always* blank the instant its icon becomes Complete, with no
-> one-tick delay before that - a minor side effect that incidentally
-> brings actual behavior in line with what §7.3's icon table already
-> claimed for the `Complete` state ("*(cleared)*").
-> A consequence for the last row specifically: since there's no row after
-> it to receive `Cooldown`, nothing is shown at all once it completes -
-> its cycle is one tick (2s) shorter than every other row's, and the
-> sequence finishes and stops itself that much sooner. See §11.5's
-> parallel Update for the equivalent change to the real, journal-driven
-> Captain flow, and §7.3/§7.4 (updated below) for the icon/timing
-> implications.
-> Implementation: `RouteSequencer.BuildSteps`'s combined step now clears
-> the just-completed row's own `Status` immediately and, only if a next
-> row exists, sets that row's icon/`Status` instead; the following
-> "clear status" step is only enqueued at all when a next row existed,
-> which is what shortens the last row's cycle. The journal-driven path
-> (`RouteSequencer.ApplyRowEvent`'s `Arrived` case, plus a new
-> `ApplyCooldownElapsed` method - see §11.5) mirrors this exactly, since
-> both paths ultimately drive the same `RouteRowViewModel` state.
-> **Verified live** (timer-driven demo sequence, 3 real rows, at the
-> normal 2s cadence): at the tick where row 1 completes, row 1 showed the
-> Complete tick with a blank status and row 2 showed the in-progress
-> triangle with `Cooldown` (not row 1) - confirmed via a live screenshot;
-> at the next tick, row 2's `Cooldown` cleared (still in-progress,
-> nothing shown) while row 1 remained blank throughout. For the last row,
-> confirmed via UI Automation (not a screenshot, to avoid the risk of
-> capturing unrelated screen content) that the sequence had already
-> stopped itself (`Start` re-enabled, `Stop` disabled) with every row's
-> `Status` blank - i.e. the last row never showed `Cooldown` at all.
-> Also verified with a standalone synthetic harness exercising
-> `RouteSequencer.ApplyRowEvent`/`ApplyCooldownElapsed` directly (no UI):
-> normal progression (Cooldown lands on and clears from the next row);
-> catch-up landing `Arrived` on the last row (no Cooldown appears
-> anywhere, and a later `CooldownElapsed` for it is a safe no-op);
-> catch-up landing `Arrived` on a middle row (Cooldown correctly lands on
-> the row after the catch-up target, not after wherever the route
-> started); duplicate system names in the route (Cooldown targeting
-> still resolves to the correct row instance, not an unrelated row
-> sharing the same name); and `Reset` still unconditionally clears
-> everything regardless of any of the above.
-
-### 7.3 Icon states (blank-headed column)
-
-The icon shown depends on **both** the row's icon state (None / In-progress /
-Complete) and, while In-progress, the row's current `Status` text — the two
-are no longer independent. See §9.2 for the implementation (a
-multi-value converter keyed on `Icon` + `Status`).
-
-| Icon state | `Status` | Glyph (`PackIconKind`) | When shown |
+| Icon state | `Status` | Glyph | Meaning |
 |---|---|---|---|
-| None | — | *(hidden)* | Default, and after a row's cycle content is otherwise done (icon is **not** cleared — see note) |
-| In-progress | *(blank, just before first tick)* | `Play` (triangle) | The instant a row becomes "current" (step 7.2.1), before its first `Status` update |
-| In-progress | `Plotting` | `Compass` | During step 7.2.2.1 |
-| In-progress | `Plotted` | `Hourglass` | During step 7.2.2.2 |
-| In-progress | `Jumping` | `RocketLaunch` | During step 7.2.2.3 |
-| In-progress | `Cooldown` | `Play` (triangle) | The row *after* the one that just completed, for the duration of its cooldown wait - set in step 7.2.2.4, cleared in step 7.2.2.5 (see that section's Update: this is a real, persistently-shown state now, not a same-step transient) |
-| Complete | *(cleared)* | `Check` (tick) | From step 7.2.2.4 onward, permanently (for that run) - the row's own `Status` is always blank the instant it reaches Complete |
+| None | — | *(hidden)* | Not yet reached |
+| In-progress | *(blank)* | Play (triangle) | Current row, no status yet |
+| In-progress | `Plotted` | Hourglass | `CarrierJumpRequest` received |
+| In-progress | `Jumping` | RocketLaunch | 3 minutes before `DepartureTime` |
+| In-progress | `Cooldown` | Play (triangle) | Waiting on the row before it |
+| Complete | *(blank)* | Check | Reached, permanently for this table |
 
-- All icon glyphs are rendered via the toolkit's `PackIcon` control, colored
-  from the active Material palette (`MaterialDesign.Brush.Secondary` — see
-  §9.2), not per-icon colors.
-- `Play` is also the fallback for any in-progress status not explicitly
-  listed above, so a new status value added later degrades gracefully
-  instead of showing nothing.
+- Icons render via the toolkit's `PackIcon`, colored from the active
+  Material palette (`MaterialDesign.Brush.Secondary`), not hardcoded colors.
+- A row's icon is never removed once shown (`Visibility.Hidden`, not
+  `Collapsed`, when hiding it — keeping its layout space reserved so row
+  height doesn't visibly shift as icons appear/disappear).
+- A completed row's own `Status` is always blank — see §5.6 for why
+  `Cooldown` is shown on the row *after* the one that just completed, not
+  on that row itself.
 
-> Note: the spec does not require clearing the icon at any point — once a
-> row reaches "Complete" it keeps the tick for the remainder of the run.
+### 4.5 Persistence
+See §6.
 
-### 7.4 Timing summary (example, 3 rows)
-
-```
-t=0s   Row1 icon -> Play (in-progress, no status yet)
-t=2s   Row1 status -> Plotting   (icon -> Compass)
-t=4s   Row1 status -> Plotted    (icon -> Hourglass)
-t=6s   Row1 status -> Jumping    (icon -> RocketLaunch)
-t=8s   Row1 icon -> Check (complete), Row1 status -> (cleared),
-       Row2 icon -> Play (in-progress), Row2 status -> Cooldown  (combined)
-t=10s  Row2 status -> (cleared)
-t=12s  Row2 status -> Plotting   (icon -> Compass)
-...
-(for a 3-row route, Row3's own combined step at t=28s has no next row to
-put into Cooldown, so there's no equivalent of the t=10s step for it -
-the sequence stops itself immediately afterward, at t=28s total rather
-than t=30s)
-```
-
----
-
-## 8. Non-Functional Requirements
-
-- **Framework:** WPF, .NET 8 (net8.0-windows), MVVM pattern throughout —
-  no business logic in code-behind.
-- **Responsiveness:** UI must remain interactive throughout a run (Stop
-  must be clickable at any point).
-- **Extensibility:** Adding a new trigger type or a new action step must
-  not require changes to the ViewModel or View layers (see §10).
-- **No external dependencies** beyond the .NET/WPF base class libraries.
-
----
-
-## 9. Styling — Material Design
-
-**Decision:** restyle the application using
-[MaterialDesignInXamlToolkit](https://github.com/MaterialDesignInXAML/MaterialDesignInXamlToolkit)
-(NuGet packages `MaterialDesignThemes` + `MaterialDesignColors`), to move
-away from the default Windows control look.
-
-### 9.1 Setup requirements
-- `App.xaml` must merge a `materialDesign:BundledTheme` (with chosen
-  `PrimaryColor`/`SecondaryColor`) plus the matching
-  `MaterialDesignX.Defaults.xaml` resource dictionary (`X` = `2` or `3` —
-  pick one and use it consistently; do not mix).
-  > **Update (implemented with MaterialDesignThemes 5.3.2):** the installed
-  > package only ships `MaterialDesign2.Defaults.xaml` as a complete theme
-  > dictionary. The `MaterialDesign3.*.xaml` files present in this version
-  > are per-control additions for newer nav-pattern components
-  > (NavigationBar/Rail/Drawer), not a full alternate theme — there is no
-  > `MaterialDesign3.Defaults.xaml` to choose. `X = 2` was used; this note
-  > supersedes the "pick one" framing above unless a future package version
-  > reintroduces a real MD3 defaults dictionary.
-- `MainWindow` must use the `MaterialDesignWindow` style (or equivalent) so
-  the title bar/chrome is themed, not just the controls inside it.
-
-### 9.2 Icon column
-- Replace the current plain-text glyph rendering (`IconToGlyphConverter`
-  outputting `▶`/`✔` with a hardcoded `Foreground="Green"`) with the
-  toolkit's `PackIcon` control, using an icon-kind converter instead of a
-  string-glyph converter.
-- The color used for all icon states must be drawn from the active
-  Material palette (e.g. a success/secondary brush), not a hardcoded
-  `Green`, so it stays coherent if the palette changes later.
-  > **Update (implemented with MaterialDesignThemes 5.3.2):** the intuitive
-  > `SecondaryHueMidBrush`/`PrimaryHueMidBrush` resource names (used in
-  > older toolkit versions and most third-party examples) are not
-  > registered by `BundledTheme` in this package version and silently
-  > resolve to nothing (falling back to inherited black text). The correct
-  > live keys in 5.3.2 are under a `MaterialDesign.Brush.*` namespace —
-  > `MaterialDesign.Brush.Secondary` was used here. Confirmed by dumping
-  > `Application.Resources` (including merged dictionaries) at startup;
-  > verify against the actual package version before reusing this key
-  > elsewhere, since it may change again in future releases.
-  > **Update:** the icon glyph now also varies by `Status` while
-  > In-progress (see §7.3), not just by icon state, so a single-value
-  > `IValueConverter` keyed on `Icon` alone is no longer sufficient.
-  > `IconToPackIconKindConverter` was replaced by
-  > `IconStatusToPackIconKindConverter`, an `IMultiValueConverter` bound via
-  > `MultiBinding` to both `Icon` and `Status`. Visibility (hiding the icon
-  > for state `None`) remains a separate single-value converter
-  > (`RowIconToVisibilityConverter`) bound on `Icon` alone, since visibility
-  > doesn't depend on `Status`.
-  > Icon kinds used: `Play` (in-progress default), `Compass` (Plotting),
-  > `Hourglass` (Plotted), `RocketLaunch` (Jumping), `Check` (Complete).
-  > All confirmed to exist in MaterialDesignThemes 5.3.2 before use — verify
-  > against the installed package version before adding more, since
-  > `PackIconKind` names are not guaranteed stable across releases. Note
-  > from exploring candidates: the `Satellite` kind renders as a
-  > broken-image placeholder rather than a glyph in this package version
-  > (`SatelliteVariant` renders correctly) — a reminder that a name existing
-  > in the enum doesn't guarantee it renders correctly; visually confirm any
-  > new kind before relying on it.
-  > **Update (row-resize flicker, fixed):** `RowIconToVisibilityConverter`
-  > returned `Visibility.Collapsed` for state `None`, which removes the
-  > icon from layout entirely - reported live as "a very slight resizing
-  > of rows as the icons are added/removed", since the DataGrid would
-  > shrink that row's height while no icon was shown, then grow it back
-  > the instant an icon appeared. Changed to `Visibility.Hidden`, which
-  > keeps the icon's layout space reserved even while invisible, so row
-  > height no longer depends on whether that row currently has an icon.
-
-### 9.3 DataGrid
-- The toolkit ships its own DataGrid styling; the existing
-  `DataGridTemplateColumn` (icon), `#`, `System`, and `Status` columns must
-  be visually verified after the restyle — Material's header/row/selection
-  chrome is more opinionated than the default WPF DataGrid style.
-
-### 9.4 Non-goals for this pass
-- No dark/light theme toggle in v1.1 (pick one `BaseTheme` and ship it).
-- No change to any ViewModel, command, or sequencing logic — this is a
-  view-layer-only change.
-
-### 9.5 Application / window icon
-- The window/taskbar/exe icon is the `RocketLaunch` `PackIconKind` glyph
-  (same family and secondary-palette color as the row icons, for visual
-  consistency), exported to `Resources/AppIcon.ico` containing 16, 32, 48,
-  and 256px frames.
-- `AppIcon.ico` was generated by actually rendering the toolkit's real
-  `PackIcon` (`Kind="RocketLaunch"`) at each target size via
-  `RenderTargetBitmap` (a one-off, temporary `OnStartup` routine, removed
-  after the file was produced) rather than hand-drawing or guessing SVG
-  path data — this keeps the taskbar icon pixel-consistent with the glyph
-  used inside the app.
-- Wired via two places, both required:
-  - `<ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>` in
-    `RouteJumper.csproj` (the exe's embedded Win32 icon resource — used by
-    Explorer, pinned shortcuts, Alt+Tab).
-  - `Icon="Resources/AppIcon.ico"` on `MainWindow`, with the file also
-    included as `<Resource Include="Resources\AppIcon.ico" />` in the
-    csproj so the relative path resolves (the titlebar/taskbar icon at
-    runtime does **not** automatically fall back to `ApplicationIcon` if
-    `Window.Icon` is unset in a way that resolves — both must point at the
-    same file).
+### 4.6 "Auto Copy To Clipboard"
+- A labelled toggle switch, right-aligned above the table, hidden while in
+  Edit state.
+- Session-only: the on/off state survives Edit/Save cycles within the
+  running app, but is **not** persisted — it always starts off on a fresh
+  launch.
+- While on: the instant a `CarrierLocation` event for the assigned
+  Captain's carrier is observed via **live** journal monitoring (never
+  during the initial historical replay a fresh Captain assignment does,
+  and never for a passive session-start snapshot — same gating as §5.6's
+  route catch-up), the **next** row's `System` text (the row after the one
+  the carrier just arrived at) is copied to the clipboard automatically.
+  This fires immediately on the raw journal event, ahead of the table's
+  own delayed status update, so the next system is ready to paste before
+  the UI visually catches up. No-op if the arrived-at row is the route's
+  last row, or isn't found in the route.
+- Turning the toggle **on** also immediately copies whichever row is
+  currently the in-progress row (the same row §4.4's "Play" icon marks as
+  current), rather than waiting for the next live arrival. No-op if there
+  is no in-progress row (an empty or fully-complete route). Turning the
+  toggle back off copies nothing.
+- Whichever row's text was most recently copied — by any of the above, or
+  by clicking a row — shows a small clipboard icon directly after its
+  `System` text (§4.2). At most one row shows it at a time. It disappears
+  the instant the system clipboard's contents actually change, for any
+  reason, including an application other than RouteJumper overwriting it —
+  detected via a real Windows clipboard-change notification, not polling.
 
 ---
 
-## 10. Architectural Requirement — Event-Driven Sequencing
+## 5. Roles Tab
 
-This is a hard requirement, not an implementation detail: the mechanism
-that decides *when* the next action in §7.2 runs must be decoupled from
-*what* that action does, via an event.
+### 5.1 Process discovery
+- Every refresh (initial load, or the Refresh button) enumerates all
+  running `EliteDangerous64.exe` processes. Zero found is the documented
+  empty state — a centered, italic "No running Elite Dangerous instances
+  found." message replaces the card list.
+- Refresh runs on a background thread; the button disables itself for the
+  duration and re-enables once done. The rest of the app stays interactive
+  throughout. Refresh runs automatically once on startup, and again on
+  every click.
 
-- A **trigger** is anything capable of raising a "proceed" event (e.g. a
-  timer, a button, a message from another module).
-- A **sequencer** owns the ordered list of actions (built once, at Start)
-  and executes exactly one action per "proceed" event, regardless of
-  source.
-- Multiple triggers must be attachable to the same sequencer simultaneously.
-- v1 ships with the timer trigger (2s) driving the demo Start/Stop
-  sequence, and a real-world, non-timer trigger — a Captain's own
-  journal (§11.5) — driving the row-addressable sequencing machinery
-  anticipated by §13.1, now implemented rather than merely a framework
-  proving the decoupling holds.
-
-  > **Update:** a second, parallel trigger shape now exists alongside the
-  > original `ISequenceTrigger` -
-  > `IRowEventTrigger`/`RowEvent`/`RowEventKind` (`Sequencing/`), consumed
-  > by `RouteSequencer.AttachRowTrigger`/`SetRows`. This is the "row-
-  > addressable trigger" anticipated by §13.1, now implemented for real:
-  > a row event names a row by its System text rather than meaning "advance
-  > the queued step", and one event can catch several rows up to Complete
-  > at once. It is deliberately a *separate* mechanism from the timer-paced
-  > `_steps` queue (own `SetRows` target, own handler) rather than a
-  > variant of it, since the two have incompatible notions of "next action"
-  > - the queue always means position-in-list, a row event always means
-  > "whichever not-yet-complete row has this System text". Both can be
-  > attached to the same `RouteSequencer` at once without conflict, since
-  > they operate on disjoint code paths against the same `RouteRowViewModel`
-  > instances. See §11.5 for the real trigger source (a Captain's journal).
-
----
-
-## 11. Roles Tab — Elite Dangerous Instance Detection
-
-### 11.1 Process discovery
-- On every refresh (initial load or button click), all running processes
-  named `EliteDangerous64` are enumerated (`Process.GetProcessesByName`).
-- Zero instances found is not an error condition — it's the documented
-  empty state (§3.3).
-
-### 11.2 Journal file matching
-- There is no OS-level link between a game process and the journal file
-  it writes to, so each process has to be matched to its journal file
-  independently. Every candidate journal file (`Journal.*.log` in
+### 5.2 Journal matching
+- There is no OS-level link between a process and the journal file it
+  writes to. Every candidate journal file (`Journal.*.log` in
   `%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous`) is
   timestamped via its own `Fileheader` event.
 - Each process is matched to the journal whose `Fileheader` timestamp is
-  closest to that process's `StartTime`, within a 5-minute tolerance.
-  Matching is greedy and one-to-one (a journal already assigned to one
-  process in this scan cannot also be assigned to another), so this stays
-  correct with multiple simultaneous instances (multi-boxing) — verified
-  live with two concurrent instances, including after restarting one of
-  them mid-session (new PID, new journal file, correctly re-matched with
-  no stale data from the old process).
+  closest to that process's start time, within a 5-minute tolerance.
+  Matching is greedy and one-to-one — a journal already assigned to one
+  process in a scan cannot also be assigned to another.
 - A process with no journal match within tolerance shows "Not found" for
-  the journal filename and "Unknown" for every journal-derived field
-  below.
-- **Do not** use the live `Status.json`/`Cargo.json` files Frontier writes
-  alongside the journals — those are single files per Elite Dangerous
-  *installation*, not per running instance, so when two or more instances
-  are running there is no way to tell which instance's state a given read
-  of those files reflects. Everything instance-specific must come from
-  that instance's own uniquely-named journal file.
+  the journal filename and "Unknown" for every journal-derived field.
+- Live `Status.json`/`Cargo.json` are never used — those are per
+  *installation*, not per running instance, so with multiple instances
+  running there is no way to tell which instance's state a read of those
+  files reflects. Everything instance-specific comes from that instance's
+  own journal file.
 
-### 11.3 Per-instance data shown
+### 5.3 Per-instance card
 
-| Field | Source | Notes |
-|---|---|---|
-| Commander name | Latest `Commander` event's `Name` | |
-| FID | Latest `Commander` event's `FID` | |
-| Cargo | Latest `Loadout` event's `CargoCapacity` (max) + latest `Cargo` event with `"Vessel":"Ship"`'s `Count` (current) | Shown as `current / capacity` tonnes, where `current` **includes** tritium (the full, honest total aboard) - tritium is then broken out as its own indented line directly underneath (see Tritium row) rather than folded invisibly into the headline number. Internally, a separate tritium-*excluded* figure still drives Engineer eligibility (see Update) - what's displayed and what's calculated are deliberately different numbers for different purposes. The `Cargo` event fires on essentially every real cargo change (market trades, mining, limpets) and not only on docking — confirmed live by adding cargo mid-session and seeing it reflected on the next Refresh — so the journal alone is sufficient without needing `Cargo.json`. Only total tonnage is tracked, not an itemized commodity breakdown (see §2). |
-| Tritium | Tracked incrementally across every event that can move tritium into/out of the ship's cargo hold - see Update | Shown as its own `{n}t tritium` sub-line directly under Cargo (its icon aligned with where the Cargo line's leading digit starts, not with Cargo's own icon - see Update), omitted entirely when there's none to report - not shown as "0t tritium". |
-| Current location | Latest of `Location`, `Docked`, `Undocked`, `FSDJump`, `CarrierJump` (while docked) — `StarSystem` (+ `StationName` if docked) | Shown as `System — Station`, or just `System` if not docked. `Undocked`/`FSDJump` clear the station (no `StarSystem` on `Undocked`, so the tracked system is left alone; `FSDJump` always means undocked). |
-| Fleet carrier | Name from `CarrierStats`' `Name`/`CarrierID`; location resolved against that `CarrierID` from `CarrierJump`/`CarrierLocation` (+ `Body`, from `CarrierJump` only) | See both caveats below — the name is commonly unavailable even for an owner, and location resolution must be ID-matched, not just "latest event of the right type". |
-| Journal file | The matched journal's filename | Filename only shown on the card (keeps it compact); the full path is also kept on the view model (not just the display string), same pattern as the window handle below - used by the Captain role's journal watcher (§11.5) |
-| Window handle | `Process.MainWindowHandle` | Displayed as hex (`0xNNNN`); the raw `IntPtr` is also kept on the view model (not just the display string) for future use — e.g. sending keystrokes to a specific instance's window |
-| Window position | `GetWindowRect` on the window handle | Screen coordinates + size |
-| Monitor | `MonitorFromWindow` + `GetMonitorInfo` | Device name, primary flag, resolution, position |
+Each running instance's card shows:
 
-  > **Update (tritium exclusion, implemented):** the `Cargo` event's
-  > `Inventory` array (confirmed live: `{ "Vessel":"Ship", "Count":40,
-  > "Inventory":[ { "Name":"biowaste", "Count":32, ... }, ... ] }`) is
-  > summed per-commodity, skipping any entry whose (lowercase, unlocalised)
-  > `Name` is `tritium`, rather than using the event's own top-level
-  > `Count`. Falls back to the top-level `Count` if `Inventory` is ever
-  > absent (can't exclude tritium in that case, but avoids losing the
-  > field entirely on an older/unexpected journal shape).
+| Field | Source |
+|---|---|
+| Commander name, FID | Latest `Commander` event |
+| Cargo | Latest `Loadout` (capacity) + latest ship `Cargo` (current), shown as `current / capacity`t, tritium included in the total with a separate `Nt tritium` sub-line underneath (omitted when zero) |
+| Current location | Latest of `Location`/`Docked`/`Undocked`/`FSDJump`/`CarrierJump` (while docked) |
+| Fleet carrier | Name from `CarrierStats` (only logged if the Carrier Management panel was opened this session — "Unnamed carrier" if not); location from `CarrierJump`/`CarrierLocation` matched by `CarrierID`, `FleetCarrier` type only (never a squadron carrier) |
+| Journal file | Matched journal's filename |
+| Window handle | `Process.MainWindowHandle`, shown as hex |
+| Window position | `GetWindowRect` on the window handle |
+| Monitor | `MonitorFromWindow` + `GetMonitorInfo` |
 
-  > **Update (gap found and fixed live - other tritium-moving events
-  > weren't accounted for):** the above only excluded tritium when the
-  > *triggering* `Cargo` event happened to carry an `Inventory` breakdown -
-  > confirmed live that it commonly doesn't. A `Cargo` event immediately
-  > following a `CargoTransfer` (ship <-> carrier) or a `MarketBuy` was, in
-  > both cases, just `{ "Vessel":"Ship", "Count":N }` with **no**
-  > `Inventory` at all - so the old fallback (use the bare `Count`) meant
-  > freshly-transferred or freshly-bought tritium wasn't excluded, silently
-  > reintroducing exactly the problem this feature exists to solve.
-  > Root cause: `Inventory` presence turns out to depend on *something*
-  > about how the `Cargo` event was triggered, not just Frontier reliably
-  > including it - so excluding tritium can't rely on the triggering event
-  > always carrying the breakdown.
-  > Fixed by tracking tritium *incrementally*, across every event that can
-  > move it into or out of the ship's cargo hold, rather than depending on
-  > any single event's `Inventory` field:
-  > - `CargoTransfer` (`Transfers[].Type=="tritium"`) - `Direction:"toship"`
-  >   adds, any other direction (`"tocarrier"`, confirmed live; `"tosrv"`
-  >   presumably, unconfirmed) subtracts.
-  > - `CarrierDepositFuel` (`Amount`) - fueling the carrier directly from
-  >   ship cargo is always tritium, always ship -> carrier, so always
-  >   subtracts.
-  > - `MarketBuy`/`MarketSell` (`Type=="tritium"`, `Count`) - buying adds,
-  >   selling subtracts.
-  > - Whenever a `Cargo` event's `Inventory` *is* present, the running
-  >   tracked total is resynced to the exact tritium `Count` found in it
-  >   (0 if tritium isn't listed) - the one authoritative ground-truth
-  >   source available, self-correcting any drift the incremental tracking
-  >   might otherwise accumulate.
-  > All five event types confirmed live, with real field names/values, in
-  > the "Haggis and Chips" journal history (`CargoTransfer` `Direction`
-  > values are exactly `"toship"`/`"tocarrier"`; `CarrierDepositFuel` has
-  > `CarrierID`/`Amount`/`Total`; `MarketBuy`/`MarketSell` have
-  > `Type`/`Count` like `CargoTransfer`'s `Transfers[]` entries).
-  > **Update (transparency, per explicit instruction):** rather than
-  > silently subtracting tritium with no visible trace, it's now shown as
-  > its own line on the card - the underlying *tracking* is unchanged
-  > (still derived from the same running total in `EliteInstanceScanner`),
-  > only its visibility. Implemented as
-  > `EliteInstanceViewModel.CurrentTritium`/`TritiumDisplay`, alongside the
-  > existing tritium-excluded `CurrentCargo` - both derived from the same
-  > tracked total, so there's exactly one source of truth, not two
-  > separately-computed numbers that could drift apart. Card icon:
-  > `GasStationOutline` (confirmed rendering correctly, not a broken
-  > placeholder - see §9.2's note on why that's checked rather than
-  > assumed for every new `PackIconKind`).
-  > **Update (layout, per explicit follow-up instruction):** the first cut
-  > gave the tritium line its own full card row, with Cargo's own `x`
-  > still excluding tritium (e.g. `39 / 128t` + a separate `1t tritium`
-  > row). Changed so Cargo's `x` now **includes** tritium (the honest
-  > total aboard - e.g. `40 / 128t`), with the tritium breakout as an
-  > indented sub-line directly underneath it instead of a full sibling
-  > row - smaller icon/text (`Width`/`Height="14"`, `FontSize="11"`,
-  > `Opacity="0.65"`), and, per the specific ask, its icon's left edge
-  > lines up with where Cargo's leading digit starts (not with Cargo's own
-  > `PackageVariantClosed` icon) - achieved simply by nesting both lines
-  > inside a `StackPanel` in the same Grid column Cargo's text already
-  > occupies, rather than trying to align across two different Grid rows.
-  > `TritiumDisplay` returns empty string (not "Unknown") when there's
-  > nothing to report, driving `Visibility` via the existing
-  > `StringToVisibilityConverter` (already used elsewhere on this tab) so
-  > the sub-line is omitted entirely rather than shown as "0t tritium".
-  > A new `TotalCargoDisplayed` private property
-  > (`CurrentCargo + CurrentTritium`) feeds `CargoDisplay`'s `x`;
-  > `CurrentCargo` itself (tritium-excluded) is untouched and still drives
-  > `AvailableCargoCapacity`/`CanBeEngineer` - the number that's
-  > *displayed* and the number that's *calculated* are deliberately
-  > different now, each serving its own purpose.
-  > **Verified live**, both changes together, against two real concurrent
-  > commanders: "Haggis and Chips" showed `40 / 128t` with an indented
-  > `1t tritium` line whose icon's left edge lined up exactly with the
-  > "4" above it (confirmed via a zoomed screenshot crop); "HAGGIS
-  > MACSPORRAN" (no tritium tracked) showed `4 / 4t` with no tritium line
-  > at all - and, separately, still correctly had Engineer disabled (full
-  > hold, zero available capacity) despite the display change.
-  > **Update (CarrierId, implemented):** the same `CarrierID` used to
-  > resolve `CarrierSystem`/`CarrierBody` (see the fleet carrier caveat
-  > below) is now also kept on the view model (`CarrierId`, not shown on
-  > the card) - used by the Captain role (§11.5) to filter
-  > `CarrierJumpRequest`/`CarrierLocation` events to "this commander's own
-  > carrier" the same way the existing per-instance summary already does.
+- All fields are found in a single sequential pass over the journal,
+  taking the latest occurrence of each relevant event.
+- Cargo's current tonnage excludes tritium for the purpose of Engineer
+  eligibility (§5.5) but *includes* it in the displayed total, with tritium
+  broken out as its own line. Tritium is tracked incrementally across every
+  event that can move it into or out of the ship's hold (`Cargo`,
+  `CargoTransfer`, `CarrierDepositFuel`, `MarketBuy`, `MarketSell`),
+  resyncing from a `Cargo` event's own `Inventory` breakdown whenever one
+  is present (it isn't always).
+- If a process has no main window yet, or exits mid-scan, window/monitor
+  fields degrade to "Unknown" rather than failing the whole scan.
+- Cards stretch to fill the tab's full available width, in a
+  vertically-stacked, scrollable list.
 
-- All of the above (Commander/FID/cargo/location/carrier) are found in a
-  **single sequential pass** over the journal file, taking the **latest**
-  occurrence of each relevant event — not one pass per field. Most of
-  these fields genuinely change during a session (cargo, location, carrier
-  position), so "first occurrence found" would go stale; Commander/FID
-  don't change in practice but are read the same way for one uniform
-  implementation rather than a special case. Event lines are dispatched by
-  extracting the `"event":"…"` value directly (cheaper than a full JSON
-  parse) before deciding whether to parse the rest of the line at all.
-- If a process has no main window yet (e.g. still on the loading/splash
-  screen) or exits mid-scan, the window/monitor fields degrade to
-  "Unknown" rather than failing the whole scan for that instance.
-- **Fleet carrier name caveat:** Frontier only logs `CarrierStats` (which
-  carries the carrier's player-chosen `Name`) when the commander opens the
-  in-game Carrier Management panel — it is *not* written automatically at
-  session start the way `Loadout`/`Cargo` are. So a commander can genuinely
-  own a carrier and still show "Unnamed carrier" (or "None detected this
-  session" if no carrier-related event has fired at all) if they haven't
-  opened that panel yet this session — confirmed live, both real test
-  commanders showed "Unnamed carrier" despite owning one, because
-  `CarrierLocation`/`CarrierJump` events were present (giving a location)
-  but `CarrierStats` was not. This is a real journal limitation, not a
-  bug, and is not worth working around by reading older journal files
-  (adds cross-session complexity/staleness risk for a cosmetic gap — see
-  §13).
-  > **Update (bug found and fixed live):** the first implementation took
-  > whichever `CarrierLocation`/`CarrierJump` event was simply *latest in
-  > the file*, regardless of which carrier it described — and it turns out
-  > a commander's journal can contain these events for carriers they don't
-  > own. Specifically, `CarrierLocation` carries a `CarrierType` field
-  > (`"FleetCarrier"` for one's own vs. `"SquadronCarrier"` for a shared
-  > squadron carrier), and both test commanders — being in the same
-  > in-game squadron — had `SquadronCarrier` pings for the *same* shared
-  > carrier interleaved with their own `FleetCarrier` pings. Because the
-  > squadron ping happened to be timestamped later, both cards wrongly
-  > showed the squadron carrier's location as if it were each commander's
-  > own. Fixed by: (1) only ever recording `CarrierLocation` entries whose
-  > `CarrierType` is `"FleetCarrier"`; (2) tracking all seen
-  > `CarrierJump`/`CarrierLocation` entries in a map keyed by `CarrierID`
-  > (from `MarketID` on `CarrierJump`) rather than one scalar "latest"
-  > value; (3) after the full pass, resolving the displayed location by
-  > looking up the confirmed-owned `CarrierID` (from `CarrierStats`) in
-  > that map — or, if `CarrierStats` never fired this session so ownership
-  > can't be confirmed by ID, falling back to the map's one entry *only if
-  > there is exactly one distinct carrier ID on record* (no ambiguity to
-  > resolve); otherwise the location is left unknown rather than guessed.
-  > Verified against the real journals: each commander's card now shows
-  > their own carrier's actual system, not the shared squadron carrier's.
+### 5.4 Role assignment
+- Two roles, **Captain** and **Engineer**, each assignable to at most one
+  running instance (not necessarily the same one). Each card has toggle
+  buttons for both.
+- **Engineer** cannot be assigned to an instance whose available cargo
+  capacity is zero or unknown.
+- Assigning **Captain** to an instance (whether or not a different
+  instance already held it) resets the whole route, then replays that
+  instance's journal into it (§5.6). Clearing Captain — explicitly, or
+  because its instance stops running — leaves the route exactly as
+  displayed. A new instance appearing in a scan never disturbs
+  Captain/Engineer assignments already held by other running instances.
+- Assigning Captain also triggers a background rescan of all instances.
 
-### 11.4 Refresh behavior
-- The scan (process enumeration + journal reads + Win32 window/monitor
-  lookups) runs on a background thread so it never blocks the UI thread;
-  the rest of the app (including the Route tab) stays interactive during
-  a scan.
-- The Refresh button disables itself for the duration of a scan and
-  re-enables once it completes.
-- Triggered once automatically when the Roles tab's ViewModel is
-  constructed (i.e. on app startup), and again on every Refresh click.
+### 5.5 Persistence of role assignment
+See §6.
 
-### 11.5 Role assignment
-- There are 2 roles "Captain" and "Engineer" and both should be assignable
-  to one and only one running instance. They do not have to be assigned to
-  the same instance, but they can be.
-- When Captain is assigned start monitoring its journal file and setup an
-  event handler that can update the route depending on the events received.
-  This should also trigger a reread of the journal file to update the
-  Roles tab with the latest information. While reading the journal file
-  process CarrierJumpRequest and CarrierLocation events (matching the
-  Captain's carrier ID) to update the route.
-- The Engineer role cannot be assigned to a CMDR whose ship available
-  capacity is zero (either they have no cargo racks or they are full), or
-  whose available capacity isn't known at all.
-- Clearing the Captain role - explicitly, or because its instance stops
-  running - leaves the route exactly as it is; nothing is rolled back or
-  reset. Assigning Captain to an instance (whether or not a different
-  instance already held it) resets the whole route first, then performs
-  the journal replay described above. A new instance appearing in a scan
-  must not disturb the Captain/Engineer assignments already held by
-  other, still-running instances.
+### 5.6 Journal-driven route updates
 
-  > **Update (implemented, `RolesViewModel`/`CarrierRouteJournalWatcher`):**
-  > - Each card gets **Captain**/**Engineer** toggle buttons (top-right).
-  >   Assigning a role to one card clears it from whichever other card
-  >   held it; clicking an already-held role's button unassigns it. Role
-  >   holders are tracked by `ProcessId` and restored onto the new
-  >   `EliteInstanceViewModel` objects after every refresh (they're
-  >   rebuilt from scratch each scan - see §11.3's doc comment); a role
-  >   holder that's no longer in the scan results loses the role.
-  >   Engineer's button is disabled exactly when `CanBeEngineer` is false -
-  >   available capacity ≤ 0, **or** not known at all (`Loadout`/`Cargo`
-  >   haven't been read yet this session).
-  >   > **Update (reversed):** originally unknown capacity did *not* block
-  >   > assignment (only positively-known-zero did), reasoning that
-  >   > blocking on missing data would frustrate the user when it just
-  >   > hadn't loaded yet. Reversed per explicit instruction - unknown now
-  >   > blocks too, so the button can't be used to assign Engineer to an
-  >   > instance the app genuinely doesn't know has any free space.
-  >   > **Confirmed live:** actual journal field names, taken directly from
-  >   > a real journal rather than assumed - `CarrierJumpRequest` carries
-  >   > `CarrierType`, `CarrierID`, `SystemName` (the requested
-  >   > destination); `CarrierLocation` carries `CarrierType`, `CarrierID`,
-  >   > `StarSystem` (where it now is). Both event types are filtered to
-  >   > `CarrierType == "FleetCarrier"` before matching `CarrierID` - same
-  >   > squadron-carrier-must-not-be-mistaken-for-own-carrier caveat as
-  >   > §11.3's `CarrierLocation` handling.
-  > - `CarrierJumpRequest` -> `RowEventKind.Plotted`; `CarrierLocation` ->
-  >   `RowEventKind.Arrived` (the composite step). Both are routed through
-  >   the new `IRowEventTrigger` machinery (§10) via a single
-  >   `ManualRowEventTrigger` instance shared between `RouteViewModel` and
-  >   `RolesViewModel` (constructed once in `MainViewModel` and passed to
-  >   both), so `RolesViewModel` never touches `RouteViewModel`/`Rows`
-  >   directly.
-  > - `CarrierRouteJournalWatcher` (`Services/`) does the actual reading:
-  >   on assignment it reads the **whole** journal file first, oldest to
-  >   newest, replaying every matching historical event through the row
-  >   trigger in order - this is what makes "bring the route up to date"
-  >   work from a single assignment even after several jumps have already
-  >   happened (e.g. the app was restarted mid-journey). After that it
-  >   live-tails new lines via `FileSystemWatcher`, tracking a byte offset
-  >   and only consuming complete (newline-terminated) lines so a line
-  >   caught mid-write by the OS isn't parsed as truncated JSON and lost.
-  >   > **Verified live** against a real running instance and a real
-  >   > journal containing one already-completed jump: assigning Captain
-  >   > correctly marked the already-passed rows Complete (including a row
-  >   > with no event of its own, caught up as a side effect of the next
-  >   > row's Arrived event - see §10's Update), left the row matching the
-  >   > carrier's actual current system in progress, and did not touch the
-  >   > rows beyond it. A real jump takes roughly 16 minutes between
-  >   > `CarrierJumpRequest` and `CarrierLocation`; the live-tail path
-  >   > (as opposed to the historical-replay path) has not yet been
-  >   > exercised end-to-end against a fresh in-flight jump.
-  > - Assigning Captain also calls the existing `RefreshCommand` (if not
-  >   already refreshing), satisfying "trigger a reread... to update the
-  >   Roles tab" - the same background scan already reads the whole
-  >   journal for the card fields, so no second full-file read is needed
-  >   for that half of the requirement.
-  > - The journal watcher runs its FileSystemWatcher callback off the UI
-  >   thread; `RolesViewModel` marshals back onto the UI dispatcher
-  >   (`Application.Current.Dispatcher.BeginInvoke`) before firing the row
-  >   trigger, since `RouteRowViewModel`'s bound properties must only be
-  >   mutated from the UI thread - the same reason `TimerSequenceTrigger`
-  >   uses a `DispatcherTimer` rather than a plain `System.Threading.Timer`.
-  > **Update (derived Jumping/Cooldown-clear transitions, implemented):**
-  > `Jumping` and clearing `Cooldown` have no `CarrierJumpRequest`/
-  > `CarrierLocation` event of their own to react to - they're derived from
-  > timestamps already on those two events, applied once the real world
-  > clock reaches the right instant:
-  > - `CarrierJumpRequest`'s own `DepartureTime` field schedules the
-  >   `Plotted` -> `Jumping` transition for its row.
-  > - `CarrierLocation`'s own `timestamp` field + 5 minutes schedules
-  >   clearing that row's `Status` (ending the `Cooldown` display).
-  >   > **Update (retimed against real-world observation - see below):**
-  >   > this offset (and the `DepartureTime` one above) were both later
-  >   > found to not match what actually happens in-game; superseded by the
-  >   > "Update (transition timings corrected...)" block near the end of
-  >   > this section.
-  > - Two new `RowEventKind` values (`Jumping`, `CooldownElapsed`) carry
-  >   these through the same `IRowEventTrigger` pipeline as `Plotted`/
-  >   `Arrived` (§10's Update) - `RouteSequencer.FindTargetIndex` matches
-  >   them more precisely than `Plotted`/`Arrived` (System text **and** the
-  >   exact status their originating event left behind: `Jumping` only
-  >   matches a row currently `Plotted`; `CooldownElapsed` only matches a
-  >   Complete row currently showing `Cooldown`), so a stale/duplicate
-  >   timer firing after the row has already moved on is a safe no-op.
-  > - All the actual real-world scheduling (deciding whether to fire now
-  >   or later, and the `Timer` that fires later) lives entirely in
-  >   `CarrierRouteJournalWatcher` (`Services/`), **not** `RouteSequencer`/
-  >   `Sequencing/` - see §10's Update for why: the non-negotiable
-  >   event-driven-sequencing rule scopes to `Sequencing/`, and keeping
-  >   all wall-clock reasoning outside it entirely (rather than arguing
-  >   case-by-case whether a given timer "counts") means that rule never
-  >   has to be relitigated for this feature or the next one.
-  > - This is what makes "assigning Captain reflects this - either
-  >   clearing immediately or scheduling for the appropriate amount of
-  >   time" (the requirement that prompted this Update) work correctly
-  >   without any special-casing: `ProcessLine` runs identically whether
-  >   it's reading long-past history (assignment/reread) or a live
-  >   `FileSystemWatcher` tick - each derived event fires immediately if
-  >   its computed time has already elapsed (the common case when
-  >   replaying an old journal - confirmed live: on reassignment, two
-  >   already-long-completed jumps in the real test journal both cleared
-  >   their `Cooldown` status immediately, rather than sitting there
-  >   permanently as they had before this Update), or via a real,
-  >   non-blocking one-shot `Timer` if it's still in the future (the
-  >   common case for a jump just requested live).
-  >   > **Verified:** a standalone harness (`CarrierRouteJournalWatcher`
-  >   > pointed at a synthetic journal, no game/app involved) confirmed a
-  >   > `DepartureTime` a few seconds out fires `Jumping` at the correct
-  >   > wall-clock instant (accurate to ~2ms - ordinary thread-pool timer
-  >   > jitter) via the `Timer` path, and that a live-appended
-  >   > `CarrierLocation` line is picked up via `FileSystemWatcher` and
-  >   > fires `Arrived` within milliseconds. The immediate-if-already-due
-  >   > branch was verified separately, live, against the real "Haggis and
-  >   > Chips" journal (§10/above). The only untested leg end-to-end is a
-  >   > **real** jump's full ~16-minute `CarrierJumpRequest` ->
-  >   > `CarrierLocation` gap through a live game session; the code path
-  >   > is identical to what's already been verified in both halves.
+Once Captain is assigned, RouteJumper watches that commander's journal file
+for `CarrierJumpRequest`/`CarrierLocation` events belonging to their own
+fleet carrier (filtered by `CarrierID` and `CarrierType == "FleetCarrier"`,
+so a shared squadron carrier's events are never mistaken for the
+commander's own).
 
-  > **Update (reset-on-(re)assign, implemented):** a new `RowEventKind.Reset`
-  > (not row-targeted - applies to every row: `Icon` -> `None`, `Status` ->
-  > cleared) is fired by `RolesViewModel.ToggleCaptain`'s assign branch,
-  > synchronously on the UI thread, before `StartCaptainWatch` kicks off the
-  > new instance's replay. Since the watcher's own events are always
-  > marshaled onto the UI dispatcher (`Application.Current.Dispatcher.
-  > BeginInvoke` - see above), they're queued strictly after this
-  > synchronous reset regardless of how quickly the watcher's background
-  > read completes, so the ordering (reset, *then* replay) can't race.
-  > Unassigning Captain (explicitly, or via the existing "role holder no
-  > longer running" cleanup in `RefreshAsync`) never fires `Reset` - both
-  > just stop the watcher and leave `Rows` untouched, which was already
-  > true before this Update and needed no code change.
-  > "A new instance appearing doesn't disturb existing role assignments"
-  > also needed no code change: `RefreshAsync` already re-derives every
-  > instance's `IsCaptain`/`IsEngineer` independently from
-  > `_captainProcessId`/`_engineerProcessId` on every scan (§11.3's note on
-  > `EliteInstanceViewModel` being rebuilt from scratch each refresh), so
-  > an additional instance showing up alongside existing ones was already
-  > handled correctly by construction.
-  > **Verified live**, with two real concurrent instances running
-  > ("Haggis and Chips" and "HAGGIS MACHAUL"): assigning Captain to the
-  > first, then reassigning it to the second, reset the route and replayed
-  > the second commander's own (different) journal history from scratch -
-  > initially showing `Cooldown` still active on row 2, distinct from the
-  > first commander's already-elapsed one (later found to be a bug in that
-  > *distinctness*, not a feature working correctly - see the next Update).
-  > Clearing Captain left the route exactly as displayed. A manual Refresh
-  > while Captain was assigned (both instances rescanned) left both the
-  > Captain assignment and the route untouched.
+- On assignment, the whole journal file is read first, oldest to newest,
+  replaying every matching historical event in order — this is what lets
+  a single assignment bring the route fully up to date even after several
+  jumps already happened (e.g. the app was restarted mid-journey). After
+  that, new lines are live-tailed via a `FileSystemWatcher`.
+- A `CarrierLocation` event is only trusted as evidence of a real jump —
+  and so only used for row matching/catch-up — once a `CarrierJumpRequest`
+  has been seen for that carrier in the journal. The very first
+  `CarrierLocation` in a session is Frontier's passive "wherever the
+  carrier happened to be when the game loaded" snapshot, not the result of
+  a jump. Exception: if the carrier has made *no* jump requests anywhere
+  in the journal at all (e.g. right after restarting the game mid-journey,
+  before requesting a new jump), the passive snapshot is trusted instead,
+  since it's the only evidence of progress available.
+- Matching a route row to a journal event is always by System name
+  (case-insensitive), not row position, since the journal only knows
+  system names. Matching a `CarrierJumpRequest`/arrival to a row silently
+  completes every earlier not-yet-complete row along the way, so one event
+  can catch up several rows at once.
 
-  > **Update (bug found and fixed live - startup CarrierLocation
-  > misread as a fresh arrival):** the "`Cooldown` still active" result
-  > just above for HAGGIS MACHAUL turned out to be wrong, not a genuine
-  > in-progress cooldown. Frontier logs a `CarrierLocation` ping at session
-  > start (a snapshot of wherever the carrier already was, not an
-  > arrival), and the original implementation had no way to tell that
-  > apart from a real one - it just scheduled `CooldownElapsed` off
-  > whatever timestamp the event carried, so a startup ping timestamped
-  > (say) 2 minutes ago left `Cooldown` genuinely - but wrongly - still
-  > showing for 3 more minutes.
-  > First fix (superseded below): treat the **first** `CarrierLocation`
-  > matched during the initial replay as already elapsed for cooldown
-  > purposes only, still applying the full Arrived/catch-up action to it
-  > otherwise. This turned out to only paper over the timing symptom of a
-  > deeper problem - see the next Update, which replaced this fix
-  > entirely.
+**Transitions and timing** (all measured from a journal event's own
+timestamp, never from when the app happens to read the line; each fires
+immediately if its computed time has already passed when replaying
+history, otherwise via a non-blocking timer):
 
-  > **Update (more serious bug found and fixed live - whole route marked
-  > complete on assignment):** reported live: with only Haggis and Chips
-  > running, sitting at `Col 285 Sector NL-J b23-1` (correctly shown on
-  > the Roles card), assigning Captain against a **freshly-typed** route -
-  > `Sol, Alpha Centauri, NL-J b23-1, NL-J b23-5, RP-F c11-17, KF-L b22-3,
-  > JF-L b22-8` (`JF-L b22-8` deliberately placed *last*, not duplicated)
-  > - marked the **entire** route Complete, not just up to `NL-J b23-1`.
-  > Root cause: the session-start `CarrierLocation` snapshot (`JF-L
-  > b22-8` - wherever the carrier was sitting before any of today's
-  > jumps) was still being treated as a real `Arrived` event, just with
-  > the cooldown-timing workaround above. `Arrived`'s catch-up marks every
-  > row *before* the matched row Complete - and since this freshly-typed
-  > route happened to place `JF-L b22-8` **last**, "before the matched
-  > row" meant "the entire rest of the route", none of which the carrier
-  > had actually visited via *this* route. The previous Update's fix
-  > addressed the wrong layer: the timestamp wasn't the problem, treating
-  > an unpaired snapshot as jump evidence at all was.
-  > Fixed by recognizing what actually distinguishes the passive snapshot
-  > from a real arrival: a real arrival always has a `CarrierJumpRequest`
-  > immediately before it (same carrier, this session); the snapshot never
-  > does, because it's logged before any jump has been requested at all.
-  > `CarrierRouteJournalWatcher` now tracks a single `_hasSeenJumpRequest`
-  > flag (spanning both the initial replay and live monitoring, never
-  > reset) and **skips `CarrierLocation` entirely** - no `Arrived`, no
-  > catch-up, no `CooldownElapsed` scheduling - until at least one
-  > `CarrierJumpRequest` has been seen for that carrier. The
-  > `_isInitialRead`/`_firstArrivalDuringInitialReadHandled` fields and
-  > the cooldown-timing special case from the previous Update were removed
-  > entirely, superseded by this simpler, more correct rule.
-  > This still resolves the original mid-journey "resume after restart"
-  > case, but *derived* from real evidence instead of assumed from the
-  > passive snapshot: `Plotted`/`Arrived` already catch up every row
-  > before their matched row (§10's Update), so the **first real**
-  > `CarrierJumpRequest` of the session does exactly the same "catch up
-  > everything before this row" job the skipped snapshot used to do -
-  > just anchored to a row the carrier actually, deliberately jumped
-  > towards, not merely a row that happens to share a name with wherever
-  > it was sitting before any jump was requested.
-  > **Verified live**, twice: (1) the original baseline route (`JF-L
-  > b22-8` second, matching mid-route) re-run against this fix produces
-  > the identical correct result as before (rows 1-3 Complete, row 4
-  > InProgress) - confirming the fix doesn't regress the case it was
-  > built for; (2) the reported repro route above now correctly shows only
-  > rows 1-3 Complete (`Sol`, `Alpha Centauri`, `NL-J b23-1` - matching his
-  > real progress) and row 4 InProgress, with rows 5-7 - including the
-  > trailing `JF-L b22-8` - correctly left untouched, since the carrier
-  > never actually traveled through them via this route.
+1. `CarrierJumpRequest` → the row's `Status` becomes `Plotted`
+   immediately.
+2. 3 minutes before that event's own `DepartureTime` → `Status` becomes
+   `Jumping`.
+3. 1 minute after the matching `CarrierLocation`'s own timestamp → the
+   arrived-at row's icon becomes Complete with a blank status; if a next
+   row exists, *that* row's icon becomes in-progress and *its* `Status`
+   becomes `Cooldown` — the cooldown belongs to the row waiting on it, not
+   the row that just finished. Nothing is put into Cooldown if there's no
+   next row.
+4. A further 4 minutes after that (5 minutes after `CarrierLocation` in
+   total) → the next row's `Cooldown` status clears.
 
-  > **Update (regression found and fixed live - multi-session journeys
-  > with no jump requested yet):** the previous Update's fix ("skip
-  > `CarrierLocation` until a `CarrierJumpRequest` has been seen") broke
-  > the legitimate case it was meant to help with: reported live after
-  > restarting Elite Dangerous from the desktop (which cycles to a brand
-  > new journal file) mid-journey - the new journal's *only* carrier event
-  > is the passive startup snapshot, since nothing has requested a new
-  > jump yet this session, so the gate never opened and the route never
-  > updated on assignment at all. Flagged as the more serious of the two
-  > bugs, since real fleet-carrier journeys (real-world jump cooldowns
-  > measured in tens of minutes) routinely span multiple game sessions/
-  > days, where restarting mid-journey with nothing freshly requested yet
-  > is the *common* case, not an edge case.
-  > Fixed with `CarrierRouteJournalWatcher.HasAnyJumpRequestSoFar`: before
-  > the main pass, a quick pre-scan of the journal (as it stands at
-  > assignment time) checks whether this carrier has a `CarrierJumpRequest`
-  > *anywhere* in it. If none exists at all, `_hasSeenJumpRequest` is
-  > seeded `true` from the start (gate open, snapshot trusted) rather than
-  > `false` (gate closed until a real request is reached) - since in that
-  > specific case the passive snapshot genuinely is the only evidence of
-  > progress available, and refusing to use it would mean a long journey
-  > could never resume until the next jump is manually requested. If a
-  > request *does* exist anywhere in the journal, the gate still starts
-  > closed as before - §11.5's route-mismatch bug fix is unaffected for
-  > that case.
-  > This is a best-effort heuristic, not a guarantee: it cannot distinguish
-  > "no requests yet because progress genuinely stalled here" from "no
-  > requests yet, and this position is unrelated to the current route" -
-  > the latter can still, in principle, cause the same over-completion the
-  > previous bug fix addressed. Accepted trade-off given the alternative
-  > (never trusting an unpaired snapshot) breaks the common multi-day
-  > case entirely; §11.6's manual "Set next system" override exists
-  > specifically to rectify this heuristic (or a genuinely off-route
-  > carrier) when it does guess wrong.
-  > **Verified live** against the real regression: with Elite Dangerous
-  > restarted (fresh journal, zero `CarrierJumpRequest` events, single
-  > `CarrierLocation` reflecting the carrier's real current position) and
-  > the original baseline route, assigning Captain now correctly shows
-  > rows 1-3 Complete and row 4 InProgress again - matching the pre-
-  > regression result.
+- Assigning Captain resets every row (`Icon → None`, `Status →` blank)
+  before replaying, so a previous Captain's leftover progress never
+  lingers.
+- This whole mechanism is event-driven by design (see CLAUDE.md's
+  non-negotiable rule): every row mutation is a direct response to an
+  event, never a hardcoded delay inside the row-update logic itself. The
+  real-world scheduling described above lives in the journal watcher, not
+  in the row-update logic, which only ever reacts to "now".
 
-  > **Update (transition timings corrected against real-world
-  > observation):** reported live: the derived transitions didn't happen
-  > when expected during actual play - `Jumping` should not appear at the
-  > instant `DepartureTime` is reached, and `Cooldown` should not appear
-  > at the instant `CarrierLocation` is logged; both lag the real in-game
-  > moment. Retimed as follows (all three offsets are measured from a
-  > journal event's own timestamp, never from when the app happens to
-  > read the line):
-  > - `Plotted` -> `Jumping`: **3 minutes before** `CarrierJumpRequest`'s
-  >   own `DepartureTime` (previously: exactly at `DepartureTime`).
-  > - `Jumping` -> the composite `Arrived`/`Cooldown` step: **1 minute
-  >   after** `CarrierLocation`'s own `timestamp` (previously: immediately
-  >   on that event).
-  > - `Cooldown` -> cleared: a further **4 minutes after** the `Arrived`
-  >   step above (i.e. 5 minutes after `CarrierLocation`'s own timestamp
-  >   in total - the overall cooldown length is unchanged from before this
-  >   Update; only the split between "still showing `Jumping`" and
-  >   "showing `Cooldown`" within that window changed).
-  > Implementation: `CarrierRouteJournalWatcher` gained three named
-  > `TimeSpan` constants (`JumpingLeadTime` = 3 min, `ArrivalToCooldownDelay`
-  > = 1 min, `CooldownDuration` = 4 min, redefined to mean "duration of the
-  > `Cooldown` status itself after `Arrived`", not "duration after
-  > `CarrierLocation` directly" as it did before this Update) in place of
-  > the single prior 5-minute constant. The `CarrierLocation` branch of
-  > `ProcessLine`, which previously fired `Arrived` immediately and only
-  > scheduled `CooldownElapsed`, now schedules **both** `Arrived` and
-  > `CooldownElapsed` (falling back to firing `Arrived` immediately only if
-  > the event is missing a usable `timestamp` at all, in which case
-  > `CooldownElapsed` is skipped too - nothing to schedule it from). No
-  > change was needed in `RouteSequencer`: `FindTargetIndex`'s existing
-  > matching (`Arrived` matches any not-yet-Complete row regardless of its
-  > current status text; `CooldownElapsed` requires `Icon == Complete &&
-  > Status == "Cooldown"`) already tolerates `Arrived` now itself being a
-  > scheduled/delayed event rather than an immediate one.
-  > **Verified** with a standalone harness (`CarrierRouteJournalWatcher`
-  > pointed at synthetic journal files, no game/app involved, same
-  > approach as the earlier harness verification above) covering all three
-  > offsets independently: (1) `Jumping` fires ~3 minutes before a
-  > synthetic `DepartureTime`, confirmed by placing `DepartureTime` a few
-  > seconds beyond the 3-minute lead so `Jumping` fires within the test's
-  > short wait window; (2) `Arrived` fires ~1 minute after a synthetic
-  > `CarrierLocation` timestamp, with `CooldownElapsed` confirmed **not**
-  > to fire prematurely within the same short window (it was still ~4
-  > minutes out); (3) with the synthetic `CarrierLocation` timestamp placed
-  > far enough in the past that only `CooldownElapsed`'s target remained in
-  > the future, `Arrived` fired immediately (already-past instant - the
-  > existing immediate-fire path) and `CooldownElapsed` fired at the
-  > correct wall-clock instant relative to it, confirming the 4-minute gap
-  > between the two is computed from `Arrived`'s own scheduled instant, not
-  > from `CarrierLocation`'s raw timestamp a second time. All three matched
-  > their expected wall-clock instants to within ~1 second (consistent with
-  > the test journal's ISO timestamps only carrying whole-second precision,
-  > not a scheduling inaccuracy). Not yet re-verified against a real,
-  > full-length live jump (the ~16-minute `CarrierJumpRequest` ->
-  > `CarrierLocation` gap noted earlier in this section) - the underlying
-  > mechanism (`ScheduleRowEvent`) is unchanged by this Update, only the
-  > offsets fed into it, so the earlier live verification of that mechanism
-  > still applies.
-
-  > **Update (Cooldown moved to the next row):** per the same feedback and
-  > for the same reason as §7.2's parallel Update (the demo timer
-  > sequence) - the cooldown blocks the *next* jump, not anything about
-  > the row the carrier just arrived at - `Arrived` no longer puts
-  > `Cooldown` on the row it names. Instead: that row goes straight to
-  > `Icon = Complete`, `Status = ""`; **if a next row exists**, *that*
-  > row's `Icon -> InProgress` and `Status -> "Cooldown"` instead. If
-  > there's no next row (the carrier's just-arrived-at system is the last
-  > row in the route), nothing is put into `Cooldown` at all.
-  > `CooldownElapsed` still carries the *arrived-at* system's name (that's
-  > all the originating `CarrierLocation` event ever gave it - see
-  > `CarrierRouteJournalWatcher`, which needed **no changes** for this
-  > Update, since it has no notion of "row" at all and only ever dealt in
-  > system names), so `RouteSequencer` now resolves it in two hops: find
-  > the (by now Complete) row matching that name, then clear `Cooldown` on
-  > the row *after* it - not on the matching row itself. This is a new
-  > method, `ApplyCooldownElapsed`, replacing `CooldownElapsed`'s old path
-  > through the shared `FindTargetIndex` (which matched `Icon == Complete
-  > && Status == "Cooldown"` directly against the named row - no longer
-  > correct, since that row's own status is now always blank). A safe
-  > no-op, matching the existing stale/duplicate-timer tolerance, if the
-  > named row isn't found, or if the row after it isn't currently showing
-  > `InProgress`/`Cooldown` (e.g. a manual "Set next system" override,
-  > §11.6, ran in between and moved things on independently).
-  > **Verified** with a standalone synthetic harness driving
-  > `RouteSequencer` directly through a `ManualRowEventTrigger` (no
-  > journal/UI involved): normal progression (`Plotted`/`Jumping`/`Arrived`
-  > on row 1 puts `Cooldown` on row 2; `CooldownElapsed` named `Arrived`'s
-  > row correctly clears row 2, not row 1); `Arrived` catching up to the
-  > *last* row (no `Cooldown` anywhere, and a subsequent `CooldownElapsed`
-  > for it a safe no-op); `Arrived` catching up to a *middle* row
-  > (`Cooldown` lands on the row immediately after the catch-up target,
-  > not the route's first row); duplicate system names in the route
-  > (targeting still resolves to the correct row instance); and `Reset`
-  > still unconditionally clearing every row regardless of any in-flight
-  > `Cooldown` state. Not separately re-verified against a real live
-  > journal for this Update specifically (the underlying event
-  > choreography - `CarrierJumpRequest`/`CarrierLocation` -> `Plotted`/
-  > `Arrived` -> `RouteSequencer` - is unchanged; only which row
-  > `RouteSequencer` applies `Cooldown` to changed, which the synthetic
-  > harness exercises directly against the exact same `RouteSequencer`
-  > code the real journal path calls into).
-
-### 11.6 Manual override - "Set next system"
-
-Automatic detection from a Captain's journal (§11.5) is a best-effort
-heuristic, not a guarantee - and a fleet carrier can simply be taken off
-whatever route was typed into the app, for reasons that have nothing to
-do with a detection bug. Right-clicking any row in the Route tab's table
-opens a context menu with a single item, **"Set next system"**:
-
-- Every row before the clicked one is set to Complete (icon + cleared
-  status).
-- The clicked row becomes the current row (in-progress icon, cleared
-  status) - regardless of whatever icon/status it held before.
-- Every row after the clicked one is reset to not-yet-started (no icon,
-  cleared status) - regardless of whatever icon/status it held before.
-
-This is a direct, immediate ViewModel command
-(`RouteViewModel.SetNextSystemCommand`), not routed through the
-`IRowEventTrigger`/`RouteSequencer` machinery §10/§11.5 use for
-journal-driven updates - it isn't an external event being reported, it's
-a one-shot manual correction, so there's nothing to gain from the extra
-indirection.
-
-> **Implementation note:** a `ContextMenu` is not part of the visual tree
-> of the element it's attached to, so a binding inside one can't reach an
-> ancestor via `RelativeSource AncestorType=...` the way the rest of this
-> view does (e.g. the Roles tab's role buttons, or this same row's
-> left-click-to-copy). Standard fix: the row's own `DataGridRow` style
-> also sets `Tag` to the `RouteViewModel` (via the same
-> `AncestorType=UserControl` binding that works fine there, since `Tag` is
-> a normal property on an element still in the tree), and the
-> `ContextMenu`'s `MenuItem` reaches back to both the command and its
-> target row via `PlacementTarget` (`PlacementTarget.Tag` for the
-> ViewModel, `PlacementTarget.DataContext` for the clicked row itself, as
-> the command parameter).
-> **Verified live:** right-clicking a row shows the menu; choosing it
-> updates the table exactly as described, and the clicked row's grey
-> selection highlight is unaffected. The menu's `Padding`/`MinHeight` were
-> explicitly overridden (rather than left at the toolkit's default
-> `MenuItem` sizing) after feedback that the default rendering looked too
-> spacious for a single-item menu - confirmed live, visibly more compact.
-> **Update:** still too spacious per further feedback ("about half" of
-> the reduced amount) - vertical `Padding` taken from `6` down to `3`
-> (`Padding="12,3"`).
+### 5.7 Persistence of role assignment (FID-based)
+See §6.
 
 ---
 
-## 12. Acceptance Criteria
+## 6. Persistence
 
-1. Launching the app shows a window with **Route**, **Roles**, and
-   **Controls** tabs, with headings on the left edge of the window; Route
-   is selected by default.
-2. Route tab initially shows an empty, full-size text box with disabled
-   Save and enabled Cancel.
-3. Typing text enables Save; clicking Cancel clears the text box.
-4. Entering N non-empty lines and clicking Save produces a table with
-   exactly N rows, numbered 1..N, `System` matching the input lines
-   verbatim, `Status` empty, icon column empty.
-5. Start is disabled until Save has produced at least one row, and while a
-   sequence is running.
-6. Clicking Start immediately shows the in-progress triangle on row 1.
-7. Every 2 seconds thereafter, exactly one action from §7.2 occurs (the
-   combined tick/next-triangle/Cooldown step counts as one), in the
-   specified order, until all rows have completed.
-8. Row 2's triangle appears at the point specified in §7.2 (within the
-   combined step of row 1's cycle), not before.
-9. Clicking Stop at any time halts further changes; Start re-enables and,
-   if clicked again, restarts the full sequence from row 1.
-10. After the last row completes step 7.2.5, the sequence stops itself
-    without requiring Stop to be clicked, and Start re-enables.
-11. Launching the app (or clicking Refresh) with zero `EliteDangerous64.exe`
-    processes running shows the "No running Elite Dangerous instances
-    found." message and no cards.
-12. Launching the app (or clicking Refresh) with N `EliteDangerous64.exe`
-    processes running shows exactly N cards, each showing that instance's
-    own FID, commander name, cargo, current location, fleet carrier info,
-    journal filename, window handle, window position, and monitor info —
-    correctly attributed even with multiple instances running
-    simultaneously.
-13. Restarting one Elite Dangerous instance (new process, new journal
-    file) and clicking Refresh updates that instance's card to the new
-    journal/window handle without showing stale data from the previous
-    process, and without disturbing other instances' cards.
-14. Moving one instance's window to a different monitor and clicking
-    Refresh updates that instance's window position and monitor fields
-    accordingly.
-15. The Roles tab's initial data load happens automatically on app
-    startup, without requiring the user to click Refresh first.
-16. On launch, the main window is positioned against the right edge of
-    the physically rightmost monitor, vertically centered (§3.5).
-17. A commander who owns a fleet carrier but has not opened Carrier
-    Management this session shows "Unnamed carrier — {system}" (not
-    "None detected" — the location events alone are enough to know a
-    carrier exists) if any `CarrierJump`/`CarrierLocation` event is
-    present; a commander with no carrier-related events at all shows
-    "None detected this session".
-18. After the Material Design restyle, all of the above still hold —
-    styling must not change any behavior, only appearance.
-19. Assigning Captain to a card assigns it to that instance only,
-    unassigning it from any other card that held it; assigning Engineer
-    behaves the same way independently. Verified live: assigning both
-    roles to the same instance is allowed.
-20. Assigning Captain replays that instance's full journal history of
-    `CarrierJumpRequest`/`CarrierLocation` events (for its own fleet
-    carrier only) into the Route tab in one go, correctly catching up
-    rows that have no event of their own (§11.5/§13.1) — verified live
-    against a real journal with one already-completed jump.
-21. The Engineer button is disabled on a card whose available cargo
-    capacity is zero, and also on a card whose available cargo capacity
-    isn't known at all.
-22. A row that receives `Plotted` transitions to `Jumping` 3 minutes
-    before its `CarrierJumpRequest`'s own `DepartureTime`. The composite
-    `Arrived` step (row -> Complete, blank status; next row, if any -> in
-    progress with `Cooldown` - see item 37) happens 1 minute after that
-    row's `CarrierLocation` event's own timestamp, and the next row's
-    `Cooldown` is cleared a further 4 minutes after that (5 minutes after
-    `CarrierLocation` in total). All three: immediately, if replaying
-    history where the computed time has already passed; otherwise at the
-    correct future moment (§11.5's Update on transition timings).
-23. Unassigning Captain, or its instance no longer running, leaves the
-    route exactly as displayed. Assigning Captain to an instance - whether
-    or not a different instance held the role a moment ago - resets the
-    whole route before that instance's journal is replayed into it. An
-    additional instance appearing in a scan does not change which
-    instances (if any) already hold Captain/Engineer.
-24. Clicking anywhere in a row on the Route tab copies that row's system
-    name to the clipboard and plays a confirmation ping; row alignment
-    (`#`/`System`/`Status`) is unaffected. The clicked row's grey
-    selection background is shown; no per-cell border is left behind.
-25. Saving text with leading/trailing/interior blank lines and leading/
-    trailing whitespace around system names produces a table with exactly
-    one row per non-blank line, sequentially numbered, each `System` value
-    trimmed. An empty text box shows "Paste route here, one system per
-    line." as placeholder text.
-26. Assigning Captain against a freshly-typed route only marks rows
-    Complete up to (and including) the carrier's most recent *deliberate*
-    jump (a `CarrierJumpRequest`/`CarrierLocation` pair), never based on
-    the session's passive startup `CarrierLocation` snapshot alone - even
-    when that snapshot's system happens to match a row anywhere else in
-    the route, including the last one.
-27. Assigning Captain against a journal with *no* `CarrierJumpRequest` at
-    all this session (e.g. right after restarting Elite Dangerous
-    mid-journey) still catches the route up to the carrier's current
-    position, using the passive startup snapshot as a fallback.
-28. Right-clicking any row in the Route tab's table shows a context menu
-    with "Set next system"; choosing it marks every row before the
-    clicked one Complete, makes the clicked row the current row, and
-    resets every row after it to not-yet-started - regardless of their
-    prior state.
-29. The Route tab's text box has keyboard focus immediately on app
-    launch, without requiring a click.
-30. A row's icon does not visibly resize as it changes between hidden
-    (`None`) and shown (`InProgress`/`Complete`).
-31. Clicking Edit returns to the text box with its contents unchanged and
-    keyboard focus on it; clicking Save afterward always produces a fresh
-    table (never carrying over old icon/status state), with row 1
-    defaulting to "next" unless a Captain is assigned, in which case the
-    table is immediately re-derived from that Captain's journal instead.
-32. A commander's card shows Cargo's `x` including tritium, with tritium
-    then broken out as its own indented sub-line directly underneath
-    (icon aligned with `x`'s leading digit) - omitted entirely when
-    there's none - regardless of which specific event most recently
-    changed the cargo hold's contents (`Cargo`, `CargoTransfer`,
-    `CarrierDepositFuel`, `MarketBuy`, `MarketSell`). Engineer eligibility
-    is unaffected by the *display* change - still gated on the same
-    underlying tritium-excluded available capacity as before.
-33. Instance cards on the Roles tab stretch to fill the tab's full
-    available width rather than being capped at a fraction of it.
-34. Saving a route persists it; relaunching the app restores it as a
-    fresh table (§5.5's normal Save behavior), without requiring the text
-    box to be re-pasted or Save re-clicked.
-35. Closing the app persists its current position, size, and maximized
-    state; relaunching restores them exactly, in place of the default
-    rightmost-monitor placement - unless the persisted position would no
-    longer be reachable on the current monitor setup, in which case the
-    default placement is used instead.
-36. Assigning Captain or Engineer to a commander persists that
-    commander's FID; on a later app launch (or the same commander's game
-    process restarting mid-session), the role is automatically
-    reassigned to whichever running instance has that FID, including a
-    full journal replay for Captain - with no manual reassignment
-    required. Explicitly unassigning a role clears the persisted FID, so
-    it does not get automatically reassigned again.
-37. When a row completes (icon -> Complete, in both the timer-driven demo
-    sequence and the real Captain/journal-driven flow), its own `Status`
-    is blank immediately - `Cooldown` is never shown on it. If a next row
-    exists, `Cooldown` is shown on *that* row instead (alongside its
-    in-progress icon) for the duration of the cooldown wait, then clears
-    - after which that row proceeds through its own normal cycle. If
-    there is no next row (the row that just completed was the last one),
-    no `Cooldown` is shown anywhere, and - for the timer-driven sequence
-    specifically - that row's cycle is correspondingly shorter, with the
-    sequence stopping itself immediately after (§7.2's Update).
-38. "Auto Copy To Clipboard" (§5.6): a toggle switch, right-aligned above
-    the table, hidden entirely while in Edit state; its on/off state
-    survives Edit/Save within a session but resets to off on app restart
-    (never persisted). While on, a live-monitored `CarrierLocation` event
-    for the assigned Captain's carrier copies the row *after* the
-    arrived-at one to the clipboard immediately - not during the initial
-    historical journal replay, not for the passive session-start
-    snapshot, and not at all if the arrived-at row is the route's last
-    row or isn't found in the route.
-39. Turning "Auto Copy To Clipboard" on immediately copies the route's
-    current in-progress row's `System` text to the clipboard (a no-op if
-    there is no in-progress row - an empty or fully-complete route) -
-    without waiting for a live `CarrierLocation` event. Turning it back
-    off copies nothing.
-40. Whichever row's `System` text was most recently copied to the
-    clipboard (by any means - manual click, a live arrival, or toggling
-    "Auto Copy To Clipboard" on) shows a small clipboard icon after its
-    text, at most one row at a time; the icon disappears the instant the
-    system clipboard's contents change for any reason, including an
-    application other than RouteJumper overwriting it.
-
----
-
-## 13. Open Questions / Future Considerations
-
-- Should the 2 second interval be user-configurable?
-- Should Stop support pausing/resuming mid-row, rather than only a full
-  restart?
-- Should the Roles tab support sending input (keystrokes etc.) to a
-  selected instance's window? The window handle is already captured
-  (§11.3) specifically in anticipation of this.
-- What should the new Controls tab (§3.4) actually contain?
-- Should the 5-minute journal-match tolerance (§11.2) be configurable?
-- Should cargo show an itemized commodity breakdown, not just total
-  tonnage?
-- Should the fleet carrier name fall back to scanning older journal files
-  when `CarrierStats` hasn't fired in the current session (§11.3)? Carrier
-  ownership/name rarely changes, so a historical lookup would likely still
-  be accurate — but it adds cross-file complexity and a "how far back do
-  we look" judgment call that felt premature to build without a concrete
-  need.
-
-### 13.1 Row-addressable triggers — implemented for §11.5
-
-> **Update: implemented.** The triggering events anticipated below are now
-> defined (§11.5's `CarrierJumpRequest`/`CarrierLocation`), so this was
-> scheduled and built. Kept here (rather than deleted) as a record of what
-> was originally anticipated vs. what was actually built, and because the
-> harder open question below (out-of-order/concurrent row events) is
-> deliberately still unaddressed.
-
-A row-addressable trigger identifies **which row** it applies to (by the
-route's own System text - not by row index/position), rather than always
-meaning "advance the current row in the queue." The original
-`RouteSequencer` design assumed a strictly ordered, pre-built queue of
-actions built once at Start, with no notion of jumping to an arbitrary row
-out of order; the timer-paced queue (§7) still works exactly that way and
-is unchanged.
-
-What was actually built (see §10's Update, `Sequencing/RowEvent.cs`,
-`Sequencing/IRowEventTrigger.cs`, `RouteSequencer.SetRows`/
-`AttachRowTrigger`):
-- A new trigger/event shape that carries a system name instead of a row
-  identifier (`RowEvent { RowEventKind Kind, string SystemName }`) - a row
-  identifier wasn't available at the source (a journal only knows system
-  names), so matching by System text against `RouteRowViewModel.SystemText`
-  turned out simpler than inventing a row-ID concept the event source
-  would have had no way to populate.
-- This runs as a second mechanism alongside `BuildSteps`/
-  `RunNextStepImmediately`, not a rework of them - see §10's Update for why
-  they were kept separate rather than unified.
-- What happens when a row-specific event arrives "out of order": resolved
-  for the single case this was built for (an event names a row further
-  along than the current progress) by treating it as *catch-up* - every
-  not-yet-complete row before the match is silently marked Complete. The
-  harder cases flagged originally - two rows in flight at once, or an
-  event for a row *behind* current progress - remain unaddressed; the
-  current `ApplyRowEvent` finds the first matching row that isn't already
-  Complete, so an event for an already-completed system is a silent no-op
-  rather than an error, but there's still no real model for "in flight"
-  beyond a single InProgress row at a time.
-
----
-
-## 14. Persistence
-
-Previously explicitly out of scope (§2's original "Persistence of route
-lists between sessions" entry) - brought into scope on request. A first
-instance, not the final/complete list - see the Update below for what was
-suggested but deliberately left out this round.
-
-### 14.1 Storage
-
-- SQLite (`Microsoft.Data.Sqlite`), a single file at
-  `%LocalAppData%\RouteJumper\routejumper.db` - the standard per-user,
-  non-roaming location for local application state (settings/cache, not
-  user documents, and not meant to follow the user across machines via a
-  roaming profile).
-- A single generic `Settings (Key TEXT PRIMARY KEY, Value TEXT)` table,
-  not a dedicated table per setting - what's persisted today (route text,
-  window bounds, Captain/Engineer FIDs) is explicitly a first instance,
-  so new values can be added later without a schema migration.
-  `AppSettingsStore` (`Services/`) wraps it with typed `GetString`/
-  `SetString`/`GetDouble`/`SetDouble`/`GetBool`/`SetBool` accessors; every
-  call opens and closes its own short-lived connection rather than
-  holding one open for the app's lifetime, appropriate for the small,
-  infrequent read/write volume this app actually has.
-- Every operation is wrapped so a persistence failure (e.g. a permissions
-  issue creating the file) degrades to "nothing persisted"/"writes
-  silently no-op" rather than the app failing to start or crashing over
-  it - persistence is a nice-to-have layered on top of the app's core
-  functionality, not a dependency of it.
-
-### 14.2 What's persisted, and when
+A single generic `Settings(Key TEXT PRIMARY KEY, Value TEXT)` table in a
+local SQLite database at `%LocalAppData%\RouteJumper\routejumper.db`. Every
+operation opens and closes its own short-lived connection. A persistence
+failure (e.g. a permissions issue) degrades to "nothing persisted" rather
+than the app failing to start.
 
 | What | Persisted when | Restored when |
 |---|---|---|
-| Route text (§4.3/§5.5) | Every Save - first time, or after Edit | App startup - see Update |
-| Window position, size, and maximized state | Window closing | App startup, in place of the default rightmost-monitor placement (§3.5) - see Update |
-| Which commander (by FID) holds Captain | Assigned/explicitly unassigned (§11.5) | Every Roles tab refresh while currently unassigned - see Update |
-| Which commander (by FID) holds Engineer | Assigned/explicitly unassigned (§11.5) | Every Roles tab refresh while currently unassigned - see Update |
+| Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
+| Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
+| Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 
-> **Update (route text):** `RouteViewModel.RestoreFromSettings()` (called
-> once, from `MainViewModel`'s constructor, after wiring `RouteSaved` -
-> see its own doc comment on why that ordering is asked for even though
-> it turns out not to be strictly load-bearing) sets `RouteText` and
-> calls `Save()` directly if a non-blank route was persisted - reusing
-> `Save()` itself rather than duplicating its row-building logic, so a
-> restored route goes through exactly the same "fresh table, row 1
-> defaults to next" path a real Save does (§5.5).
+- Role assignment is restored by FID (not `ProcessId`, which doesn't
+  survive a process restart) — this covers both "app just launched" and
+  "the role holder's game process restarted mid-session" with the same
+  logic. A restored Captain match goes through the same reset-and-replay
+  as a fresh manual assignment.
+- Explicitly unassigning a role clears its persisted FID, so it is not
+  automatically reassigned on the next refresh. A role holder's process no
+  longer running clears the in-memory assignment but leaves the persisted
+  FID alone, so it can be picked back up automatically if that commander's
+  instance reappears.
+- "Auto Copy To Clipboard" (§4.6) is deliberately **not** persisted —
+  always off on a fresh launch, by design.
+- Not persisted: per-row progress (icon/status), and the last-selected
+  tab.
 
-> **Update (window bounds):** persisted in `MainWindow.xaml.cs`'s
-> `Closing` handler; while maximized, `RestoreBounds` is saved instead of
-> `Left`/`Top`/`Width`/`Height` (which reflect the full-screen size at
-> that point, not what should come back as the "normal" size next
-> launch). Restored at `SourceInitialized`, **before** falling back to
-> the original rightmost-monitor default placement (§3.5) - the default
-> only runs if nothing was persisted, or if what was persisted no longer
-> looks reachable. That reachability check
-> (`IsPositionVisibleOnAnyMonitor`) is a deliberately best-effort sanity
-> check, not a precise one: it converts every currently-connected
-> monitor's work area into DIPs using the window's own composition-target
-> transform (the same simplification the *existing* default-placement
-> code already relied on - accurate for monitors sharing that transform's
-> DPI scale) and checks whether the persisted top-left corner lands
-> inside any of them - good enough to catch the egregious case (a monitor
-> was unplugged since last session) without needing full per-monitor DPI
-> awareness for what's just a fallback guard.
-> **Verified live:** moved and resized the window to a distinctive
-> position/size via `SetWindowPos`, closed the app gracefully
-> (`CloseMainWindow`, not a forced kill - `Closing` only fires on a real
-> close), relaunched, and confirmed via `GetWindowRect` the exact same
-> bounds came back.
+---
 
-> **Update (Captain/Engineer FID persistence):** `ToggleCaptain`/
-> `ToggleEngineer` persist the assigned instance's FID on assignment, and
-> clear it (empty string) on **explicit** unassignment only - the
-> existing "role holder's process is no longer running" cleanup
-> (§11.5/§11.6) clears the in-memory `_captainProcessId`/
-> `_engineerProcessId` but deliberately leaves the persisted FID alone,
-> since the process disappearing (the game was closed) shouldn't make the
-> app forget who held the role for next time.
-> `RolesViewModel.RestoreRolesFromSettings` runs at the end of **every**
-> `RefreshAsync` (not just once at startup) - it does nothing if the role
-> is currently assigned in memory, so this is free the rest of the time,
-> but it means both "app just launched" and "the role holder's Elite
-> Dangerous process restarted mid-session" (new `ProcessId`, same FID)
-> are handled by the same code path, with no separate "startup-only"
-> logic needed. Matching is by FID rather than `ProcessId` specifically
-> *because* `ProcessId` doesn't survive a process restart and FID does.
-> A restored Captain match goes through the exact same `Reset` + journal
-> replay a fresh manual assignment would (§11.5) - this is what makes
-> restoring the route (above) and restoring Captain compose correctly on
-> startup: the route is rebuilt first (synchronous, in `MainViewModel`'s
-> constructor), Captain restoration happens moments later (`RolesViewModel`'s
-> own async startup scan), and by the time it fires
-> `StartCaptainWatch`, `RouteSequencer` is already watching the
-> already-rebuilt `Rows` (`SetRows` was called once, in
-> `RouteViewModel`'s constructor, and never needs to be called again -
-> `Rows` is the same collection instance throughout the app's lifetime).
-> Restoring Engineer deliberately **bypasses** `CanBeEngineer` - this is
-> re-applying a previously-valid, user-made assignment, not validating a
-> brand new one, and cargo capacity is commonly still unknown this early
-> after a scan (`Loadout`/`Cargo` may not have been read yet).
-> Both restores guard against matching on the literal string `"Unknown"`
-> (`EliteInstanceScanner`'s fallback when a `Commander` event hasn't been
-> read yet) - persisting or matching on that value would let an unrelated
-> instance, also still showing `"Unknown"`, incorrectly match a role it
-> was never actually assigned (`RolesViewModel.IsRealFid`).
-> **Verified live**, full end-to-end, with a real running instance
-> ("Haggis and Chips"): saved a route, assigned Captain, moved/resized
-> the window, closed gracefully, relaunched with **no manual interaction
-> at all** - the window reopened at the exact persisted bounds, the route
-> table was rebuilt from the persisted text, Captain was automatically
-> reassigned to the same commander (matched by FID), and the route
-> correctly showed the same replayed progress (rows 1-3 Complete, row 4
-> in-progress) as before closing - confirming route restoration and
-> Captain restoration compose correctly, not just each in isolation.
+## 7. Non-Functional Requirements
 
-### 14.3 Considered but not included this round
+- **Framework:** WPF, .NET 8 (`net8.0-windows`), MVVM throughout — no
+  business logic in code-behind. The window-placement, focus-management,
+  and clipboard-monitoring code in `MainWindow.xaml.cs`/`RouteView.xaml.cs`
+  is the sole, deliberate exception, since it needs direct access to a
+  real HWND/message pump that a ViewModel has no access to.
+- **Responsiveness:** the UI stays interactive throughout a Roles tab
+  refresh (a background-thread scan).
+- **No external dependencies** beyond the .NET/WPF base class libraries,
+  `MaterialDesignThemes`/`MaterialDesignColors`, and `Microsoft.Data.Sqlite`.
 
-- Persisting the route table's actual progress (icon/status per row) so
-  it survives even with no Captain to re-derive it from - not needed for
-  the common case (a Captain re-derives real progress from their journal
-  regardless of what was persisted), and adds real complexity (rows need
-  stable identity across a restart, not just position) for a benefit
-  that's mostly redundant with Captain-driven replay.
-- Persisting the last-selected tab (Route/Roles/Controls) - a minor
-  nicety, left out to keep this pass's scope matched to what was asked
-  plus the one explicitly-approved addition (role FIDs), rather than
-  growing further on assumption.
-- A configurable/discoverable "clear all persisted data" action - there's
-  no in-app way to reset persisted state short of deleting
-  `routejumper.db` by hand. Worth adding once there's more persisted
-  state for a reset to meaningfully affect.
-- "Auto Copy To Clipboard" (§5.6) - unlike everything else in this
-  section, explicitly requested as **session-only**, not persisted. Kept
-  entirely separate from `AppSettingsStore`, by design, not oversight.
+---
+
+## 8. Styling — Material Design
+
+- `App.xaml` merges a `materialDesign:BundledTheme` (`PrimaryColor="Blue"`,
+  `SecondaryColor="Cyan"`, `BaseTheme="Light"`) plus
+  `MaterialDesign2.Defaults.xaml`. No dark/light theme toggle.
+- `MainWindow` uses the `MaterialDesignWindow` style so the title bar is
+  themed, not just the controls inside it.
+- Row/status icons and the "Auto Copy To Clipboard" switch use the
+  toolkit's `PackIcon` and `ToggleButton` (styled
+  `MaterialDesignSwitchToggleButton`) controls, colored from the active
+  Material palette (`MaterialDesign.Brush.Secondary`), never hardcoded
+  colors.
+
+---
+
+## 9. Acceptance Criteria
+
+1. Launching the app shows **Route**, **Roles**, **Controls** tabs with
+   headings on the left edge; Route is selected by default.
+2. Route tab starts in Edit state: an empty, full-size text box with
+   disabled Save, enabled Cancel, and keyboard focus already on the box.
+3. Typing text enables Save; clicking Cancel clears the text box.
+4. Saving N non-blank lines produces a table with exactly N rows, numbered
+   1..N, `System` matching the input verbatim (trimmed), `Status` empty,
+   icon column empty except row 1 (in-progress).
+5. Clicking Edit returns to the text box unchanged, with focus restored;
+   re-clicking Save always produces a fresh table, re-derived from the
+   currently-assigned Captain's journal if one is assigned, else defaulting
+   row 1 to in-progress.
+6. Clicking Auto Pilot flips its own label between "Auto Pilot" and
+   "Stop" and disables/enables Edit accordingly; it has no other effect.
+7. Clicking anywhere in a row copies that row's system name to the
+   clipboard, plays a confirmation sound, and shows the clipboard icon
+   after that row's `System` text.
+8. Right-clicking a row and choosing "Set next system" marks every row
+   before it Complete, makes it the current row, and resets every row
+   after it — regardless of prior state.
+9. Launching the app (or clicking Refresh) with zero
+   `EliteDangerous64.exe` processes shows the empty-state message; with N
+   processes, shows exactly N cards with correctly-attributed data, even
+   with multiple instances running simultaneously.
+10. Restarting one instance updates only that instance's card on the next
+    refresh, without disturbing others.
+11. Assigning Captain to a card assigns it to that instance only,
+    unassigning it from any other card that held it; the same
+    independently for Engineer. Both roles can be assigned to the same
+    instance.
+12. Assigning Captain resets the route, then replays that Captain's own
+    fleet carrier's journal history into it — including catching up rows
+    that have no event of their own — using the freshest evidence of a
+    real, deliberate jump rather than a passive session-start snapshot.
+13. A row that receives a jump request transitions to `Jumping` 3 minutes
+    before that request's own `DepartureTime`; the composite
+    Arrived/Cooldown step happens 1 minute after the matching arrival
+    event's own timestamp, and `Cooldown` clears a further 4 minutes after
+    that — on the row *after* the one that arrived, not the arrived-at row
+    itself, and only if a next row exists.
+14. The Engineer button is disabled on any card whose available cargo
+    capacity is zero or unknown.
+15. Turning "Auto Copy To Clipboard" on immediately copies the current
+    in-progress row's system to the clipboard (no-op if there is none);
+    while on, a live-observed carrier arrival copies the *next* row's
+    system, ahead of the row table's own delayed status update.
+16. Saving a route, moving/resizing the window, and assigning Captain all
+    persist; relaunching the app restores the route, window bounds, and
+    Captain assignment (including a fresh journal replay) with no manual
+    interaction required. "Auto Copy To Clipboard" always resets to off.
+17. Explicitly unassigning a role clears its persisted FID so it is not
+    automatically reassigned on a later launch.

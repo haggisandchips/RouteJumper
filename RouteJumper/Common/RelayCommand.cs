@@ -3,8 +3,7 @@ using System.Windows.Input;
 namespace RouteJumper.Common
 {
     /// <summary>
-    /// Standard ICommand implementation used to bind Button clicks (Save/Cancel/Start/Stop)
-    /// to methods on the ViewModels.
+    /// Standard ICommand implementation used to bind Button clicks to methods on the ViewModels.
     /// </summary>
     public class RelayCommand : ICommand
     {
@@ -29,7 +28,8 @@ namespace RouteJumper.Common
 
         /// <summary>
         /// Forces WPF to re-query CanExecute immediately (used after we programmatically
-        /// change state such as IsRunning) rather than waiting for the next UI event.
+        /// change state a command's CanExecute depends on) rather than waiting for the next
+        /// UI event.
         /// </summary>
         public void RaiseCanExecuteChanged() => CommandManager.InvalidateRequerySuggested();
     }

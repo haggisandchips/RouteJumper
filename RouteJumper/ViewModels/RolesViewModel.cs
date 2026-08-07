@@ -8,7 +8,7 @@ namespace RouteJumper.ViewModels
 {
     /// <summary>
     /// ViewModel for the "Roles" tab: lists running EliteDangerous64.exe instances, lets the
-    /// user re-scan for them, and lets the user assign the Captain/Engineer roles (§11.5).
+    /// user re-scan for them, and lets the user assign the Captain/Engineer roles.
     /// </summary>
     public class RolesViewModel : ObservableObject
     {
@@ -122,7 +122,7 @@ namespace RouteJumper.ViewModels
         /// RouteViewModel.Save already gives every row a clean, freshly-constructed starting
         /// state, so there's no separate Reset to fire here the way ToggleCaptain needs one.
         /// If no Captain is assigned, this is a no-op - Save's own default (row 1 marked next)
-        /// is left standing, per SPEC §4.5's Update.
+        /// is left standing.
         /// </summary>
         public void RefreshRouteForCurrentCaptain()
         {
@@ -210,18 +210,18 @@ namespace RouteJumper.ViewModels
                 _settings.SetString(CaptainFidSettingKey, instance.Fid);
             }
 
-            // Per SPEC §11.5: assigning Captain to an instance starts the route from a clean
-            // slate before replaying that instance's journal - a previous Captain's leftover
-            // progress (or a manual demo run) must not linger and interfere with matching.
-            // Fired synchronously (we're already on the UI thread here), so it's guaranteed to
-            // apply before any of the new watcher's replayed events, which are always queued
-            // via the dispatcher (see StartCaptainWatch) and so can never run ahead of this.
+            // Assigning Captain to an instance starts the route from a clean slate before
+            // replaying that instance's journal - a previous Captain's leftover progress must
+            // not linger and interfere with matching. Fired synchronously (we're already on the
+            // UI thread here), so it's guaranteed to apply before any of the new watcher's
+            // replayed events, which are always queued via the dispatcher (see
+            // StartCaptainWatch) and so can never run ahead of this.
             _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
 
             StartCaptainWatch(instance);
 
-            // Per SPEC §11.5: assigning Captain also triggers a reread to refresh this tab -
-            // that same reread is what replays the carrier's journal history into the route.
+            // Assigning Captain also triggers a reread to refresh this tab - that same reread
+            // is what replays the carrier's journal history into the route.
             if (RefreshCommand.CanExecute(null))
             {
                 RefreshCommand.Execute(null);

@@ -6,7 +6,7 @@ namespace RouteJumper.Common
     /// ICommand implementation for async handlers (e.g. Refresh, which does file/process I/O
     /// and must not block the UI thread). Mirrors RelayCommand's shape; callers are expected to
     /// track their own "is busy" state (see RolesViewModel.IsRefreshing) and feed it into
-    /// canExecute, the same way RouteViewModel does for IsRunning.
+    /// canExecute.
     /// </summary>
     public class AsyncRelayCommand : ICommand
     {

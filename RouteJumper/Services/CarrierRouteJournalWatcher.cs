@@ -9,15 +9,15 @@ namespace RouteJumper.Services
 {
     /// <summary>
     /// Watches one commander's journal file for CarrierJumpRequest/CarrierLocation events
-    /// belonging to a specific carrier (the Captain role's assigned carrier - see SPEC §11.5),
-    /// and reports each one via <paramref name="onRowEvent"/> as it's read. Only Plotted (on the
+    /// belonging to a specific carrier (the Captain role's assigned carrier), and reports each
+    /// one via <paramref name="onRowEvent"/> as it's read. Only Plotted (on the
     /// CarrierJumpRequest event itself) fires immediately - every other transition is scheduled
     /// for a real-world instant *offset* from a journal event's own timestamp, not the instant
     /// the event is read: Jumping 3 minutes before CarrierJumpRequest's DepartureTime; the
     /// composite Arrived/Cooldown step 1 minute after CarrierLocation's own timestamp;
     /// CooldownElapsed a further 4 minutes after that (see the field comments below for why
-    /// these specific offsets). All scheduling lives here, not in RouteSequencer - see SPEC §10's
-    /// Update on why the two are kept separate.
+    /// these specific offsets). All scheduling lives here, not in RouteSequencer, which has no
+    /// notion of "later" and only ever reacts to events as they arrive.
     ///
     /// On <see cref="StartAsync"/>, the whole file is read first (oldest to newest), so a
     /// freshly-assigned Captain (or an app restart mid-journey) replays the carrier's full
@@ -30,31 +30,26 @@ namespace RouteJumper.Services
     /// only used for row matching/catch-up at all - once a CarrierJumpRequest has been seen for
     /// this carrier in this journal (see <see cref="ProcessLine"/>). The very first
     /// CarrierLocation in a fresh journal is Frontier's passive "wherever the carrier happened
-    /// to be when the game loaded" snapshot, not the result of a jump; treating it as one meant
-    /// its system, if it happened to match a row anywhere other than near the start of a
-    /// freshly-typed route, caused the catch-up to mark the *entire* route complete on
-    /// assignment - confirmed live, and fixed.
+    /// to be when the game loaded" snapshot, not the result of a jump, so it's never trusted for
+    /// row matching/catch-up on its own.
     ///
     /// Exception: if this carrier has made *no* jump requests anywhere in the journal at all
     /// (e.g. the game was just restarted mid-journey and nothing new has been requested yet
     /// this session), the passive snapshot is the only evidence of progress available at all -
     /// <see cref="HasAnyJumpRequestSoFar"/> seeds the gate as already-open in that case, since a
     /// long multi-session journey otherwise couldn't resume until the very next real jump.
-    /// See SPEC §11.5's Update.
     ///
     /// Separately from all of the above scheduling, a genuinely live-tailed CarrierLocation
     /// (never the historical replay) also raises <see cref="RowEventKind.LiveCarrierLocation"/>
-    /// immediately - see that value's doc comment and SPEC §5.6 for what it drives.
+    /// immediately - see that value's doc comment for what it drives.
     /// </summary>
     public sealed class CarrierRouteJournalWatcher : IDisposable
     {
-        // Per explicit instruction (real-world transitions don't line up with the journal
-        // events themselves): Plotted -> Jumping happens 3 minutes *before* CarrierJumpRequest's
-        // own DepartureTime; Jumping -> the composite Arrived/Cooldown step happens 1 minute
-        // *after* CarrierLocation's own timestamp; Cooldown -> cleared happens a further 4
-        // minutes after that (so 5 minutes after CarrierLocation in total, same overall cooldown
-        // length as before - only the split between "still showing Jumping" and "showing
-        // Cooldown" within that window changed).
+        // Real-world in-game transitions don't line up exactly with when the journal logs each
+        // event: Plotted -> Jumping happens 3 minutes *before* CarrierJumpRequest's own
+        // DepartureTime; Jumping -> the composite Arrived/Cooldown step happens 1 minute *after*
+        // CarrierLocation's own timestamp; Cooldown -> cleared happens a further 4 minutes after
+        // that (5 minutes after CarrierLocation in total).
         private static readonly TimeSpan JumpingLeadTime = TimeSpan.FromMinutes(3);
         private static readonly TimeSpan ArrivalToCooldownDelay = TimeSpan.FromMinutes(1);
         private static readonly TimeSpan CooldownDuration = TimeSpan.FromMinutes(4);
@@ -81,7 +76,7 @@ namespace RouteJumper.Services
         /// this session), the passive startup CarrierLocation snapshot is the only evidence of
         /// progress available at all - trusting it is better than showing nothing for however
         /// long a real multi-session journey takes to resume a new request. If a request *does*
-        /// exist somewhere in the journal, this starts false as normal - see SPEC §11.5's Update.
+        /// exist somewhere in the journal, this starts false as normal.
         /// </summary>
         private bool _hasSeenJumpRequest;
 
@@ -286,17 +281,15 @@ namespace RouteJumper.Services
                     // A CarrierLocation with no CarrierJumpRequest yet this session is Frontier's
                     // passive startup snapshot (wherever the carrier happened to be when the
                     // journal/session started) - not evidence of a deliberate, route-following
-                    // jump, so it's not safe to use for row matching/catch-up at all. Skipped
-                    // entirely rather than special-cased: see SPEC §11.5's Update for why trying
-                    // to use it (even just for cooldown timing) caused the whole route to be
-                    // marked complete when its system coincidentally matched a row far from the
-                    // start of a freshly-typed route the carrier hadn't actually traveled.
+                    // jump, so it's not safe to use for row matching/catch-up at all - trusting
+                    // it (even just for cooldown timing) can mark a route complete based on
+                    // where the carrier happened to be sitting, not where it actually traveled.
                 }
                 else if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } arrivedSystem)
                 {
-                    // Both the composite Arrived/Cooldown step and the later status-clear are now
-                    // themselves scheduled (not one immediate + one scheduled, as before) - see
-                    // the field comments above for the timing. If no usable timestamp is found
+                    // Both the composite Arrived/Cooldown step and the later status-clear are
+                    // themselves scheduled - see the field comments above for the timing. If no
+                    // usable timestamp is found
                     // (shouldn't happen for a real journal, but defensively possible), fall back
                     // to firing Arrived immediately rather than losing the event entirely - there
                     // is nothing to base a schedule on in that case, so CooldownElapsed is skipped
@@ -314,7 +307,7 @@ namespace RouteJumper.Services
                     }
 
                     // Deliberately immediate and unscheduled, unlike Arrived above - the
-                    // "Auto Copy To Clipboard" feature (SPEC §5.6) this drives wants the next
+                    // "Auto Copy To Clipboard" feature this drives wants the next
                     // system ready to paste as soon as the carrier's actual arrival is observed,
                     // not delayed to match the (intentionally lagged) UI transition. Only for a
                     // genuinely live-tailed line - never during the one-off historical replay a
@@ -332,7 +325,7 @@ namespace RouteJumper.Services
         /// Fires a derived row event at (or as soon as possible after) a real-world UTC
         /// instant: immediately if that instant has already passed (e.g. while replaying old
         /// journal history), otherwise via a one-shot, non-blocking <see cref="Timer"/> - never
-        /// a blocking wait, and never inside RouteSequencer (see SPEC §10's Update).
+        /// a blocking wait, and never inside RouteSequencer.
         /// </summary>
         private void ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc)
         {

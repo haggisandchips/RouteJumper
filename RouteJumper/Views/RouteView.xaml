@@ -13,6 +13,7 @@
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
         <converters:IconStatusToPackIconKindConverter x:Key="IconStatusToPackIconKindConverter" />
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
+        <converters:AutoPilotLabelConverter x:Key="AutoPilotLabelConverter" />
     </UserControl.Resources>
 
     <Grid Margin="12">
@@ -54,7 +55,7 @@
             </StackPanel>
         </Grid>
 
-        <!-- ===================== Table + Start/Stop (visible after Save) ===================== -->
+        <!-- ===================== Table + Auto Pilot (visible after Save) ===================== -->
         <Grid Visibility="{Binding IsSaved, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -62,10 +63,10 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- Session-only preference (SPEC §5.6) - not shown while editing, not persisted
-                 across app restarts. Copies the next system to the clipboard the instant a
-                 live-monitored CarrierLocation event is observed for the assigned Captain's
-                 carrier, ahead of the route table's own (deliberately delayed) status update. -->
+            <!-- Session-only preference - not shown while editing, not persisted across app
+                 restarts. Copies the next system to the clipboard the instant a live-monitored
+                 CarrierLocation event is observed for the assigned Captain's carrier, ahead of
+                 the route table's own (deliberately delayed) status update. -->
             <StackPanel Grid.Row="0"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
@@ -92,13 +93,13 @@
                 <DataGrid.CellStyle>
                     <!-- Same appearance/selection behavior as the toolkit's own cell style -
                          just without the "current cell" border a click leaves behind. That
-                         border turned out to come from the base style's own IsFocused/
-                         IsSelected triggers setting BorderThickness/BorderBrush on the cell's
-                         template (not the FocusVisualStyle adorner - setting that alone had no
-                         effect, confirmed live), so it's neutralized here with triggers of our
-                         own for the same conditions, appended after the inherited ones and so
-                         taking precedence. The grey row selection background is a separate,
-                         row-level trigger (see RowStyle below) and is untouched by this. -->
+                         border comes from the base style's own IsFocused/IsSelected triggers
+                         setting BorderThickness/BorderBrush on the cell's template (not the
+                         FocusVisualStyle adorner, which has no effect here), so it's neutralized
+                         with triggers of our own for the same conditions, appended after the
+                         inherited ones and so taking precedence. The grey row selection
+                         background is a separate, row-level trigger (see RowStyle below) and is
+                         untouched by this. -->
                     <Style TargetType="DataGridCell" BasedOn="{StaticResource MaterialDesignDataGridCell}">
                         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                         <Setter Property="BorderThickness" Value="0" />
@@ -118,8 +119,8 @@
                 <DataGrid.RowStyle>
                     <!-- Clicking anywhere in a row (not just the System cell) copies that
                          row's system name - see ClickCommandBehavior. Right-click gives a
-                         manual "Set next system" override (§11.5's Update / off-route recovery)
-                         - the row's own DataContext is the RouteRowViewModel, but a ContextMenu
+                         manual "Set next system" override (off-route recovery) - the row's own
+                         DataContext is the RouteRowViewModel, but a ContextMenu
                          is not part of the visual tree, so RelativeSource AncestorType=UserControl
                          can't reach the ViewModel from inside it; Tag smuggles it through instead
                          (see the ContextMenu's own bindings via PlacementTarget below). -->
@@ -170,13 +171,10 @@
                                          Binding="{Binding Number}"
                                          Width="40" />
 
-                    <!-- Plain DataGridTextColumn deliberately reverted to a template column here
-                         (see §5.2's earlier Update on why a template column was avoided for this
-                         one - a wrapped Button's implicit style leaking through) - that risk was
-                         specific to Button; a bare TextBlock + PackIcon carries no implicit style
-                         of its own to leak, so it's safe. The clipboard icon (SPEC §5.6's Update)
-                         only ever needs to appear after the System text, which a plain
-                         DataGridTextColumn has no way to do. -->
+                    <!-- A DataGridTemplateColumn, not a plain DataGridTextColumn, since the
+                         clipboard icon needs to appear after the System text. A bare TextBlock +
+                         PackIcon carries no implicit control style to leak into the row (unlike
+                         a Button would), so alignment stays consistent with the other columns. -->
                     <DataGridTemplateColumn Header="System" Width="*">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
@@ -213,13 +211,8 @@
                         Width="90"
                         Padding="4"
                         Margin="0,0,8,0" />
-                <Button Content="Start"
-                        Command="{Binding StartCommand}"
-                        Width="90"
-                        Padding="4"
-                        Margin="0,0,8,0" />
-                <Button Content="Stop"
-                        Command="{Binding StopCommand}"
+                <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
+                        Command="{Binding AutoPilotCommand}"
                         Width="90"
                         Padding="4" />
             </StackPanel>
