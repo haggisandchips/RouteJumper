@@ -4,6 +4,7 @@ using System.Windows;
 using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
+using RouteJumper.Services;
 
 namespace RouteJumper.ViewModels
 {
@@ -12,14 +13,18 @@ namespace RouteJumper.ViewModels
     /// </summary>
     public class RouteViewModel : ObservableObject
     {
+        private const string RouteTextSettingKey = "RouteText";
+
         private readonly RouteSequencer _sequencer;
+        private readonly AppSettingsStore _settings;
 
         private string _routeText = string.Empty;
         private bool _isSaved;
         private bool _isRunning;
 
-        public RouteViewModel(IRowEventTrigger? rowEventTrigger = null)
+        public RouteViewModel(AppSettingsStore settings, IRowEventTrigger? rowEventTrigger = null)
         {
+            _settings = settings;
             Rows = new ObservableCollection<RouteRowViewModel>();
 
             // The default pacing trigger: fires every 2 seconds. Additional triggers
@@ -154,6 +159,7 @@ namespace RouteJumper.ViewModels
             }
 
             IsSaved = true;
+            _settings.SetString(RouteTextSettingKey, RouteText);
             RouteSaved?.Invoke(this, EventArgs.Empty);
         }
 
@@ -165,6 +171,30 @@ namespace RouteJumper.ViewModels
         private void Edit()
         {
             IsSaved = false;
+        }
+
+        /// <summary>
+        /// Restores a previously-saved route from persistent storage on startup, if there is
+        /// one - reuses Save() itself (rather than duplicating its row-building logic) so a
+        /// restored route goes through exactly the same "fresh table, row 1 defaults to next"
+        /// path a real Save does. Must be called after MainViewModel has wired RouteSaved (see
+        /// its constructor) - a Captain restored moments later (RolesViewModel's own async
+        /// startup scan) re-derives real progress on top of these rows via the same shared
+        /// IRowEventTrigger regardless of whether RouteSaved had a subscriber yet at this exact
+        /// point, so there's no strict ordering requirement on that front - but callers should
+        /// still wire it first, for the (rare) case Refresh already completed by the time this
+        /// runs.
+        /// </summary>
+        public void RestoreFromSettings()
+        {
+            var savedRouteText = _settings.GetString(RouteTextSettingKey);
+            if (string.IsNullOrWhiteSpace(savedRouteText))
+            {
+                return;
+            }
+
+            RouteText = savedRouteText;
+            Save();
         }
 
         private void Start()

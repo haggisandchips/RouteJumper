@@ -12,8 +12,12 @@ namespace RouteJumper.ViewModels
     /// </summary>
     public class RolesViewModel : ObservableObject
     {
+        private const string CaptainFidSettingKey = "CaptainFid";
+        private const string EngineerFidSettingKey = "EngineerFid";
+
         private readonly EliteInstanceScanner _scanner = new();
         private readonly ManualRowEventTrigger _routeEventTrigger;
+        private readonly AppSettingsStore _settings;
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
@@ -21,9 +25,10 @@ namespace RouteJumper.ViewModels
         private int? _engineerProcessId;
         private CarrierRouteJournalWatcher? _captainWatcher;
 
-        public RolesViewModel(ManualRowEventTrigger routeEventTrigger)
+        public RolesViewModel(ManualRowEventTrigger routeEventTrigger, AppSettingsStore settings)
         {
             _routeEventTrigger = routeEventTrigger;
+            _settings = settings;
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
@@ -78,7 +83,10 @@ namespace RouteJumper.ViewModels
                 }
 
                 // A role holder that's no longer running loses the role - there's nothing left
-                // to monitor or to gate Engineer eligibility against.
+                // to monitor or to gate Engineer eligibility against. Note this only clears the
+                // in-memory ProcessId, not the persisted FID (see RestoreRolesFromSettings) -
+                // the process disappearing (e.g. the game was closed) shouldn't make the app
+                // forget who held the role for next time, only that nobody currently does.
                 if (_captainProcessId.HasValue && Instances.All(i => i.ProcessId != _captainProcessId))
                 {
                     _captainProcessId = null;
@@ -89,6 +97,8 @@ namespace RouteJumper.ViewModels
                 {
                     _engineerProcessId = null;
                 }
+
+                RestoreRolesFromSettings(results);
 
                 StatusText = results.Count == 0
                     ? "No running Elite Dangerous instances found."
@@ -128,6 +138,47 @@ namespace RouteJumper.ViewModels
             }
         }
 
+        /// <summary>
+        /// Re-assigns Captain/Engineer to whichever scanned instance's FID matches what was
+        /// persisted last time that role was explicitly assigned - runs on every refresh (not
+        /// just once at startup), but only when the role is currently unassigned in memory, so
+        /// it naturally covers both "app just launched" and "the role holder's game process
+        /// restarted mid-session" (new ProcessId, same FID) without needing separate logic for
+        /// either. A commander's FID is stable across restarts; ProcessId is not, which is why
+        /// this matches on FID rather than trying to persist/restore ProcessId directly.
+        /// Deliberately bypasses CanBeEngineer for the Engineer restore - this is re-applying a
+        /// previously-valid, user-made assignment, not validating a brand new one, and cargo
+        /// capacity is commonly still unknown this early after a scan.
+        /// </summary>
+        private void RestoreRolesFromSettings(IReadOnlyList<EliteInstanceViewModel> results)
+        {
+            if (_captainProcessId is null &&
+                _settings.GetString(CaptainFidSettingKey) is { } captainFid && IsRealFid(captainFid) &&
+                results.FirstOrDefault(i => i.Fid == captainFid) is { } captainMatch)
+            {
+                captainMatch.IsCaptain = true;
+                _captainProcessId = captainMatch.ProcessId;
+                _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
+                StartCaptainWatch(captainMatch);
+            }
+
+            if (_engineerProcessId is null &&
+                _settings.GetString(EngineerFidSettingKey) is { } engineerFid && IsRealFid(engineerFid) &&
+                results.FirstOrDefault(i => i.Fid == engineerFid) is { } engineerMatch)
+            {
+                engineerMatch.IsEngineer = true;
+                _engineerProcessId = engineerMatch.ProcessId;
+            }
+        }
+
+        /// <summary>
+        /// False for null/empty and for the literal "Unknown" EliteInstanceScanner falls back to
+        /// when a Commander event hasn't been read yet - persisting or matching on that value
+        /// would let an unrelated instance (also still showing "Unknown") match a role it was
+        /// never actually assigned.
+        /// </summary>
+        private static bool IsRealFid(string? fid) => !string.IsNullOrEmpty(fid) && fid != "Unknown";
+
         private void ToggleCaptain(EliteInstanceViewModel? instance)
         {
             if (instance is null)
@@ -139,6 +190,7 @@ namespace RouteJumper.ViewModels
             {
                 instance.IsCaptain = false;
                 _captainProcessId = null;
+                _settings.SetString(CaptainFidSettingKey, string.Empty);
                 StopCaptainWatch();
                 return;
             }
@@ -153,6 +205,10 @@ namespace RouteJumper.ViewModels
 
             instance.IsCaptain = true;
             _captainProcessId = instance.ProcessId;
+            if (IsRealFid(instance.Fid))
+            {
+                _settings.SetString(CaptainFidSettingKey, instance.Fid);
+            }
 
             // Per SPEC §11.5: assigning Captain to an instance starts the route from a clean
             // slate before replaying that instance's journal - a previous Captain's leftover
@@ -183,6 +239,7 @@ namespace RouteJumper.ViewModels
             {
                 instance.IsEngineer = false;
                 _engineerProcessId = null;
+                _settings.SetString(EngineerFidSettingKey, string.Empty);
                 return;
             }
 
@@ -201,6 +258,10 @@ namespace RouteJumper.ViewModels
 
             instance.IsEngineer = true;
             _engineerProcessId = instance.ProcessId;
+            if (IsRealFid(instance.Fid))
+            {
+                _settings.SetString(EngineerFidSettingKey, instance.Fid);
+            }
         }
 
         private static bool CanToggleEngineer(EliteInstanceViewModel? instance) =>

@@ -1,5 +1,6 @@
 using RouteJumper.Common;
 using RouteJumper.Sequencing;
+using RouteJumper.Services;
 
 namespace RouteJumper.ViewModels
 {
@@ -8,19 +9,24 @@ namespace RouteJumper.ViewModels
     /// shared row-event trigger between them (Roles' Captain journal watcher raises row events;
     /// Route's sequencer consumes them - see SPEC §11.5/§13.1), plus RouteViewModel.RouteSaved ->
     /// RolesViewModel.RefreshRouteForCurrentCaptain (see SPEC §4.5's Update) - neither tab
-    /// ViewModel references the other directly; this class is the only place that does.
+    /// ViewModel references the other directly; this class is the only place that does. Also
+    /// owns the single AppSettingsStore both tabs persist to/restore from (see SPEC §14).
     /// </summary>
     public class MainViewModel : ObservableObject
     {
         public MainViewModel()
         {
+            var settings = new AppSettingsStore();
             var routeEventTrigger = new ManualRowEventTrigger();
 
-            RouteViewModel = new RouteViewModel(routeEventTrigger);
-            RolesViewModel = new RolesViewModel(routeEventTrigger);
+            RouteViewModel = new RouteViewModel(settings, routeEventTrigger);
+            RolesViewModel = new RolesViewModel(routeEventTrigger, settings);
             ControlsViewModel = new ControlsViewModel();
 
             RouteViewModel.RouteSaved += (_, _) => RolesViewModel.RefreshRouteForCurrentCaptain();
+
+            // Must run after the RouteSaved wiring above - see RouteViewModel.RestoreFromSettings.
+            RouteViewModel.RestoreFromSettings();
         }
 
         public RouteViewModel RouteViewModel { get; }

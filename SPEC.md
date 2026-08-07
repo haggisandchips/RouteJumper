@@ -1,7 +1,11 @@
 # RouteJumper — Application Specification
 
-**Version:** 3.1
-**Status:** Cargo's `x` now includes tritium (the honest total), with
+**Version:** 4.0
+**Status:** Persistence added (§14) - route text, window bounds/maximized
+state, and Captain/Engineer role assignment (by commander FID) now survive
+an app restart via a local SQLite store in `%LocalAppData%\RouteJumper`,
+verified live end-to-end with zero manual interaction needed after
+relaunch; Cargo's `x` now includes tritium (the honest total), with
 tritium broken out as an indented sub-line underneath, icon-aligned with
 `x`'s leading digit, omitted when there's none; Roles tab cards reverted
 to full-width/responsive (the 75% cap no longer made sense once role
@@ -66,15 +70,16 @@ moving to the next.
 
 | In scope (v1) | Out of scope (v1) |
 |---|---|
-| Main window with three tabs: **Route**, **Roles**, **Controls** | Persistence of route lists between sessions |
-| Text entry, save-to-table workflow on the Route tab, with an Edit button to return to it (see §5.5) | Configurable timing (fixed at 2s for v1.3+) |
-| Timed Start/Stop sequence over table rows | Sending input (keystrokes etc.) to a detected instance's window |
-| Event-driven sequencing engine, open to future trigger types | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
-| Roles tab: detect running Elite Dangerous instances and show FID, commander name, cargo, current location, fleet carrier, journal file, window handle/position, and monitor per instance (see §11) | Content of the Controls tab (currently an empty placeholder — see §3.4) |
-| Startup window placement on the rightmost monitor (see §3.5) | Configurable 5-minute cooldown / journal-match tolerance (see §11.2/§11.5) |
-| Tab headings placed on the left edge of the window (see §3.1) | Sending input to arbitrary system names not present in the route (§11.6's manual override targets existing rows only) |
+| Main window with three tabs: **Route**, **Roles**, **Controls** | Configurable timing (fixed at 2s for v1.3+) |
+| Text entry, save-to-table workflow on the Route tab, with an Edit button to return to it (see §5.5) | Sending input (keystrokes etc.) to a detected instance's window |
+| Timed Start/Stop sequence over table rows | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
+| Event-driven sequencing engine, open to future trigger types | Content of the Controls tab (currently an empty placeholder — see §3.4) |
+| Roles tab: detect running Elite Dangerous instances and show FID, commander name, cargo, current location, fleet carrier, journal file, window handle/position, and monitor per instance (see §11) | Configurable 5-minute cooldown / journal-match tolerance (see §11.2/§11.5) |
+| Startup window placement on the rightmost monitor (see §3.5) | Sending input to arbitrary system names not present in the route (§11.6's manual override targets existing rows only) |
+| Tab headings placed on the left edge of the window (see §3.1) | Persisting the route table's actual progress (icon/status per row), the last-selected tab, or an in-app "clear persisted data" action (see §14.3) |
 | Captain/Engineer role assignment (§11.5), with a real, non-timer trigger (a Captain's journal - §10's Update) wired all the way into the row-addressable sequencing machinery anticipated by §13.1 | |
 | Manual "Set next system" override for when automatic journal-based detection needs correcting (§11.6) | |
+| Persistence (§14) of route text, window bounds, and Captain/Engineer role assignment across sessions, via a local SQLite store | |
 
 ---
 
@@ -1246,6 +1251,21 @@ indirection.
     underlying tritium-excluded available capacity as before.
 33. Instance cards on the Roles tab stretch to fill the tab's full
     available width rather than being capped at a fraction of it.
+34. Saving a route persists it; relaunching the app restores it as a
+    fresh table (§5.5's normal Save behavior), without requiring the text
+    box to be re-pasted or Save re-clicked.
+35. Closing the app persists its current position, size, and maximized
+    state; relaunching restores them exactly, in place of the default
+    rightmost-monitor placement - unless the persisted position would no
+    longer be reachable on the current monitor setup, in which case the
+    default placement is used instead.
+36. Assigning Captain or Engineer to a commander persists that
+    commander's FID; on a later app launch (or the same commander's game
+    process restarting mid-session), the role is automatically
+    reassigned to whichever running instance has that FID, including a
+    full journal replay for Captain - with no manual reassignment
+    required. Explicitly unassigning a role clears the persisted FID, so
+    it does not get automatically reassigned again.
 
 ---
 
@@ -1307,3 +1327,137 @@ What was actually built (see §10's Update, `Sequencing/RowEvent.cs`,
   Complete, so an event for an already-completed system is a silent no-op
   rather than an error, but there's still no real model for "in flight"
   beyond a single InProgress row at a time.
+
+---
+
+## 14. Persistence
+
+Previously explicitly out of scope (§2's original "Persistence of route
+lists between sessions" entry) - brought into scope on request. A first
+instance, not the final/complete list - see the Update below for what was
+suggested but deliberately left out this round.
+
+### 14.1 Storage
+
+- SQLite (`Microsoft.Data.Sqlite`), a single file at
+  `%LocalAppData%\RouteJumper\routejumper.db` - the standard per-user,
+  non-roaming location for local application state (settings/cache, not
+  user documents, and not meant to follow the user across machines via a
+  roaming profile).
+- A single generic `Settings (Key TEXT PRIMARY KEY, Value TEXT)` table,
+  not a dedicated table per setting - what's persisted today (route text,
+  window bounds, Captain/Engineer FIDs) is explicitly a first instance,
+  so new values can be added later without a schema migration.
+  `AppSettingsStore` (`Services/`) wraps it with typed `GetString`/
+  `SetString`/`GetDouble`/`SetDouble`/`GetBool`/`SetBool` accessors; every
+  call opens and closes its own short-lived connection rather than
+  holding one open for the app's lifetime, appropriate for the small,
+  infrequent read/write volume this app actually has.
+- Every operation is wrapped so a persistence failure (e.g. a permissions
+  issue creating the file) degrades to "nothing persisted"/"writes
+  silently no-op" rather than the app failing to start or crashing over
+  it - persistence is a nice-to-have layered on top of the app's core
+  functionality, not a dependency of it.
+
+### 14.2 What's persisted, and when
+
+| What | Persisted when | Restored when |
+|---|---|---|
+| Route text (§4.3/§5.5) | Every Save - first time, or after Edit | App startup - see Update |
+| Window position, size, and maximized state | Window closing | App startup, in place of the default rightmost-monitor placement (§3.5) - see Update |
+| Which commander (by FID) holds Captain | Assigned/explicitly unassigned (§11.5) | Every Roles tab refresh while currently unassigned - see Update |
+| Which commander (by FID) holds Engineer | Assigned/explicitly unassigned (§11.5) | Every Roles tab refresh while currently unassigned - see Update |
+
+> **Update (route text):** `RouteViewModel.RestoreFromSettings()` (called
+> once, from `MainViewModel`'s constructor, after wiring `RouteSaved` -
+> see its own doc comment on why that ordering is asked for even though
+> it turns out not to be strictly load-bearing) sets `RouteText` and
+> calls `Save()` directly if a non-blank route was persisted - reusing
+> `Save()` itself rather than duplicating its row-building logic, so a
+> restored route goes through exactly the same "fresh table, row 1
+> defaults to next" path a real Save does (§5.5).
+
+> **Update (window bounds):** persisted in `MainWindow.xaml.cs`'s
+> `Closing` handler; while maximized, `RestoreBounds` is saved instead of
+> `Left`/`Top`/`Width`/`Height` (which reflect the full-screen size at
+> that point, not what should come back as the "normal" size next
+> launch). Restored at `SourceInitialized`, **before** falling back to
+> the original rightmost-monitor default placement (§3.5) - the default
+> only runs if nothing was persisted, or if what was persisted no longer
+> looks reachable. That reachability check
+> (`IsPositionVisibleOnAnyMonitor`) is a deliberately best-effort sanity
+> check, not a precise one: it converts every currently-connected
+> monitor's work area into DIPs using the window's own composition-target
+> transform (the same simplification the *existing* default-placement
+> code already relied on - accurate for monitors sharing that transform's
+> DPI scale) and checks whether the persisted top-left corner lands
+> inside any of them - good enough to catch the egregious case (a monitor
+> was unplugged since last session) without needing full per-monitor DPI
+> awareness for what's just a fallback guard.
+> **Verified live:** moved and resized the window to a distinctive
+> position/size via `SetWindowPos`, closed the app gracefully
+> (`CloseMainWindow`, not a forced kill - `Closing` only fires on a real
+> close), relaunched, and confirmed via `GetWindowRect` the exact same
+> bounds came back.
+
+> **Update (Captain/Engineer FID persistence):** `ToggleCaptain`/
+> `ToggleEngineer` persist the assigned instance's FID on assignment, and
+> clear it (empty string) on **explicit** unassignment only - the
+> existing "role holder's process is no longer running" cleanup
+> (§11.5/§11.6) clears the in-memory `_captainProcessId`/
+> `_engineerProcessId` but deliberately leaves the persisted FID alone,
+> since the process disappearing (the game was closed) shouldn't make the
+> app forget who held the role for next time.
+> `RolesViewModel.RestoreRolesFromSettings` runs at the end of **every**
+> `RefreshAsync` (not just once at startup) - it does nothing if the role
+> is currently assigned in memory, so this is free the rest of the time,
+> but it means both "app just launched" and "the role holder's Elite
+> Dangerous process restarted mid-session" (new `ProcessId`, same FID)
+> are handled by the same code path, with no separate "startup-only"
+> logic needed. Matching is by FID rather than `ProcessId` specifically
+> *because* `ProcessId` doesn't survive a process restart and FID does.
+> A restored Captain match goes through the exact same `Reset` + journal
+> replay a fresh manual assignment would (§11.5) - this is what makes
+> restoring the route (above) and restoring Captain compose correctly on
+> startup: the route is rebuilt first (synchronous, in `MainViewModel`'s
+> constructor), Captain restoration happens moments later (`RolesViewModel`'s
+> own async startup scan), and by the time it fires
+> `StartCaptainWatch`, `RouteSequencer` is already watching the
+> already-rebuilt `Rows` (`SetRows` was called once, in
+> `RouteViewModel`'s constructor, and never needs to be called again -
+> `Rows` is the same collection instance throughout the app's lifetime).
+> Restoring Engineer deliberately **bypasses** `CanBeEngineer` - this is
+> re-applying a previously-valid, user-made assignment, not validating a
+> brand new one, and cargo capacity is commonly still unknown this early
+> after a scan (`Loadout`/`Cargo` may not have been read yet).
+> Both restores guard against matching on the literal string `"Unknown"`
+> (`EliteInstanceScanner`'s fallback when a `Commander` event hasn't been
+> read yet) - persisting or matching on that value would let an unrelated
+> instance, also still showing `"Unknown"`, incorrectly match a role it
+> was never actually assigned (`RolesViewModel.IsRealFid`).
+> **Verified live**, full end-to-end, with a real running instance
+> ("Haggis and Chips"): saved a route, assigned Captain, moved/resized
+> the window, closed gracefully, relaunched with **no manual interaction
+> at all** - the window reopened at the exact persisted bounds, the route
+> table was rebuilt from the persisted text, Captain was automatically
+> reassigned to the same commander (matched by FID), and the route
+> correctly showed the same replayed progress (rows 1-3 Complete, row 4
+> in-progress) as before closing - confirming route restoration and
+> Captain restoration compose correctly, not just each in isolation.
+
+### 14.3 Considered but not included this round
+
+- Persisting the route table's actual progress (icon/status per row) so
+  it survives even with no Captain to re-derive it from - not needed for
+  the common case (a Captain re-derives real progress from their journal
+  regardless of what was persisted), and adds real complexity (rows need
+  stable identity across a restart, not just position) for a benefit
+  that's mostly redundant with Captain-driven replay.
+- Persisting the last-selected tab (Route/Roles/Controls) - a minor
+  nicety, left out to keep this pass's scope matched to what was asked
+  plus the one explicitly-approved addition (role FIDs), rather than
+  growing further on assumption.
+- A configurable/discoverable "clear all persisted data" action - there's
+  no in-app way to reset persisted state short of deleting
+  `routejumper.db` by hand. Worth adding once there's more persisted
+  state for a reset to meaningfully affect.
