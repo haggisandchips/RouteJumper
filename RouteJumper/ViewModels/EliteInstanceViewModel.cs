@@ -24,6 +24,7 @@ namespace RouteJumper.ViewModels
             string monitorInfo,
             int? cargoCapacity,
             int? currentCargo,
+            int? currentTritium,
             string? currentSystem,
             string? currentStation,
             string? carrierName,
@@ -41,6 +42,7 @@ namespace RouteJumper.ViewModels
             MonitorInfo = monitorInfo;
             CargoCapacity = cargoCapacity;
             CurrentCargo = currentCargo;
+            CurrentTritium = currentTritium;
             CurrentSystem = currentSystem;
             CurrentStation = currentStation;
             CarrierName = carrierName;
@@ -92,18 +94,49 @@ namespace RouteJumper.ViewModels
         public int? CargoCapacity { get; }
 
         /// <summary>
-        /// Current cargo held, from the most recent Ship-vessel Cargo event's Inventory total,
-        /// excluding tritium (see EliteInstanceScanner.ReadCargoCountExcludingTritium).
+        /// Current non-tritium cargo held - used for AvailableCargoCapacity/CanBeEngineer, which
+        /// must keep excluding tritium (what matters there is free space *for* tritium). Not used
+        /// directly for CargoDisplay any more - see TotalCargoDisplayed. Derived in
+        /// EliteInstanceScanner from the ship's latest Cargo event total, minus tritium tracked
+        /// across every event that can move it in/out of the ship's hold (CargoTransfer,
+        /// CarrierDepositFuel, MarketBuy/MarketSell).
         /// </summary>
         public int? CurrentCargo { get; }
 
-        public string CargoDisplay => (CurrentCargo, CargoCapacity) switch
+        /// <summary>
+        /// Tritium currently tracked aboard the ship's cargo hold - see EliteInstanceScanner.
+        /// Null under the same condition as CurrentCargo (no Cargo event seen for this ship at
+        /// all yet this session).
+        /// </summary>
+        public int? CurrentTritium { get; }
+
+        /// <summary>
+        /// The "x" in CargoDisplay's "x / y" - unlike CurrentCargo, this includes tritium, since
+        /// the cargo total shown to the user should account for everything aboard; tritium is
+        /// then broken out as its own line underneath (TritiumDisplay) rather than hidden.
+        /// </summary>
+        private int? TotalCargoDisplayed => (CurrentCargo, CurrentTritium) switch
+        {
+            (int cargo, int tritium) => cargo + tritium,
+            (int cargo, null) => cargo,
+            _ => null
+        };
+
+        public string CargoDisplay => (TotalCargoDisplayed, CargoCapacity) switch
         {
             (int current, int capacity) => $"{current} / {capacity}t",
             (int current, null) => $"{current}t / Unknown",
             (null, int capacity) => $"Unknown / {capacity}t",
             _ => "Unknown"
         };
+
+        /// <summary>
+        /// Empty (not "Unknown") when there's no tritium to show - unlike every other Unknown-
+        /// capable display string on this class, this one drives Visibility via
+        /// StringToVisibilityConverter (see RolesView.xaml), so the line is omitted entirely
+        /// rather than shown as "0t tritium"/"Unknown tritium" when there's nothing to report.
+        /// </summary>
+        public string TritiumDisplay => CurrentTritium is > 0 ? $"{CurrentTritium}t tritium" : string.Empty;
 
         /// <summary>Free cargo space (tritium excluded), or null if capacity/current is unknown.</summary>
         public int? AvailableCargoCapacity => (CargoCapacity, CurrentCargo) switch

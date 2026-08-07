@@ -1,7 +1,17 @@
 # RouteJumper — Application Specification
 
-**Version:** 2.9
-**Status:** Spec consistency pass - closed out stale §13 open questions and
+**Version:** 3.1
+**Status:** Cargo's `x` now includes tritium (the honest total), with
+tritium broken out as an indented sub-line underneath, icon-aligned with
+`x`'s leading digit, omitted when there's none; Roles tab cards reverted
+to full-width/responsive (the 75% cap no longer made sense once role
+assignment moved inside the card - §3.3); Tritium is now tracked across
+every cargo-hold-affecting event
+(Cargo, CargoTransfer, CarrierDepositFuel, MarketBuy, MarketSell - fixing
+a real gap where a Cargo event immediately following a transfer/purchase
+often carries no Inventory breakdown to exclude tritium from at all);
+Engineer eligibility behavior unchanged throughout (§11.3);
+Spec consistency pass - closed out stale §13 open questions and
 §2/§10 scope-table entries that earlier "Update" notes had already
 superseded (the Edit button and row-addressable/non-timer-trigger items),
 so the base requirement text matches what's actually implemented instead
@@ -93,8 +103,21 @@ Only one is visible at a time.
 - A **Refresh** button, right-aligned below the content area (same
   placement convention as the Route tab's buttons).
 - A vertically-stacked, scrollable list of cards, one per running
-  `EliteDangerous64.exe` process found, each occupying 75% of the tab's
-  width. See §11 for what a card shows and how the data is derived.
+  `EliteDangerous64.exe` process found, each stretching to fill the tab's
+  full available width (responsive - see Update). See §11 for what a
+  card shows and how the data is derived.
+
+  > **Update (reverted to full width):** originally 75% (a `3*`/`1*`
+  > column split, the remaining 25% left empty), on the assumption
+  > something else - role assignment - might eventually occupy that
+  > space. Once role assignment (§11.5) actually shipped *inside* each
+  > card (the Captain/Engineer buttons in its header) rather than
+  > alongside it, the reserved column had nothing left to justify it -
+  > per explicit feedback, reverted to a single-column, full-width,
+  > responsive layout (the column split removed entirely, rather than
+  > changed to a different fixed ratio). Confirmed live at a widened
+  > window size: cards now stretch to fill the available width with no
+  > empty gap, where they'd previously have been capped well short of it.
 - If no instances are found, the card list is replaced with a centered,
   italic "No running Elite Dangerous instances found." message.
 - The list is refreshed automatically once when the tab's ViewModel is
@@ -629,7 +652,8 @@ that decides *when* the next action in §7.2 runs must be decoupled from
 |---|---|---|
 | Commander name | Latest `Commander` event's `Name` | |
 | FID | Latest `Commander` event's `FID` | |
-| Cargo | Latest `Loadout` event's `CargoCapacity` (max) + latest `Cargo` event with `"Vessel":"Ship"`'s `Count` (current) | Shown as `current / capacity` tonnes. The `Cargo` event fires on essentially every real cargo change (market trades, mining, limpets) and not only on docking — confirmed live by adding cargo mid-session and seeing it reflected on the next Refresh — so the journal alone is sufficient without needing `Cargo.json`. Only total tonnage is tracked, not an itemized commodity breakdown (see §2). However, ignore tritium in the cargo count (the reason for this is what we need to know is how much space the ship has available for tritium so anything already present is not relevant.) |
+| Cargo | Latest `Loadout` event's `CargoCapacity` (max) + latest `Cargo` event with `"Vessel":"Ship"`'s `Count` (current) | Shown as `current / capacity` tonnes, where `current` **includes** tritium (the full, honest total aboard) - tritium is then broken out as its own indented line directly underneath (see Tritium row) rather than folded invisibly into the headline number. Internally, a separate tritium-*excluded* figure still drives Engineer eligibility (see Update) - what's displayed and what's calculated are deliberately different numbers for different purposes. The `Cargo` event fires on essentially every real cargo change (market trades, mining, limpets) and not only on docking — confirmed live by adding cargo mid-session and seeing it reflected on the next Refresh — so the journal alone is sufficient without needing `Cargo.json`. Only total tonnage is tracked, not an itemized commodity breakdown (see §2). |
+| Tritium | Tracked incrementally across every event that can move tritium into/out of the ship's cargo hold - see Update | Shown as its own `{n}t tritium` sub-line directly under Cargo (its icon aligned with where the Cargo line's leading digit starts, not with Cargo's own icon - see Update), omitted entirely when there's none to report - not shown as "0t tritium". |
 | Current location | Latest of `Location`, `Docked`, `Undocked`, `FSDJump`, `CarrierJump` (while docked) — `StarSystem` (+ `StationName` if docked) | Shown as `System — Station`, or just `System` if not docked. `Undocked`/`FSDJump` clear the station (no `StarSystem` on `Undocked`, so the tracked system is left alone; `FSDJump` always means undocked). |
 | Fleet carrier | Name from `CarrierStats`' `Name`/`CarrierID`; location resolved against that `CarrierID` from `CarrierJump`/`CarrierLocation` (+ `Body`, from `CarrierJump` only) | See both caveats below — the name is commonly unavailable even for an owner, and location resolution must be ID-matched, not just "latest event of the right type". |
 | Journal file | The matched journal's filename | Filename only shown on the card (keeps it compact); the full path is also kept on the view model (not just the display string), same pattern as the window handle below - used by the Captain role's journal watcher (§11.5) |
@@ -645,6 +669,82 @@ that decides *when* the next action in §7.2 runs must be decoupled from
   > `Count`. Falls back to the top-level `Count` if `Inventory` is ever
   > absent (can't exclude tritium in that case, but avoids losing the
   > field entirely on an older/unexpected journal shape).
+
+  > **Update (gap found and fixed live - other tritium-moving events
+  > weren't accounted for):** the above only excluded tritium when the
+  > *triggering* `Cargo` event happened to carry an `Inventory` breakdown -
+  > confirmed live that it commonly doesn't. A `Cargo` event immediately
+  > following a `CargoTransfer` (ship <-> carrier) or a `MarketBuy` was, in
+  > both cases, just `{ "Vessel":"Ship", "Count":N }` with **no**
+  > `Inventory` at all - so the old fallback (use the bare `Count`) meant
+  > freshly-transferred or freshly-bought tritium wasn't excluded, silently
+  > reintroducing exactly the problem this feature exists to solve.
+  > Root cause: `Inventory` presence turns out to depend on *something*
+  > about how the `Cargo` event was triggered, not just Frontier reliably
+  > including it - so excluding tritium can't rely on the triggering event
+  > always carrying the breakdown.
+  > Fixed by tracking tritium *incrementally*, across every event that can
+  > move it into or out of the ship's cargo hold, rather than depending on
+  > any single event's `Inventory` field:
+  > - `CargoTransfer` (`Transfers[].Type=="tritium"`) - `Direction:"toship"`
+  >   adds, any other direction (`"tocarrier"`, confirmed live; `"tosrv"`
+  >   presumably, unconfirmed) subtracts.
+  > - `CarrierDepositFuel` (`Amount`) - fueling the carrier directly from
+  >   ship cargo is always tritium, always ship -> carrier, so always
+  >   subtracts.
+  > - `MarketBuy`/`MarketSell` (`Type=="tritium"`, `Count`) - buying adds,
+  >   selling subtracts.
+  > - Whenever a `Cargo` event's `Inventory` *is* present, the running
+  >   tracked total is resynced to the exact tritium `Count` found in it
+  >   (0 if tritium isn't listed) - the one authoritative ground-truth
+  >   source available, self-correcting any drift the incremental tracking
+  >   might otherwise accumulate.
+  > All five event types confirmed live, with real field names/values, in
+  > the "Haggis and Chips" journal history (`CargoTransfer` `Direction`
+  > values are exactly `"toship"`/`"tocarrier"`; `CarrierDepositFuel` has
+  > `CarrierID`/`Amount`/`Total`; `MarketBuy`/`MarketSell` have
+  > `Type`/`Count` like `CargoTransfer`'s `Transfers[]` entries).
+  > **Update (transparency, per explicit instruction):** rather than
+  > silently subtracting tritium with no visible trace, it's now shown as
+  > its own line on the card - the underlying *tracking* is unchanged
+  > (still derived from the same running total in `EliteInstanceScanner`),
+  > only its visibility. Implemented as
+  > `EliteInstanceViewModel.CurrentTritium`/`TritiumDisplay`, alongside the
+  > existing tritium-excluded `CurrentCargo` - both derived from the same
+  > tracked total, so there's exactly one source of truth, not two
+  > separately-computed numbers that could drift apart. Card icon:
+  > `GasStationOutline` (confirmed rendering correctly, not a broken
+  > placeholder - see §9.2's note on why that's checked rather than
+  > assumed for every new `PackIconKind`).
+  > **Update (layout, per explicit follow-up instruction):** the first cut
+  > gave the tritium line its own full card row, with Cargo's own `x`
+  > still excluding tritium (e.g. `39 / 128t` + a separate `1t tritium`
+  > row). Changed so Cargo's `x` now **includes** tritium (the honest
+  > total aboard - e.g. `40 / 128t`), with the tritium breakout as an
+  > indented sub-line directly underneath it instead of a full sibling
+  > row - smaller icon/text (`Width`/`Height="14"`, `FontSize="11"`,
+  > `Opacity="0.65"`), and, per the specific ask, its icon's left edge
+  > lines up with where Cargo's leading digit starts (not with Cargo's own
+  > `PackageVariantClosed` icon) - achieved simply by nesting both lines
+  > inside a `StackPanel` in the same Grid column Cargo's text already
+  > occupies, rather than trying to align across two different Grid rows.
+  > `TritiumDisplay` returns empty string (not "Unknown") when there's
+  > nothing to report, driving `Visibility` via the existing
+  > `StringToVisibilityConverter` (already used elsewhere on this tab) so
+  > the sub-line is omitted entirely rather than shown as "0t tritium".
+  > A new `TotalCargoDisplayed` private property
+  > (`CurrentCargo + CurrentTritium`) feeds `CargoDisplay`'s `x`;
+  > `CurrentCargo` itself (tritium-excluded) is untouched and still drives
+  > `AvailableCargoCapacity`/`CanBeEngineer` - the number that's
+  > *displayed* and the number that's *calculated* are deliberately
+  > different now, each serving its own purpose.
+  > **Verified live**, both changes together, against two real concurrent
+  > commanders: "Haggis and Chips" showed `40 / 128t` with an indented
+  > `1t tritium` line whose icon's left edge lined up exactly with the
+  > "4" above it (confirmed via a zoomed screenshot crop); "HAGGIS
+  > MACSPORRAN" (no tritium tracked) showed `4 / 4t` with no tritium line
+  > at all - and, separately, still correctly had Engineer disabled (full
+  > hold, zero available capacity) despite the display change.
   > **Update (CarrierId, implemented):** the same `CarrierID` used to
   > resolve `CarrierSystem`/`CarrierBody` (see the fleet carrier caveat
   > below) is now also kept on the view model (`CarrierId`, not shown on
@@ -1136,6 +1236,16 @@ indirection.
     table (never carrying over old icon/status state), with row 1
     defaulting to "next" unless a Captain is assigned, in which case the
     table is immediately re-derived from that Captain's journal instead.
+32. A commander's card shows Cargo's `x` including tritium, with tritium
+    then broken out as its own indented sub-line directly underneath
+    (icon aligned with `x`'s leading digit) - omitted entirely when
+    there's none - regardless of which specific event most recently
+    changed the cargo hold's contents (`Cargo`, `CargoTransfer`,
+    `CarrierDepositFuel`, `MarketBuy`, `MarketSell`). Engineer eligibility
+    is unaffected by the *display* change - still gated on the same
+    underlying tritium-excluded available capacity as before.
+33. Instance cards on the Roles tab stretch to fill the tab's full
+    available width rather than being capped at a fraction of it.
 
 ---
 

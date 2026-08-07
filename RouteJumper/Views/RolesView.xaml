@@ -28,12 +28,7 @@
                        FontStyle="Italic" />
 
             <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="3*" />
-                    <ColumnDefinition Width="1*" />
-                </Grid.ColumnDefinitions>
-
-                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Instances}" HorizontalContentAlignment="Stretch">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -124,15 +119,35 @@
                                                     VerticalAlignment="Center"
                                                     TextTrimming="CharacterEllipsis" />
 
+                                        <!-- CargoDisplay's "x" includes tritium; the tritium
+                                             sub-line (icon + text) sits directly under it in the
+                                             same column, so its icon lines up with where "x"
+                                             starts rather than with PackageVariantClosed above -
+                                             omitted entirely (TritiumDisplay empty) when there's
+                                             none. See SPEC §11.3's Update. -->
                                         <materialDesign:PackIcon Grid.Row="1" Grid.Column="0"
                                                                   Kind="PackageVariantClosed"
-                                                                  VerticalAlignment="Center"
+                                                                  VerticalAlignment="Top"
                                                                   Margin="0,6,8,0" />
-                                        <TextBlock Grid.Row="1" Grid.Column="1"
-                                                    Text="{Binding CargoDisplay}"
-                                                    VerticalAlignment="Center"
-                                                    Margin="0,6,0,0"
-                                                    TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,6,0,0">
+                                            <TextBlock Text="{Binding CargoDisplay}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="0,2,0,0"
+                                                        Visibility="{Binding TritiumDisplay, Converter={StaticResource StringToVisibilityConverter}}">
+                                                <materialDesign:PackIcon Kind="GasStationOutline"
+                                                                          Width="14"
+                                                                          Height="14"
+                                                                          Opacity="0.65"
+                                                                          VerticalAlignment="Center"
+                                                                          Margin="0,0,4,0" />
+                                                <TextBlock Text="{Binding TritiumDisplay}"
+                                                            Opacity="0.65"
+                                                            FontSize="11"
+                                                            VerticalAlignment="Center"
+                                                            TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </StackPanel>
 
                                         <materialDesign:PackIcon Grid.Row="2" Grid.Column="0"
                                                                   Kind="MapMarkerOutline"

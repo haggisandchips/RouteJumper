@@ -132,6 +132,7 @@ namespace RouteJumper.Services
                 monitorInfo,
                 summary.CargoCapacity,
                 summary.CurrentCargo,
+                summary.CurrentTritium,
                 summary.CurrentSystem,
                 summary.CurrentStation,
                 summary.CarrierName,
@@ -185,7 +186,8 @@ namespace RouteJumper.Services
         private static readonly HashSet<string> RelevantEvents = new()
         {
             "Commander", "Loadout", "Cargo", "Location", "Docked", "Undocked",
-            "FSDJump", "CarrierStats", "CarrierJump", "CarrierLocation"
+            "FSDJump", "CarrierStats", "CarrierJump", "CarrierLocation",
+            "CargoTransfer", "CarrierDepositFuel", "MarketBuy", "MarketSell"
         };
 
         /// <summary>Result of a single full pass over a journal file.</summary>
@@ -195,6 +197,13 @@ namespace RouteJumper.Services
             public string? Fid { get; init; }
             public int? CargoCapacity { get; init; }
             public int? CurrentCargo { get; init; }
+
+            /// <summary>
+            /// Tritium currently tracked aboard the ship's cargo hold, shown transparently on the
+            /// card rather than silently subtracted - see ReadJournalSummary. Null under the same
+            /// condition as CurrentCargo (no Cargo event for this ship seen at all yet).
+            /// </summary>
+            public int? CurrentTritium { get; init; }
 
             /// <summary>Commander's current system/station - null station means "not docked".</summary>
             public string? CurrentSystem { get; init; }
@@ -226,7 +235,21 @@ namespace RouteJumper.Services
             string? commanderName = null;
             string? fid = null;
             int? cargoCapacity = null;
-            int? currentCargo = null;
+
+            // The ship's Cargo event's own Count includes tritium, so it can't be used directly -
+            // what matters for fleet carrier jump planning is free space *for* tritium (see
+            // SPEC §11.3), and tritium already aboard isn't relevant tonnage. latestRawShipCargo
+            // is that raw total (latest "Cargo"/Ship event wins, as with every other field here);
+            // trackedTritium is the best-known tritium quantity currently aboard the ship's cargo
+            // hold, kept in sync incrementally by every event that can move tritium in or out of
+            // it (see the switch below) - not just the Cargo event's own Inventory breakdown,
+            // which turns out to not always be present (confirmed live: a Cargo event immediately
+            // following a CargoTransfer/MarketBuy carried only a bare Count, no Inventory at all).
+            // The final CurrentCargo is computed once, after the full pass, as
+            // latestRawShipCargo - trackedTritium.
+            int? latestRawShipCargo = null;
+            var trackedTritium = 0;
+
             string? currentSystem = null;
             string? currentStation = null;
             string? carrierName = null;
@@ -282,9 +305,71 @@ namespace RouteJumper.Services
 
                             case "Cargo":
                                 var vessel = root.TryGetProperty("Vessel", out var v) ? v.GetString() : null;
-                                if (vessel == "Ship")
+                                if (vessel == "Ship" && root.TryGetProperty("Count", out var cargoCount) && cargoCount.TryGetInt32(out var cargoCountValue))
                                 {
-                                    currentCargo = ReadCargoCountExcludingTritium(root);
+                                    latestRawShipCargo = cargoCountValue;
+
+                                    // Only resync from Inventory when it's actually present - see
+                                    // the comment above on why it can't be relied on for every
+                                    // Cargo event. When absent, trackedTritium is left as-is,
+                                    // carried over from whatever CargoTransfer/CarrierDepositFuel/
+                                    // MarketBuy/MarketSell events have adjusted it via since the
+                                    // last resync.
+                                    if (root.TryGetProperty("Inventory", out var inventory) && inventory.ValueKind == JsonValueKind.Array)
+                                    {
+                                        trackedTritium = GetTritiumCountFromInventory(inventory);
+                                    }
+                                }
+                                break;
+
+                            case "CargoTransfer":
+                                // Ship <-> carrier (or SRV) cargo-hold transfer. "toship" is the
+                                // only direction that adds to what the ship is carrying - every
+                                // other direction value ("tocarrier", "tosrv", ...) means tritium
+                                // leaving the ship's hold.
+                                if (root.TryGetProperty("Transfers", out var transfers) && transfers.ValueKind == JsonValueKind.Array)
+                                {
+                                    foreach (var transfer in transfers.EnumerateArray())
+                                    {
+                                        var type = GetString(transfer, "Type");
+                                        if (!string.Equals(type, "tritium", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            continue;
+                                        }
+
+                                        if (transfer.TryGetProperty("Count", out var transferCount) && transferCount.TryGetInt32(out var transferCountValue))
+                                        {
+                                            var direction = GetString(transfer, "Direction");
+                                            trackedTritium = string.Equals(direction, "toship", StringComparison.OrdinalIgnoreCase)
+                                                ? trackedTritium + transferCountValue
+                                                : Math.Max(0, trackedTritium - transferCountValue);
+                                        }
+                                    }
+                                }
+                                break;
+
+                            case "CarrierDepositFuel":
+                                // Fueling the carrier directly from the ship's cargo hold - always
+                                // tritium, always ship -> carrier, so always a straight reduction.
+                                if (root.TryGetProperty("Amount", out var depositAmount) && depositAmount.TryGetInt32(out var depositAmountValue))
+                                {
+                                    trackedTritium = Math.Max(0, trackedTritium - depositAmountValue);
+                                }
+                                break;
+
+                            case "MarketBuy":
+                                if (string.Equals(GetString(root, "Type"), "tritium", StringComparison.OrdinalIgnoreCase) &&
+                                    root.TryGetProperty("Count", out var buyCount) && buyCount.TryGetInt32(out var buyCountValue))
+                                {
+                                    trackedTritium += buyCountValue;
+                                }
+                                break;
+
+                            case "MarketSell":
+                                if (string.Equals(GetString(root, "Type"), "tritium", StringComparison.OrdinalIgnoreCase) &&
+                                    root.TryGetProperty("Count", out var sellCount) && sellCount.TryGetInt32(out var sellCountValue))
+                                {
+                                    trackedTritium = Math.Max(0, trackedTritium - sellCountValue);
                                 }
                                 break;
 
@@ -389,7 +474,8 @@ namespace RouteJumper.Services
                 CommanderName = commanderName,
                 Fid = fid,
                 CargoCapacity = cargoCapacity,
-                CurrentCargo = currentCargo,
+                CurrentCargo = latestRawShipCargo.HasValue ? Math.Max(0, latestRawShipCargo.Value - trackedTritium) : null,
+                CurrentTritium = latestRawShipCargo.HasValue ? trackedTritium : null,
                 CurrentSystem = currentSystem,
                 CurrentStation = currentStation,
                 CarrierName = carrierName,
@@ -403,37 +489,23 @@ namespace RouteJumper.Services
             root.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
 
         /// <summary>
-        /// Sums the Cargo event's per-commodity Inventory, excluding tritium: what matters for
-        /// planning fleet carrier jumps is how much free space the ship has available *for*
-        /// tritium, so tritium already aboard isn't relevant tonnage (see SPEC §11.3). Falls
-        /// back to the event's own total Count if Inventory isn't present (older journal
-        /// format/edge case) - tritium can't be excluded in that case.
+        /// Pulls just the tritium entry's Count out of a Cargo event's per-commodity Inventory
+        /// array (0 if tritium isn't present in it) - used to resync the running tracked-tritium
+        /// total (see ReadJournalSummary) whenever a Cargo event happens to carry the full
+        /// breakdown, since that's the one authoritative ground-truth source available.
         /// </summary>
-        private static int? ReadCargoCountExcludingTritium(JsonElement root)
+        private static int GetTritiumCountFromInventory(JsonElement inventory)
         {
-            if (root.TryGetProperty("Inventory", out var inventory) && inventory.ValueKind == JsonValueKind.Array)
+            foreach (var item in inventory.EnumerateArray())
             {
-                var total = 0;
-                foreach (var item in inventory.EnumerateArray())
+                if (string.Equals(GetString(item, "Name"), "tritium", StringComparison.OrdinalIgnoreCase) &&
+                    item.TryGetProperty("Count", out var itemCount) && itemCount.TryGetInt32(out var itemCountValue))
                 {
-                    var name = GetString(item, "Name");
-                    if (string.Equals(name, "tritium", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    if (item.TryGetProperty("Count", out var itemCount) && itemCount.TryGetInt32(out var itemCountValue))
-                    {
-                        total += itemCountValue;
-                    }
+                    return itemCountValue;
                 }
-
-                return total;
             }
 
-            return root.TryGetProperty("Count", out var count) && count.TryGetInt32(out var countValue)
-                ? countValue
-                : null;
+            return 0;
         }
 
         private static (IntPtr Handle, string WindowPosition, string MonitorInfo) TryReadWindowAndMonitor(Process process)
