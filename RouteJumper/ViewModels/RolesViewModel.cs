@@ -5,17 +5,17 @@ using RouteJumper.Services;
 namespace RouteJumper.ViewModels
 {
     /// <summary>
-    /// ViewModel for the "Control" tab: lists running EliteDangerous64.exe instances and lets
+    /// ViewModel for the "Roles" tab: lists running EliteDangerous64.exe instances and lets
     /// the user re-scan for them.
     /// </summary>
-    public class ControlViewModel : ObservableObject
+    public class RolesViewModel : ObservableObject
     {
         private readonly EliteInstanceScanner _scanner = new();
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
 
-        public ControlViewModel()
+        public RolesViewModel()
         {
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);

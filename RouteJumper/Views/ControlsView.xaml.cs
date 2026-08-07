@@ -2,9 +2,9 @@ using System.Windows.Controls;
 
 namespace RouteJumper.Views
 {
-    public partial class ControlView : UserControl
+    public partial class ControlsView : UserControl
     {
-        public ControlView()
+        public ControlsView()
         {
             InitializeComponent();
         }

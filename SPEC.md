@@ -1,10 +1,12 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.6
+**Version:** 1.7
 **Status:** Route tab implemented (2s cadence, combined completion step);
 Material Design restyle complete, including per-status action icons and a
-window/taskbar icon; Control tab implemented (Elite Dangerous instance
-detection, including current location and fleet carrier tracking);
+window/taskbar icon; former Control tab renamed to **Roles** (Elite Dangerous
+instance detection, including current location and fleet carrier tracking,
+implemented); a new, currently-empty **Controls** tab added after it; tab
+headings moved to the left edge of the window to save vertical space;
 startup window placement on the rightmost monitor implemented
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
@@ -23,20 +25,24 @@ moving to the next.
 
 | In scope (v1) | Out of scope (v1) |
 |---|---|
-| Main window with two tabs: **Route**, **Control** | Persistence of route lists between sessions |
+| Main window with three tabs: **Route**, **Roles**, **Controls** | Persistence of route lists between sessions |
 | Text entry, save-to-table workflow on the Route tab | Configurable timing (fixed at 2s for v1.3+) |
 | Timed Start/Stop sequence over table rows | Non-timer triggers actually wired in (framework only) |
 | Event-driven sequencing engine, open to future trigger types | Sending input (keystrokes etc.) to a detected instance's window |
-| Control tab: detect running Elite Dangerous instances and show FID, commander name, cargo, current location, fleet carrier, journal file, window handle/position, and monitor per instance (see §11) | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
-| Startup window placement on the rightmost monitor (see §3.4) | Row-addressable sequencing triggers (see §13.1) |
+| Roles tab: detect running Elite Dangerous instances and show FID, commander name, cargo, current location, fleet carrier, journal file, window handle/position, and monitor per instance (see §11) | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
+| Startup window placement on the rightmost monitor (see §3.5) | Content of the Controls tab (currently an empty placeholder — see §3.4) |
+| Tab headings placed on the left edge of the window (see §3.1) | Row-addressable sequencing triggers (see §13.1) |
 
 ---
 
 ## 3. Window Structure
 
 ### 3.1 Main Window
-- Single top-level window containing a `TabControl` with exactly two tabs.
-- Tab order: **Route**, **Control**.
+- Single top-level window containing a `TabControl` with exactly three tabs.
+- Tab order: **Route**, **Roles**, **Controls**.
+- Tab headings are placed on the **left edge** of the window
+  (`TabStripPlacement="Left"`) rather than across the top, to maximise the
+  vertical space available to each tab's content.
 - Window is resizable; content should reflow (no fixed-pixel layouts).
 - Window title: **"ED:FC AutoPilot"**.
 - Window/taskbar icon: see §9.5.
@@ -45,7 +51,12 @@ moving to the next.
 Has two mutually exclusive states, **Edit** and **Running**, described below.
 Only one is visible at a time.
 
-### 3.3 Tab 2 — "Control"
+### 3.3 Tab 2 — "Roles"
+> Formerly named "Control"; renamed to "Roles" to reflect its actual purpose
+> — surfacing running instances so a role (e.g. which carrier/ship to jump)
+> can be assigned to each one. Its implementation and requirements (§11) are
+> unchanged by the rename.
+
 - A **Refresh** button, right-aligned below the content area (same
   placement convention as the Route tab's buttons).
 - A vertically-stacked, scrollable list of cards, one per running
@@ -63,7 +74,11 @@ Only one is visible at a time.
 - Must not error or block the rest of the app if Elite Dangerous isn't
   running, or if the journal folder doesn't exist.
 
-### 3.4 Startup window placement
+### 3.4 Tab 3 — "Controls"
+- New tab added after **Roles**. Currently an empty placeholder (no
+  content, no behaviour) — scope and design not yet defined.
+
+### 3.5 Startup window placement
 - On launch, the main window is positioned against the **right edge** of
   the physically rightmost connected monitor (10px margin from the edge),
   vertically centered on that monitor.
@@ -377,7 +392,7 @@ that decides *when* the next action in §7.2 runs must be decoupled from
 
 ---
 
-## 11. Control Tab — Elite Dangerous Instance Detection
+## 11. Roles Tab — Elite Dangerous Instance Detection
 
 ### 11.1 Process discovery
 - On every refresh (initial load or button click), all running processes
@@ -479,15 +494,16 @@ that decides *when* the next action in §7.2 runs must be decoupled from
   a scan.
 - The Refresh button disables itself for the duration of a scan and
   re-enables once it completes.
-- Triggered once automatically when the Control tab's ViewModel is
+- Triggered once automatically when the Roles tab's ViewModel is
   constructed (i.e. on app startup), and again on every Refresh click.
 
 ---
 
 ## 12. Acceptance Criteria
 
-1. Launching the app shows a window with **Route** and **Control** tabs;
-   Route is selected by default.
+1. Launching the app shows a window with **Route**, **Roles**, and
+   **Controls** tabs, with headings on the left edge of the window; Route
+   is selected by default.
 2. Route tab initially shows an empty, full-size text box with disabled
    Save and enabled Cancel.
 3. Typing text enables Save; clicking Cancel clears the text box.
@@ -522,10 +538,10 @@ that decides *when* the next action in §7.2 runs must be decoupled from
 14. Moving one instance's window to a different monitor and clicking
     Refresh updates that instance's window position and monitor fields
     accordingly.
-15. The Control tab's initial data load happens automatically on app
+15. The Roles tab's initial data load happens automatically on app
     startup, without requiring the user to click Refresh first.
 16. On launch, the main window is positioned against the right edge of
-    the physically rightmost monitor, vertically centered (§3.4).
+    the physically rightmost monitor, vertically centered (§3.5).
 17. A commander who owns a fleet carrier but has not opened Carrier
     Management this session shows "Unnamed carrier — {system}" (not
     "None detected" — the location events alone are enough to know a
@@ -544,9 +560,10 @@ that decides *when* the next action in §7.2 runs must be decoupled from
 - Should the 2 second interval be user-configurable?
 - Should Stop support pausing/resuming mid-row, rather than only a full
   restart?
-- Should the Control tab support sending input (keystrokes etc.) to a
+- Should the Roles tab support sending input (keystrokes etc.) to a
   selected instance's window? The window handle is already captured
   (§11.3) specifically in anticipation of this.
+- What should the new Controls tab (§3.4) actually contain?
 - Should the 5-minute journal-match tolerance (§11.2) be configurable?
 - Should cargo show an itemized commodity breakdown, not just total
   tonnage?

@@ -18,12 +18,15 @@
         <vm:MainViewModel />
     </Window.DataContext>
 
-    <TabControl Margin="8">
+    <TabControl Margin="8" TabStripPlacement="Left">
         <TabItem Header="Route">
             <views:RouteView DataContext="{Binding RouteViewModel}" />
         </TabItem>
-        <TabItem Header="Control">
-            <views:ControlView DataContext="{Binding ControlViewModel}" />
+        <TabItem Header="Roles">
+            <views:RolesView DataContext="{Binding RolesViewModel}" />
+        </TabItem>
+        <TabItem Header="Controls">
+            <views:ControlsView DataContext="{Binding ControlsViewModel}" />
         </TabItem>
     </TabControl>
 </Window>

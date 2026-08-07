@@ -10,11 +10,14 @@ namespace RouteJumper.ViewModels
         public MainViewModel()
         {
             RouteViewModel = new RouteViewModel();
-            ControlViewModel = new ControlViewModel();
+            RolesViewModel = new RolesViewModel();
+            ControlsViewModel = new ControlsViewModel();
         }
 
         public RouteViewModel RouteViewModel { get; }
 
-        public ControlViewModel ControlViewModel { get; }
+        public RolesViewModel RolesViewModel { get; }
+
+        public ControlsViewModel ControlsViewModel { get; }
     }
 }
