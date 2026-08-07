@@ -1,12 +1,19 @@
+using RouteJumper.Common;
+
 namespace RouteJumper.ViewModels
 {
     /// <summary>
-    /// Read-only snapshot of one running EliteDangerous64.exe instance, as of the last Refresh.
-    /// Rebuilt from scratch on every refresh (not mutated in place), so it doesn't need
-    /// INotifyPropertyChanged like RouteRowViewModel does.
+    /// Snapshot of one running EliteDangerous64.exe instance, as of the last Refresh. Rebuilt
+    /// from scratch on every refresh (not mutated in place) - except for IsCaptain/IsEngineer,
+    /// which RolesViewModel restores onto the new instance for the same ProcessId after each
+    /// refresh, and which need INotifyPropertyChanged so a role toggle updates the card
+    /// immediately without waiting for the next refresh.
     /// </summary>
-    public class EliteInstanceViewModel
+    public class EliteInstanceViewModel : ObservableObject
     {
+        private bool _isCaptain;
+        private bool _isEngineer;
+
         public EliteInstanceViewModel(
             int processId,
             string commanderName,
@@ -21,7 +28,9 @@ namespace RouteJumper.ViewModels
             string? currentStation,
             string? carrierName,
             string? carrierSystem,
-            string? carrierBody)
+            string? carrierBody,
+            string? journalFilePath,
+            long? carrierId)
         {
             ProcessId = processId;
             CommanderName = commanderName;
@@ -37,6 +46,8 @@ namespace RouteJumper.ViewModels
             CarrierName = carrierName;
             CarrierSystem = carrierSystem;
             CarrierBody = carrierBody;
+            JournalFilePath = journalFilePath;
+            CarrierId = carrierId;
         }
 
         public int ProcessId { get; }
@@ -46,6 +57,21 @@ namespace RouteJumper.ViewModels
         public string Fid { get; }
 
         public string JournalFileName { get; }
+
+        /// <summary>
+        /// Full path to the matched journal file, or null if none was matched. Kept alongside
+        /// the display-only JournalFileName so the Captain role's journal watcher (§11.5) can
+        /// open the file without re-deriving it.
+        /// </summary>
+        public string? JournalFilePath { get; }
+
+        /// <summary>
+        /// The commander's own fleet carrier's CarrierID, resolved the same way as
+        /// CarrierSystem/CarrierBody (see EliteInstanceScanner) - null if never established
+        /// this session. Used to filter CarrierJumpRequest/CarrierLocation events to "this
+        /// commander's own carrier" when the Captain role is assigned (§11.5).
+        /// </summary>
+        public long? CarrierId { get; }
 
         /// <summary>
         /// The game window's HWND, kept as a raw handle (not just the display string) so it can
@@ -65,7 +91,10 @@ namespace RouteJumper.ViewModels
         /// <summary>Max cargo tonnage, from the most recent Loadout event's CargoCapacity field.</summary>
         public int? CargoCapacity { get; }
 
-        /// <summary>Current cargo held, from the most recent Ship-vessel Cargo event's Count field.</summary>
+        /// <summary>
+        /// Current cargo held, from the most recent Ship-vessel Cargo event's Inventory total,
+        /// excluding tritium (see EliteInstanceScanner.ReadCargoCountExcludingTritium).
+        /// </summary>
         public int? CurrentCargo { get; }
 
         public string CargoDisplay => (CurrentCargo, CargoCapacity) switch
@@ -75,6 +104,20 @@ namespace RouteJumper.ViewModels
             (null, int capacity) => $"Unknown / {capacity}t",
             _ => "Unknown"
         };
+
+        /// <summary>Free cargo space (tritium excluded), or null if capacity/current is unknown.</summary>
+        public int? AvailableCargoCapacity => (CargoCapacity, CurrentCargo) switch
+        {
+            (int capacity, int current) => capacity - current,
+            _ => null
+        };
+
+        /// <summary>
+        /// False when available capacity is positively known to be zero or less (no cargo
+        /// racks, or full), or when it isn't known at all (Loadout/Cargo haven't been read
+        /// yet this session) - per SPEC §11.5.
+        /// </summary>
+        public bool CanBeEngineer => AvailableCargoCapacity.HasValue && AvailableCargoCapacity.Value > 0;
 
         /// <summary>Current system; null means never established this session.</summary>
         public string? CurrentSystem { get; }
@@ -118,6 +161,20 @@ namespace RouteJumper.ViewModels
                 var location = CarrierBody is null ? CarrierSystem : $"{CarrierSystem}, {CarrierBody}";
                 return $"{name} — {location}";
             }
+        }
+
+        /// <summary>True while this instance holds the Captain role (see SPEC §11.5).</summary>
+        public bool IsCaptain
+        {
+            get => _isCaptain;
+            set => SetProperty(ref _isCaptain, value);
+        }
+
+        /// <summary>True while this instance holds the Engineer role (see SPEC §11.5).</summary>
+        public bool IsEngineer
+        {
+            get => _isEngineer;
+            set => SetProperty(ref _isEngineer, value);
         }
     }
 }

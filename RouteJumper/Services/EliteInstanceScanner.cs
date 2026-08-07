@@ -136,7 +136,9 @@ namespace RouteJumper.Services
                 summary.CurrentStation,
                 summary.CarrierName,
                 summary.CarrierSystem,
-                summary.CarrierBody);
+                summary.CarrierBody,
+                journalPath,
+                summary.CarrierId);
         }
 
         private static DateTime? TryReadFileheaderTimestampUtc(string path)
@@ -210,6 +212,13 @@ namespace RouteJumper.Services
             public string? CarrierName { get; init; }
             public string? CarrierSystem { get; init; }
             public string? CarrierBody { get; init; }
+
+            /// <summary>
+            /// The CarrierID this session's CarrierSystem/CarrierBody were resolved against -
+            /// see the resolution rule below. Used to match live CarrierJumpRequest/
+            /// CarrierLocation events to "this commander's own carrier" (see SPEC §11.5).
+            /// </summary>
+            public long? CarrierId { get; init; }
         }
 
         private static JournalSummary ReadJournalSummary(string path)
@@ -237,7 +246,7 @@ namespace RouteJumper.Services
                 string? line;
                 while ((line = reader.ReadLine()) != null)
                 {
-                    var eventName = ExtractEventName(line);
+                    var eventName = JournalEventName.Extract(line);
                     if (eventName is null || !RelevantEvents.Contains(eventName))
                     {
                         continue;
@@ -273,9 +282,9 @@ namespace RouteJumper.Services
 
                             case "Cargo":
                                 var vessel = root.TryGetProperty("Vessel", out var v) ? v.GetString() : null;
-                                if (vessel == "Ship" && root.TryGetProperty("Count", out var count) && count.TryGetInt32(out var countValue))
+                                if (vessel == "Ship")
                                 {
-                                    currentCargo = countValue;
+                                    currentCargo = ReadCargoCountExcludingTritium(root);
                                 }
                                 break;
 
@@ -359,16 +368,20 @@ namespace RouteJumper.Services
 
             string? carrierSystem = null;
             string? carrierBody = null;
+            long? resolvedCarrierId = null;
             if (ownedCarrierId.HasValue && carrierLocationsById.TryGetValue(ownedCarrierId.Value, out var owned))
             {
                 (carrierSystem, carrierBody) = owned;
+                resolvedCarrierId = ownedCarrierId;
             }
             else if (ownedCarrierId is null && carrierLocationsById.Count == 1)
             {
                 // CarrierStats never fired this session, so ownership can't be confirmed by ID -
                 // but if only one distinct carrier was ever referenced, there's no ambiguity to
                 // resolve, so it's safe to assume it's the commander's own.
-                (carrierSystem, carrierBody) = carrierLocationsById.Values.Single();
+                var only = carrierLocationsById.Single();
+                resolvedCarrierId = only.Key;
+                (carrierSystem, carrierBody) = only.Value;
             }
 
             return new JournalSummary
@@ -380,6 +393,7 @@ namespace RouteJumper.Services
                 CurrentSystem = currentSystem,
                 CurrentStation = currentStation,
                 CarrierName = carrierName,
+                CarrierId = resolvedCarrierId,
                 CarrierSystem = carrierSystem,
                 CarrierBody = carrierBody
             };
@@ -389,21 +403,37 @@ namespace RouteJumper.Services
             root.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
 
         /// <summary>
-        /// Pulls the "event" value out of a raw journal line without a full JSON parse, so lines
-        /// for event types we don't care about are skipped cheaply.
+        /// Sums the Cargo event's per-commodity Inventory, excluding tritium: what matters for
+        /// planning fleet carrier jumps is how much free space the ship has available *for*
+        /// tritium, so tritium already aboard isn't relevant tonnage (see SPEC §11.3). Falls
+        /// back to the event's own total Count if Inventory isn't present (older journal
+        /// format/edge case) - tritium can't be excluded in that case.
         /// </summary>
-        private static string? ExtractEventName(string line)
+        private static int? ReadCargoCountExcludingTritium(JsonElement root)
         {
-            const string marker = "\"event\":\"";
-            var start = line.IndexOf(marker, StringComparison.Ordinal);
-            if (start < 0)
+            if (root.TryGetProperty("Inventory", out var inventory) && inventory.ValueKind == JsonValueKind.Array)
             {
-                return null;
+                var total = 0;
+                foreach (var item in inventory.EnumerateArray())
+                {
+                    var name = GetString(item, "Name");
+                    if (string.Equals(name, "tritium", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (item.TryGetProperty("Count", out var itemCount) && itemCount.TryGetInt32(out var itemCountValue))
+                    {
+                        total += itemCountValue;
+                    }
+                }
+
+                return total;
             }
 
-            start += marker.Length;
-            var end = line.IndexOf('"', start);
-            return end < 0 ? null : line[start..end];
+            return root.TryGetProperty("Count", out var count) && count.TryGetInt32(out var countValue)
+                ? countValue
+                : null;
         }
 
         private static (IntPtr Handle, string WindowPosition, string MonitorInfo) TryReadWindowAndMonitor(Process process)

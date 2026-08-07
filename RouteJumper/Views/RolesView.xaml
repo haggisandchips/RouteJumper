@@ -44,13 +44,60 @@
                         <DataTemplate DataType="{x:Type vm:EliteInstanceViewModel}">
                             <materialDesign:Card Margin="0,0,0,12" Padding="16">
                                 <StackPanel>
-                                    <TextBlock Text="{Binding CommanderName}"
-                                               FontSize="18"
-                                               FontWeight="Bold"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding ProcessId, StringFormat='PID {0}'}"
-                                               Opacity="0.6"
-                                               Margin="0,0,0,8" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding CommanderName}"
+                                                       FontSize="18"
+                                                       FontWeight="Bold"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ProcessId, StringFormat='PID {0}'}"
+                                                       Opacity="0.6"
+                                                       Margin="0,0,0,8" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                            <Button Content="Captain"
+                                                    Margin="0,0,6,0"
+                                                    Padding="10,4"
+                                                    FontSize="11"
+                                                    Command="{Binding DataContext.ToggleCaptainCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Assign/unassign the Captain role">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsCaptain}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                                                                <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                            <Button Content="Engineer"
+                                                    Padding="10,4"
+                                                    FontSize="11"
+                                                    Command="{Binding DataContext.ToggleEngineerCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Assign/unassign the Engineer role (requires available cargo space)">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsEngineer}" Value="True">
+                                                                <Setter Property="Background" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                                                                <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
 
                                     <Grid Margin="0,4,0,0">
                                         <Grid.ColumnDefinitions>

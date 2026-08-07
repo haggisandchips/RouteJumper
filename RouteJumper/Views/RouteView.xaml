@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:converters="clr-namespace:RouteJumper.Converters"
+             xmlns:behaviors="clr-namespace:RouteJumper.Behaviors"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="700">
@@ -23,7 +24,8 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBox Grid.Row="0"
+            <TextBox x:Name="RouteTextBox"
+                     Grid.Row="0"
                      Text="{Binding RouteText, UpdateSourceTrigger=PropertyChanged}"
                      AcceptsReturn="True"
                      AcceptsTab="True"
@@ -31,7 +33,10 @@
                      VerticalScrollBarVisibility="Auto"
                      HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas"
-                     FontSize="14" />
+                     FontSize="14"
+                     VerticalContentAlignment="Top"
+                     materialDesign:HintAssist.Hint="Paste route here, one system per line."
+                     materialDesign:HintAssist.IsFloating="False" />
 
             <StackPanel Grid.Row="1"
                         Orientation="Horizontal"
@@ -68,6 +73,60 @@
                       HeadersVisibility="Column"
                       GridLinesVisibility="Horizontal"
                       RowHeaderWidth="0">
+                <DataGrid.CellStyle>
+                    <!-- Same appearance/selection behavior as the toolkit's own cell style -
+                         just without the "current cell" border a click leaves behind. That
+                         border turned out to come from the base style's own IsFocused/
+                         IsSelected triggers setting BorderThickness/BorderBrush on the cell's
+                         template (not the FocusVisualStyle adorner - setting that alone had no
+                         effect, confirmed live), so it's neutralized here with triggers of our
+                         own for the same conditions, appended after the inherited ones and so
+                         taking precedence. The grey row selection background is a separate,
+                         row-level trigger (see RowStyle below) and is untouched by this. -->
+                    <Style TargetType="DataGridCell" BasedOn="{StaticResource MaterialDesignDataGridCell}">
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter Property="BorderThickness" Value="0" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="BorderThickness" Value="0" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter Property="BorderThickness" Value="0" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.CellStyle>
+                <DataGrid.RowStyle>
+                    <!-- Clicking anywhere in a row (not just the System cell) copies that
+                         row's system name - see ClickCommandBehavior. Right-click gives a
+                         manual "Set next system" override (§11.5's Update / off-route recovery)
+                         - the row's own DataContext is the RouteRowViewModel, but a ContextMenu
+                         is not part of the visual tree, so RelativeSource AncestorType=UserControl
+                         can't reach the ViewModel from inside it; Tag smuggles it through instead
+                         (see the ContextMenu's own bindings via PlacementTarget below). -->
+                    <Style TargetType="DataGridRow" BasedOn="{StaticResource MaterialDesignDataGridRow}">
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="ToolTip" Value="Click to copy the system name to the clipboard" />
+                        <Setter Property="behaviors:ClickCommandBehavior.Command"
+                                Value="{Binding DataContext.CopySystemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                        <Setter Property="behaviors:ClickCommandBehavior.CommandParameter" Value="{Binding SystemText}" />
+                        <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                        <Setter Property="ContextMenu">
+                            <Setter.Value>
+                                <ContextMenu Padding="0">
+                                    <MenuItem Header="Set next system"
+                                              Padding="12,3"
+                                              MinHeight="0"
+                                              Command="{Binding PlacementTarget.Tag.SetNextSystemCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                              CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                </ContextMenu>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </DataGrid.RowStyle>
                 <DataGrid.Columns>
 
                     <!-- Blank icon column -->
@@ -110,6 +169,11 @@
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         Margin="0,10,0,0">
+                <Button Content="Edit"
+                        Command="{Binding EditCommand}"
+                        Width="90"
+                        Padding="4"
+                        Margin="0,0,8,0" />
                 <Button Content="Start"
                         Command="{Binding StartCommand}"
                         Width="90"

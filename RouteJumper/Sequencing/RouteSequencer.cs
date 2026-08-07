@@ -16,6 +16,7 @@ namespace RouteJumper.Sequencing
     {
         private readonly List<ISequenceTrigger> _triggers = new();
         private Queue<SequenceStep> _steps = new();
+        private IReadOnlyList<RouteRowViewModel>? _addressableRows;
 
         public bool IsRunning { get; private set; }
 
@@ -33,6 +34,144 @@ namespace RouteJumper.Sequencing
         {
             trigger.Triggered += OnTriggered;
             _triggers.Add(trigger);
+        }
+
+        /// <summary>
+        /// Wires a row-addressable trigger (see <see cref="IRowEventTrigger"/>) into this
+        /// sequencer. Unlike <see cref="AttachTrigger"/>, this does not consume the queued
+        /// timer-paced steps at all - it applies directly to whichever rows were last passed
+        /// to <see cref="SetRows"/>, independently of whether a timer-paced run is in progress.
+        /// </summary>
+        public void AttachRowTrigger(IRowEventTrigger trigger) => trigger.RowTriggered += OnRowTriggered;
+
+        /// <summary>
+        /// Tells the sequencer which rows row-addressable events should apply to. Independent
+        /// of <see cref="Start"/>/<see cref="IsRunning"/> - a row-addressable trigger can bring
+        /// the route up to date (e.g. from a real-world event source) whether or not the
+        /// timer-paced demo sequence has ever been started.
+        /// </summary>
+        public void SetRows(IReadOnlyList<RouteRowViewModel> rows) => _addressableRows = rows;
+
+        private void OnRowTriggered(object? sender, RowEvent e)
+        {
+            if (_addressableRows is null)
+            {
+                return;
+            }
+
+            ApplyRowEvent(_addressableRows, e);
+        }
+
+        /// <summary>
+        /// Applies a single row-addressable event: finds the row it targets (see
+        /// <see cref="FindTargetIndex"/>), and - for Plotted/Arrived only - silently completes
+        /// every earlier not-yet-complete row along the way. That catch-up is what lets one
+        /// event bring the whole route up to date in a single step - e.g. after the app
+        /// restarts mid-journey and several rows must be marked complete at once, rather than
+        /// replaying each one individually. See SPEC §11.5/§13.1. Jumping/CooldownElapsed never
+        /// need to catch up earlier rows - by construction they only ever target the row a
+        /// prior Plotted/Arrived event already brought current. Reset is not row-targeted at
+        /// all - it clears every row unconditionally (see SPEC §11.5's Update on Captain
+        /// reassignment) and skips the rest of this method entirely.
+        /// </summary>
+        private static void ApplyRowEvent(IReadOnlyList<RouteRowViewModel> rows, RowEvent e)
+        {
+            if (e.Kind == RowEventKind.Reset)
+            {
+                foreach (var eachRow in rows)
+                {
+                    eachRow.Icon = RowIcon.None;
+                    eachRow.Status = string.Empty;
+                }
+                return;
+            }
+
+            var targetIndex = FindTargetIndex(rows, e.Kind, e.SystemName);
+            if (targetIndex < 0)
+            {
+                return;
+            }
+
+            if (e.Kind is RowEventKind.Plotted or RowEventKind.Arrived)
+            {
+                for (var i = 0; i < targetIndex; i++)
+                {
+                    if (rows[i].Icon != RowIcon.Complete)
+                    {
+                        rows[i].Icon = RowIcon.Complete;
+                        rows[i].Status = string.Empty;
+                    }
+                }
+            }
+
+            var row = rows[targetIndex];
+            switch (e.Kind)
+            {
+                case RowEventKind.Plotted:
+                    if (row.Icon != RowIcon.Complete)
+                    {
+                        row.Icon = RowIcon.InProgress;
+                    }
+                    row.Status = "Plotted";
+                    break;
+
+                case RowEventKind.Jumping:
+                    row.Status = "Jumping";
+                    break;
+
+                case RowEventKind.Arrived:
+                    row.Icon = RowIcon.Complete;
+                    if (targetIndex + 1 < rows.Count)
+                    {
+                        rows[targetIndex + 1].Icon = RowIcon.InProgress;
+                    }
+                    row.Status = "Cooldown";
+                    break;
+
+                case RowEventKind.CooldownElapsed:
+                    row.Status = string.Empty;
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Finds which row a row-addressable event targets. Plotted/Arrived match by System
+        /// text against any not-yet-complete row (any current status - matches the row a
+        /// catch-up would otherwise skip past). Jumping/CooldownElapsed are derived follow-ups
+        /// (see <see cref="RowEventKind"/>) and are matched more precisely - by System text
+        /// *and* the exact status their originating event left behind - so a stale/duplicate
+        /// timer firing after the row has already moved on (e.g. Arrived beat a late Jumping
+        /// timer to the punch) is a safe no-op rather than corrupting a later state.
+        /// </summary>
+        private static int FindTargetIndex(IReadOnlyList<RouteRowViewModel> rows, RowEventKind kind, string systemName)
+        {
+            var (requireComplete, requireStatus) = kind switch
+            {
+                RowEventKind.Jumping => (false, "Plotted"),
+                RowEventKind.CooldownElapsed => (true, "Cooldown"),
+                _ => (false, (string?)null)
+            };
+
+            for (var i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                if ((row.Icon == RowIcon.Complete) != requireComplete)
+                {
+                    continue;
+                }
+
+                if (requireStatus != null && row.Status != requireStatus)
+                {
+                    continue;
+                }
+
+                if (string.Equals(row.SystemText, systemName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         public void Start(IReadOnlyList<RouteRowViewModel> rows)
