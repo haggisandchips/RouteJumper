@@ -12,6 +12,7 @@ namespace RouteJumper.ViewModels
         private int _number;
         private string _systemText = string.Empty;
         private string _status = string.Empty;
+        private bool _isCopiedToClipboard;
 
         public RowIcon Icon
         {
@@ -38,6 +39,19 @@ namespace RouteJumper.ViewModels
         {
             get => _status;
             set => SetProperty(ref _status, value);
+        }
+
+        /// <summary>
+        /// True while this row's System text is believed to be the current contents of the
+        /// system clipboard (SPEC §5.6's Update) - drives a small icon shown after the System
+        /// text. Set by RouteViewModel whenever it copies this row's text; cleared either when
+        /// a different row is copied instead, or when the clipboard changes for any other
+        /// reason (this app or an external one) - see RouteViewModel.OnSystemClipboardChanged.
+        /// </summary>
+        public bool IsCopiedToClipboard
+        {
+            get => _isCopiedToClipboard;
+            set => SetProperty(ref _isCopiedToClipboard, value);
         }
     }
 }

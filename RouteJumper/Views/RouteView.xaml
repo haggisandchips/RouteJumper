@@ -128,7 +128,7 @@
                         <Setter Property="ToolTip" Value="Click to copy the system name to the clipboard" />
                         <Setter Property="behaviors:ClickCommandBehavior.Command"
                                 Value="{Binding DataContext.CopySystemCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                        <Setter Property="behaviors:ClickCommandBehavior.CommandParameter" Value="{Binding SystemText}" />
+                        <Setter Property="behaviors:ClickCommandBehavior.CommandParameter" Value="{Binding}" />
                         <Setter Property="Tag" Value="{Binding DataContext, RelativeSource={RelativeSource AncestorType=UserControl}}" />
                         <Setter Property="ContextMenu">
                             <Setter.Value>
@@ -170,9 +170,32 @@
                                          Binding="{Binding Number}"
                                          Width="40" />
 
-                    <DataGridTextColumn Header="System"
-                                         Binding="{Binding SystemText}"
-                                         Width="*" />
+                    <!-- Plain DataGridTextColumn deliberately reverted to a template column here
+                         (see §5.2's earlier Update on why a template column was avoided for this
+                         one - a wrapped Button's implicit style leaking through) - that risk was
+                         specific to Button; a bare TextBlock + PackIcon carries no implicit style
+                         of its own to leak, so it's safe. The clipboard icon (SPEC §5.6's Update)
+                         only ever needs to appear after the System text, which a plain
+                         DataGridTextColumn has no way to do. -->
+                    <DataGridTemplateColumn Header="System" Width="*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding SystemText}"
+                                               VerticalAlignment="Center" />
+                                    <materialDesign:PackIcon Kind="ClipboardCheckOutline"
+                                                              Width="14"
+                                                              Height="14"
+                                                              Margin="6,0,0,0"
+                                                              Opacity="0.7"
+                                                              VerticalAlignment="Center"
+                                                              Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                              Visibility="{Binding IsCopiedToClipboard, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                              ToolTip="Currently on the clipboard" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
 
                     <DataGridTextColumn Header="Status"
                                          Binding="{Binding Status}"

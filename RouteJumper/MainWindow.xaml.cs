@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Interop;
 using RouteJumper.Services;
+using RouteJumper.ViewModels;
 
 namespace RouteJumper
 {
@@ -13,6 +15,8 @@ namespace RouteJumper
         private const string MaximizedKey = "WindowMaximized";
 
         private readonly AppSettingsStore _settings = new();
+
+        private HwndSource? _hwndSource;
 
         public MainWindow()
         {
@@ -31,6 +35,8 @@ namespace RouteJumper
         /// </summary>
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
+            SetUpClipboardMonitoring();
+
             if (TryRestoreBounds())
             {
                 return;
@@ -56,6 +62,37 @@ namespace RouteJumper
             const double edgeMargin = 10;
             Left = topRightDip.X - Width - edgeMargin;
             Top = topRightDip.Y + (monitorHeightDip - Height) / 2;
+        }
+
+        /// <summary>
+        /// Registers this window to receive WM_CLIPBOARDUPDATE (SPEC §5.6's Update) - view-layer
+        /// glue, same carve-out as the window-placement/bounds-persistence logic already in this
+        /// file, since it needs a real HWND/message pump that RouteViewModel has no access to.
+        /// The actual reaction (clearing whichever row's clipboard icon is stale) is business
+        /// logic and lives in RouteViewModel.OnSystemClipboardChanged - this just forwards the
+        /// notification to it.
+        /// </summary>
+        private void SetUpClipboardMonitoring()
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            _hwndSource = HwndSource.FromHwnd(hwnd);
+            if (_hwndSource is null)
+            {
+                return;
+            }
+
+            ClipboardMonitor.AddListener(hwnd);
+            _hwndSource.AddHook(WndProc);
+        }
+
+        private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (msg == ClipboardMonitor.WM_CLIPBOARDUPDATE)
+            {
+                (DataContext as MainViewModel)?.RouteViewModel.OnSystemClipboardChanged();
+            }
+
+            return IntPtr.Zero;
         }
 
         private bool TryRestoreBounds()
@@ -136,6 +173,12 @@ namespace RouteJumper
             _settings.SetDouble(WidthKey, bounds.Width);
             _settings.SetDouble(HeightKey, bounds.Height);
             _settings.SetBool(MaximizedKey, isMaximized);
+
+            if (_hwndSource != null)
+            {
+                ClipboardMonitor.RemoveListener(_hwndSource.Handle);
+                _hwndSource.RemoveHook(WndProc);
+            }
         }
     }
 }

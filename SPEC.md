@@ -1,7 +1,26 @@
 # RouteJumper — Application Specification
 
-**Version:** 4.3
-**Status:** "Auto Copy To Clipboard" added (§5.6) - a session-only
+**Version:** 4.5
+**Status:** A clipboard icon now appears after whichever row's `System`
+text was most recently copied (§5.6's Update), by any of the three copy
+mechanisms or the manual click-to-copy, and disappears the instant the
+system clipboard actually changes for any reason (this app or an
+external one) - detected via a real Win32 `WM_CLIPBOARDUPDATE` push
+notification plus a clipboard-sequence-number comparison, not polling,
+so the app's own writes don't immediately clear the icon they just set.
+Verified with a 13-scenario standalone harness against a real
+`RouteViewModel`; the rendered icon/alignment itself was not
+screenshot-verified this pass after repeated foreground-window capture
+failures in this session (see §5.6's Update for detail) - worth a quick
+visual check next interactive run.
+"Auto Copy To Clipboard" now also copies the current
+in-progress row's system immediately on being switched on (§5.6's
+Update), rather than only reacting to the next live `CarrierLocation`
+event - verified live against the real app's clipboard and a standalone
+harness covering eight scenarios (start/middle/no-in-progress-row/
+empty-route cases, toggling off, re-enabling, and the pre-existing
+live-arrival behavior remaining unaffected).
+"Auto Copy To Clipboard" added (§5.6) - a session-only
 (never persisted) toggle switch above the Route table; while on, a
 live-monitored `CarrierLocation` event for the assigned Captain's
 carrier copies the *next* row's system to the clipboard immediately,
@@ -406,6 +425,22 @@ Only one is visible at a time.
   ahead of the row table's own `Arrived`/`Cooldown` transition (which is
   scheduled 1 minute later - §11.5) - the point is to have the next
   system ready to paste into the game before the UI visually catches up.
+- Turning the toggle **on** also immediately copies whatever system is
+  currently "next" - the route's one in-progress row, whether that's row
+  1 of a freshly-Saved route or wherever a Captain's journal replay or a
+  manual "Set next system" override (§11.6) has since moved it to -
+  rather than doing nothing until the next live `CarrierLocation` event
+  eventually supplies one. A no-op if there's no in-progress row at all
+  (an empty route, or one that's already fully complete). Turning the
+  toggle back off does not copy anything.
+- Whichever row's `System` text is currently believed to be on the
+  clipboard - by any of the three mechanisms above, or the manual
+  click-to-copy (§5.2) - shows a small clipboard icon directly after its
+  text. At most one row shows it at a time. It disappears the instant the
+  system clipboard's contents actually change, for any reason - including
+  an external application - not just when a different row is copied
+  within this app. See the Update below for how an external change is
+  told apart from this app's own write.
 
   > **Implementation:** a real `ToggleButton` styled
   > `MaterialDesignSwitchToggleButton` (confirmed present in the
@@ -457,6 +492,119 @@ Only one is visible at a time.
   > delivery were already verified live/synthetically for the scheduled
   > `Arrived`/`CooldownElapsed` events this reuses the identical
   > `isLive`-gated code path for).
+
+  > **Update (copy immediately on enabling, implemented):** per explicit
+  > follow-up, waiting for the next live `CarrierLocation` event left the
+  > toggle looking inert if you turned it on mid-journey (potentially a
+  > long wait until the next arrival). `AutoCopyToClipboardEnabled`'s
+  > setter now calls a new `RouteViewModel.
+  > CopyCurrentInProgressSystemToClipboard` whenever the value actually
+  > transitions false -> true (guarded by `SetProperty`'s own
+  > changed-or-not return value, so re-setting an already-true value is a
+  > no-op, not a re-copy) - it finds `Rows.FirstOrDefault(r => r.Icon ==
+  > RowIcon.InProgress)` and copies that row's `System` text, mirroring
+  > exactly what the icon column already visually calls "next" (§7.3).
+  > This intentionally reuses the *icon* to define "next system" here,
+  > rather than the `LiveCarrierLocation` handler's own name-based
+  > row-after-arrival lookup (§5.6 above) - the two mechanisms answer a
+  > subtly different question ("what's the carrier now heading toward,
+  > independent of any specific event" vs. "what comes after the system
+  > this specific arrival event named") that happen to coincide in the
+  > common case but aren't the same lookup, so they're implemented
+  > separately rather than forced through one shared code path.
+  > **Verified live** against the real app (UI Automation + the real
+  > Windows clipboard, not screenshots): with a persisted route whose
+  > in-progress row was "Col 285 Sector JF-L b22-8" (row 7 of 8, left
+  > over from earlier Captain-assignment testing), setting the clipboard
+  > to a sentinel value and then toggling the switch on changed the
+  > clipboard to exactly that row's text. Also verified with a standalone
+  > harness driving a real `RouteViewModel` directly (no UI): toggling on
+  > with the in-progress row at the start, middle, and reflecting a
+  > completed-route/empty-route no-op case; toggling off copying nothing;
+  > toggling off then on again re-copying; setting the already-true value
+  > again not re-copying; and the pre-existing `LiveCarrierLocation`
+  > live-arrival copy behavior (§5.6 above) still working unaffected -
+  > eight scenarios, all passing.
+
+  > **Update (clipboard icon, implemented):** whichever row's `System`
+  > text is currently believed to be on the clipboard shows a small
+  > clipboard icon directly after its text (not in the leading icon
+  > column - §7.3 - which is unrelated). At most one row shows it at a
+  > time. It appears the instant that row's text is copied - by any of
+  > the three mechanisms above: manual click-to-copy (§5.2), a live
+  > `CarrierLocation` arrival, or switching the toggle on - and disappears
+  > the instant the system clipboard's contents change for *any* reason,
+  > including an external application overwriting it, not just another
+  > row being copied within this app.
+  > Implementation: `RouteRowViewModel.IsCopiedToClipboard` (bool) drives
+  > the icon's visibility. `RouteViewModel` tracks which row (if any)
+  > currently holds it (`_clipboardSourceRow`) via a new
+  > `MarkRowAsClipboardSource` method, called from all three copy sites
+  > right after their own `Clipboard.SetText` - it clears the flag off
+  > whichever row previously had it (if different), sets it on the new
+  > row, and snapshots the Win32 clipboard sequence number
+  > (`GetClipboardSequenceNumber`, wrapped in a new `Services/
+  > ClipboardMonitor.cs`, same thin-P/Invoke-wrapper pattern as
+  > `Win32Monitors`) as `_expectedClipboardSequenceNumber`. Detecting a
+  > genuine external (or otherwise untracked) change uses
+  > `AddClipboardFormatListener`/`WM_CLIPBOARDUPDATE` - a real Windows
+  > push notification, not polling - registered on the main window's HWND
+  > in `MainWindow.xaml.cs` (the same view-layer carve-out its startup
+  > placement and window-bounds persistence already rely on, since this
+  > needs a real HWND/message pump `RouteViewModel` has no access to) and
+  > forwarded to a new `RouteViewModel.OnSystemClipboardChanged()`. That
+  > method compares the clipboard's *current* sequence number against
+  > `_expectedClipboardSequenceNumber`: if they match, the notification is
+  > just confirming this app's own just-made write, so nothing happens
+  > (without this check, an app's own `Clipboard.SetText` call would
+  > immediately - and wrongly - clear the icon it just set, since
+  > `WM_CLIPBOARDUPDATE` fires for every change regardless of source); if
+  > they differ, the icon is cleared and `_clipboardSourceRow` reset to
+  > null, since something changed the clipboard this app didn't account
+  > for. `Save()` also clears `_clipboardSourceRow` up front (the old
+  > `Rows` instances it belonged to are discarded anyway) so nothing
+  > stale lingers across an Edit/re-Save cycle.
+  > The `System` column - a plain `DataGridTextColumn` since an earlier,
+  > unrelated change specifically reverted it away from a template column
+  > (§5.2's own Update, over a `Button`'s implicit style leaking through a
+  > replaced `ControlTemplate`) - had to become a `DataGridTemplateColumn`
+  > again to show text-plus-icon at all; a bare `TextBlock` + `PackIcon`
+  > carries no implicit control style of its own to leak, so that earlier
+  > risk doesn't apply here. Icon: `ClipboardCheckOutline` - confirmed
+  > present in the installed MaterialDesignThemes 5.3.2 package (same
+  > verify-before-use convention as §9.2) by inspecting the compiled
+  > assembly's resource names directly, since this package version ships
+  > its themes as embedded BAML rather than loose `.xaml` files a text
+  > search could otherwise find.
+  > Since `CopySystemCommand` previously received only a row's bare
+  > `System` string (`RelayCommand<string>`, bound via
+  > `ClickCommandBehavior.CommandParameter="{Binding SystemText}"`) with
+  > no way to know *which row* to mark, it was changed to
+  > `RelayCommand<RouteRowViewModel>` - the binding now passes the row
+  > itself (`{Binding}`) - so the manual click-to-copy path can mark the
+  > correct row the same way the other two paths (which already had a
+  > `RouteRowViewModel` reference in hand) do.
+  > **Verified:** the underlying state machine - icon set on copy, moved
+  > when a different row is copied, unaffected by the WM_CLIPBOARDUPDATE
+  > notification an app's own write triggers, cleared by a genuinely
+  > external clipboard change, set correctly by all three copy
+  > mechanisms, and left in a safe (no stale reference, no exception) state
+  > across a Save - was verified with a standalone harness driving a real
+  > `RouteViewModel` directly, 13 checks, all passing. **Not** verified
+  > with a live screenshot of the actual rendered icon/alignment in this
+  > pass - three separate attempts to bring the app window to the
+  > foreground for a screenshot in this session were unsuccessful
+  > (`SetForegroundWindow` reporting success but the captured region
+  > showing unrelated content each time - other open windows, then an
+  > apparently-blank region, then what appeared to be an unrelated running
+  > game), and a workaround attempt using simulated input
+  > (`keybd_event`/`AttachThreadInput`) to force the foreground switch was
+  > correctly flagged and blocked by antivirus software as suspicious
+  > input-injection behavior - not pursued further, since bypassing a
+  > legitimate security control is not appropriate regardless of intent.
+  > The icon glyph's existence in the installed package was confirmed
+  > (not its rendered appearance); worth a quick visual sanity check next
+  > time the app is run interactively.
 
 ---
 
@@ -1559,6 +1707,17 @@ indirection.
     historical journal replay, not for the passive session-start
     snapshot, and not at all if the arrived-at row is the route's last
     row or isn't found in the route.
+39. Turning "Auto Copy To Clipboard" on immediately copies the route's
+    current in-progress row's `System` text to the clipboard (a no-op if
+    there is no in-progress row - an empty or fully-complete route) -
+    without waiting for a live `CarrierLocation` event. Turning it back
+    off copies nothing.
+40. Whichever row's `System` text was most recently copied to the
+    clipboard (by any means - manual click, a live arrival, or toggling
+    "Auto Copy To Clipboard" on) shows a small clipboard icon after its
+    text, at most one row at a time; the icon disappears the instant the
+    system clipboard's contents change for any reason, including an
+    application other than RouteJumper overwriting it.
 
 ---
 
