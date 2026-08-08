@@ -65,6 +65,16 @@ namespace RouteJumper.Sequencing
         /// deliberately ahead of the delayed Arrived/Cooldown UI transition, since the point is
         /// to have the next system ready to paste immediately.
         /// </summary>
-        LiveCarrierLocation
+        LiveCarrierLocation,
+
+        /// <summary>
+        /// Raised the instant a CarrierJumpCancelled event for the tracked carrier is observed
+        /// (live or replayed). Not name-targeted - CarrierJumpCancelled carries no SystemName of
+        /// its own, so this reverts whichever row is currently the one in-progress row with
+        /// Status "Plotted" or "Jumping" back to a blank status, leaving its Icon as InProgress
+        /// so it's ready for a fresh CarrierJumpRequest. See RouteSequencer.ApplyJumpCancelled.
+        /// The event's SystemName is meaningless for this kind and should be ignored/empty.
+        /// </summary>
+        JumpCancelled
     }
 }

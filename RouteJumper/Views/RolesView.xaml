@@ -161,13 +161,27 @@
 
                                         <materialDesign:PackIcon Grid.Row="3" Grid.Column="0"
                                                                   Kind="SpaceStation"
-                                                                  VerticalAlignment="Center"
+                                                                  VerticalAlignment="Top"
                                                                   Margin="0,6,8,0" />
-                                        <TextBlock Grid.Row="3" Grid.Column="1"
-                                                    Text="{Binding CarrierDisplay}"
-                                                    VerticalAlignment="Center"
-                                                    Margin="0,6,0,0"
-                                                    TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                                            <TextBlock Text="{Binding CarrierDisplay}"
+                                                        TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal"
+                                                        Margin="0,2,0,0"
+                                                        Visibility="{Binding CarrierFuelDisplay, Converter={StaticResource StringToVisibilityConverter}}">
+                                                <materialDesign:PackIcon Kind="GasStationOutline"
+                                                                          Width="14"
+                                                                          Height="14"
+                                                                          Opacity="0.65"
+                                                                          VerticalAlignment="Center"
+                                                                          Margin="0,0,4,0" />
+                                                <TextBlock Text="{Binding CarrierFuelDisplay}"
+                                                            Opacity="0.65"
+                                                            FontSize="11"
+                                                            VerticalAlignment="Center"
+                                                            TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </StackPanel>
 
                                         <materialDesign:PackIcon Grid.Row="4" Grid.Column="0"
                                                                   Kind="FileDocumentOutline"

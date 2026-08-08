@@ -42,6 +42,17 @@ namespace RouteJumper.Services
     /// Separately from all of the above scheduling, a genuinely live-tailed CarrierLocation
     /// (never the historical replay) also raises <see cref="RowEventKind.LiveCarrierLocation"/>
     /// immediately - see that value's doc comment for what it drives.
+    ///
+    /// CarrierJumpCancelled carries no SystemName, so it can't be scheduled/targeted the way
+    /// the events above are - see <see cref="RowEventKind.JumpCancelled"/> for how RouteSequencer
+    /// resolves it. It also cancels whatever Jumping transition the cancelled request had
+    /// scheduled, so a stale timer can't re-set "Jumping" on a row after its jump was cancelled.
+    ///
+    /// CarrierStats is not row-related at all - a live (never replayed) occurrence just invokes
+    /// <paramref name="onCarrierStatsObserved"/>, so the Roles tab can refresh itself without
+    /// waiting for a manual click whenever the commander opens Carrier Management in-game (the
+    /// only time Frontier logs this event, and so the only time the card's carrier name/fuel
+    /// level can actually have changed).
     /// </summary>
     public sealed class CarrierRouteJournalWatcher : IDisposable
     {
@@ -57,12 +68,21 @@ namespace RouteJumper.Services
         private readonly string _journalPath;
         private readonly long _carrierId;
         private readonly Action<RowEventKind, string> _onRowEvent;
+        private readonly Action _onCarrierStatsObserved;
         private readonly object _readLock = new();
         private readonly List<Timer> _scheduledTimers = new();
 
         private FileSystemWatcher? _watcher;
         private long _readOffset;
         private bool _disposed;
+
+        /// <summary>
+        /// The Jumping transition scheduled by the most recent CarrierJumpRequest, if it hasn't
+        /// fired yet - tracked separately from <see cref="_scheduledTimers"/> (which it's also
+        /// still a member of) purely so a CarrierJumpCancelled can cancel *this specific* timer
+        /// without a stale one later re-setting "Jumping" on a row whose jump was cancelled.
+        /// </summary>
+        private Timer? _pendingJumpingTimer;
 
         /// <summary>
         /// True once a CarrierJumpRequest for this carrier has been seen (in this replay or
@@ -80,11 +100,16 @@ namespace RouteJumper.Services
         /// </summary>
         private bool _hasSeenJumpRequest;
 
-        public CarrierRouteJournalWatcher(string journalPath, long carrierId, Action<RowEventKind, string> onRowEvent)
+        public CarrierRouteJournalWatcher(
+            string journalPath,
+            long carrierId,
+            Action<RowEventKind, string> onRowEvent,
+            Action onCarrierStatsObserved)
         {
             _journalPath = journalPath;
             _carrierId = carrierId;
             _onRowEvent = onRowEvent;
+            _onCarrierStatsObserved = onCarrierStatsObserved;
         }
 
         public Task StartAsync() => Task.Run(() =>
@@ -229,10 +254,15 @@ namespace RouteJumper.Services
             return false;
         }
 
+        private static readonly HashSet<string> RelevantEvents = new()
+        {
+            "CarrierJumpRequest", "CarrierLocation", "CarrierJumpCancelled", "CarrierStats"
+        };
+
         private void ProcessLine(string line, bool isLive)
         {
             var eventName = JournalEventName.Extract(line);
-            if (eventName != "CarrierJumpRequest" && eventName != "CarrierLocation")
+            if (eventName is null || !RelevantEvents.Contains(eventName))
             {
                 return;
             }
@@ -251,10 +281,18 @@ namespace RouteJumper.Services
             {
                 var root = doc.RootElement;
 
-                var carrierType = root.TryGetProperty("CarrierType", out var ct) ? ct.GetString() : null;
-                if (carrierType != "FleetCarrier")
+                // CarrierJumpCancelled/CarrierStats carry no CarrierType field at all (unlike
+                // CarrierJumpRequest/CarrierLocation, which can also describe a shared squadron
+                // carrier that must not be mistaken for this commander's own) - CarrierID alone
+                // is enough to identify them, since only this carrier's own owner-triggered
+                // events land in this commander's journal for those two event types.
+                if (eventName is "CarrierJumpRequest" or "CarrierLocation")
                 {
-                    return;
+                    var carrierType = root.TryGetProperty("CarrierType", out var ct) ? ct.GetString() : null;
+                    if (carrierType != "FleetCarrier")
+                    {
+                        return;
+                    }
                 }
 
                 if (!root.TryGetProperty("CarrierID", out var idEl) || !idEl.TryGetInt64(out var id) || id != _carrierId)
@@ -272,8 +310,38 @@ namespace RouteJumper.Services
                         var departureTimeUtc = TryReadTimestampUtc(root, "DepartureTime");
                         if (departureTimeUtc.HasValue)
                         {
-                            ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value - JumpingLeadTime);
+                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value - JumpingLeadTime);
                         }
+                    }
+                }
+                else if (eventName == "CarrierJumpCancelled")
+                {
+                    // Cancel whatever Jumping transition the cancelled request had scheduled -
+                    // without this, a stale timer could still fire later and re-set "Jumping" on
+                    // a row whose jump was just cancelled. JumpCancelled carries no SystemName
+                    // (the event itself has none), so RouteSequencer resolves the target row
+                    // itself - see RowEventKind.JumpCancelled.
+                    lock (_readLock)
+                    {
+                        if (_pendingJumpingTimer is { } pending)
+                        {
+                            _scheduledTimers.Remove(pending);
+                            pending.Dispose();
+                            _pendingJumpingTimer = null;
+                        }
+                    }
+
+                    _onRowEvent(RowEventKind.JumpCancelled, string.Empty);
+                }
+                else if (eventName == "CarrierStats")
+                {
+                    // Only for a genuinely live occurrence - firing this during the one-off
+                    // historical replay would trigger a redundant refresh burst for old,
+                    // already-reflected Carrier Management visits (assigning Captain already
+                    // triggers one refresh of its own regardless).
+                    if (isLive)
+                    {
+                        _onCarrierStatsObserved();
                     }
                 }
                 else if (!_hasSeenJumpRequest)
@@ -325,22 +393,25 @@ namespace RouteJumper.Services
         /// Fires a derived row event at (or as soon as possible after) a real-world UTC
         /// instant: immediately if that instant has already passed (e.g. while replaying old
         /// journal history), otherwise via a one-shot, non-blocking <see cref="Timer"/> - never
-        /// a blocking wait, and never inside RouteSequencer.
+        /// a blocking wait, and never inside RouteSequencer. Returns the created Timer (or null
+        /// if it fired immediately instead, or the watcher is disposed), so a caller that needs
+        /// to cancel a specific scheduled event later - see the CarrierJumpCancelled handling in
+        /// <see cref="ProcessLine"/> - can hold onto the right one.
         /// </summary>
-        private void ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc)
+        private Timer? ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc)
         {
             var delay = whenUtc - DateTime.UtcNow;
             if (delay <= TimeSpan.Zero)
             {
                 _onRowEvent(kind, systemName);
-                return;
+                return null;
             }
 
             lock (_readLock)
             {
                 if (_disposed)
                 {
-                    return;
+                    return null;
                 }
 
                 // Timer must be kept referenced (a field, not a local) or the GC can collect it
@@ -356,6 +427,10 @@ namespace RouteJumper.Services
                             if (timer != null)
                             {
                                 _scheduledTimers.Remove(timer);
+                                if (ReferenceEquals(_pendingJumpingTimer, timer))
+                                {
+                                    _pendingJumpingTimer = null;
+                                }
                             }
                         }
                     },
@@ -364,6 +439,7 @@ namespace RouteJumper.Services
                     Timeout.InfiniteTimeSpan);
 
                 _scheduledTimers.Add(timer);
+                return timer;
             }
         }
 

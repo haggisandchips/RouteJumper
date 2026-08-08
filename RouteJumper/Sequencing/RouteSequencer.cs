@@ -45,9 +45,10 @@ namespace RouteJumper.Sequencing
         /// <see cref="ApplyCooldownElapsed"/>) since the Cooldown status it clears lives on the
         /// row *after* the one its SystemName names, not on that row itself. Reset is not
         /// row-targeted at all - it clears every row unconditionally and skips the rest of this
-        /// method entirely. LiveCarrierLocation is not a route-mutating event at all - it's
-        /// ignored here; RouteViewModel has its own separate subscription to the same trigger
-        /// for it (see that value's doc comment).
+        /// method entirely. JumpCancelled is also not name-targeted - see
+        /// <see cref="ApplyJumpCancelled"/>. LiveCarrierLocation is not a route-mutating event at
+        /// all - it's ignored here; RouteViewModel has its own separate subscription to the same
+        /// trigger for it (see that value's doc comment).
         /// </summary>
         private static void ApplyRowEvent(IReadOnlyList<RouteRowViewModel> rows, RowEvent e)
         {
@@ -69,6 +70,12 @@ namespace RouteJumper.Sequencing
             if (e.Kind == RowEventKind.CooldownElapsed)
             {
                 ApplyCooldownElapsed(rows, e.SystemName);
+                return;
+            }
+
+            if (e.Kind == RowEventKind.JumpCancelled)
+            {
+                ApplyJumpCancelled(rows);
                 return;
             }
 
@@ -148,6 +155,27 @@ namespace RouteJumper.Sequencing
                 }
 
                 return;
+            }
+        }
+
+        /// <summary>
+        /// JumpCancelled carries no SystemName (CarrierJumpCancelled has none in the journal),
+        /// so it can't be matched by name like the other kinds - instead it reverts whichever
+        /// row is currently in-progress with a Status of "Plotted" or "Jumping" (there is only
+        /// ever one such row at a time) back to a blank status, leaving its Icon as InProgress
+        /// so it's ready for a fresh CarrierJumpRequest. A safe no-op if no row currently
+        /// matches - e.g. a stale/duplicate cancellation, or one arriving after the row already
+        /// moved on some other way (a manual "Set next system" override, for instance).
+        /// </summary>
+        private static void ApplyJumpCancelled(IReadOnlyList<RouteRowViewModel> rows)
+        {
+            foreach (var row in rows)
+            {
+                if (row.Icon == RowIcon.InProgress && row.Status is "Plotted" or "Jumping")
+                {
+                    row.Status = string.Empty;
+                    return;
+                }
             }
         }
 

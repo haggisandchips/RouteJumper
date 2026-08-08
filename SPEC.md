@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -190,6 +190,11 @@ See §6.
   duration and re-enables once done. The rest of the app stays interactive
   throughout. Refresh runs automatically once on startup, and again on
   every click.
+- While Captain is assigned, a live (not historically-replayed) `CarrierStats`
+  event for that commander's carrier — logged whenever they open Carrier
+  Management in-game — also triggers a background refresh automatically,
+  so the card's carrier name/fuel level update without waiting for a
+  manual click.
 
 ### 5.2 Journal matching
 - There is no OS-level link between a process and the journal file it
@@ -218,6 +223,7 @@ Each running instance's card shows:
 | Cargo | Latest `Loadout` (capacity) + latest ship `Cargo` (current), shown as `current / capacity`t, tritium included in the total with a separate `Nt tritium` sub-line underneath (omitted when zero) |
 | Current location | Latest of `Location`/`Docked`/`Undocked`/`FSDJump`/`CarrierJump` (while docked) |
 | Fleet carrier | Name from `CarrierStats` (only logged if the Carrier Management panel was opened this session — "Unnamed carrier" if not); location from `CarrierJump`/`CarrierLocation` matched by `CarrierID`, `FleetCarrier` type only (never a squadron carrier) |
+| Carrier fuel | The carrier's own tritium fuel tank level (0–1000t), shown as a `Nt fuel` sub-line under Fleet carrier, omitted until known — from whichever of `CarrierStats`' `FuelLevel` or `CarrierDepositFuel`'s `Total` was most recently seen for the commander's own (resolved) `CarrierID` |
 | Journal file | Matched journal's filename |
 | Window handle | `Process.MainWindowHandle`, shown as hex |
 | Window position | `GetWindowRect` on the window handle |
@@ -232,6 +238,12 @@ Each running instance's card shows:
   `CargoTransfer`, `CarrierDepositFuel`, `MarketBuy`, `MarketSell`),
   resyncing from a `Cargo` event's own `Inventory` breakdown whenever one
   is present (it isn't always).
+- Carrier fuel is an absolute reading (not a tracked delta, unlike ship
+  tritium), so "latest wins" per `CarrierID` is enough — but it's still
+  resolved against the commander's own confirmed `CarrierID` before
+  display, the same way `CarrierSystem`/`CarrierBody` are, since a
+  `CarrierDepositFuel` deposit into a squadron carrier the commander
+  doesn't own must never be shown as if it were theirs.
 - If a process has no main window yet, or exits mid-scan, window/monitor
   fields degrade to "Unknown" rather than failing the whole scan.
 - Cards stretch to fill the tab's full available width, in a
@@ -299,6 +311,17 @@ history, otherwise via a non-blocking timer):
    next row.
 4. A further 4 minutes after that (5 minutes after `CarrierLocation` in
    total) → the next row's `Cooldown` status clears.
+
+A `CarrierJumpCancelled` event for the tracked carrier (filtered by
+`CarrierID` only — this event carries no `CarrierType`) reverts whatever
+the cancelled request had done: whichever row is currently in-progress
+with a `Status` of `Plotted` or `Jumping` (there is at most one at a time)
+has its `Status` cleared back to blank, leaving its icon in-progress and
+ready for a fresh `CarrierJumpRequest`. The event carries no system name
+of its own, so the affected row is found by state, not by name. Any
+`Jumping` transition the cancelled request had already scheduled (step 2
+above) is cancelled at the same time, so a late-firing stale timer can't
+re-set `Jumping` on a row whose jump was cancelled.
 
 - Assigning Captain resets every row (`Icon → None`, `Status →` blank)
   before replaying, so a previous Captain's leftover progress never
@@ -428,3 +451,15 @@ than the app failing to start.
     interaction required. "Auto Copy To Clipboard" always resets to off.
 17. Explicitly unassigning a role clears its persisted FID so it is not
     automatically reassigned on a later launch.
+18. A `CarrierJumpCancelled` event clears the `Status` (`Plotted` or
+    `Jumping`) off the currently in-progress row, leaving its icon
+    in-progress; any already-scheduled `Jumping` transition for that
+    cancelled request never fires afterward.
+19. While Captain is assigned, a live `CarrierStats` event triggers a
+    background Roles tab refresh automatically; the same event during the
+    initial historical journal replay does not.
+20. A card whose commander has opened Carrier Management (or deposited
+    fuel) this session shows the carrier's fuel tank level as a `Nt fuel`
+    sub-line under Fleet carrier, resolved against the commander's own
+    carrier — never a squadron carrier's — and omitted entirely until
+    known.

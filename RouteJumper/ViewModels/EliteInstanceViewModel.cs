@@ -31,7 +31,8 @@ namespace RouteJumper.ViewModels
             string? carrierSystem,
             string? carrierBody,
             string? journalFilePath,
-            long? carrierId)
+            long? carrierId,
+            int? carrierFuelLevel)
         {
             ProcessId = processId;
             CommanderName = commanderName;
@@ -50,6 +51,7 @@ namespace RouteJumper.ViewModels
             CarrierBody = carrierBody;
             JournalFilePath = journalFilePath;
             CarrierId = carrierId;
+            CarrierFuelLevel = carrierFuelLevel;
         }
 
         public int ProcessId { get; }
@@ -175,6 +177,21 @@ namespace RouteJumper.ViewModels
         public string? CarrierSystem { get; }
 
         public string? CarrierBody { get; }
+
+        /// <summary>
+        /// The carrier's own tritium fuel tank level (0-1000t) - see EliteInstanceScanner. Null
+        /// if neither CarrierStats nor a CarrierDepositFuel deposit into this carrier has been
+        /// seen yet this session (most commonly: Carrier Management hasn't been opened yet).
+        /// </summary>
+        public int? CarrierFuelLevel { get; }
+
+        /// <summary>
+        /// Empty (not "Unknown") when the fuel level isn't known - same
+        /// StringToVisibilityConverter-driven omit-the-line pattern as TritiumDisplay, since
+        /// there's nothing useful to show until Carrier Management has been opened at least once
+        /// this session.
+        /// </summary>
+        public string CarrierFuelDisplay => CarrierFuelLevel.HasValue ? $"{CarrierFuelLevel}/1000t fuel" : string.Empty;
 
         public string CarrierDisplay
         {

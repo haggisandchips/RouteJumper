@@ -139,7 +139,8 @@ namespace RouteJumper.Services
                 summary.CarrierSystem,
                 summary.CarrierBody,
                 journalPath,
-                summary.CarrierId);
+                summary.CarrierId,
+                summary.CarrierFuelLevel);
         }
 
         private static DateTime? TryReadFileheaderTimestampUtc(string path)
@@ -228,6 +229,15 @@ namespace RouteJumper.Services
             /// CarrierLocation events to "this commander's own carrier".
             /// </summary>
             public long? CarrierId { get; init; }
+
+            /// <summary>
+            /// The carrier's own tritium fuel tank level (0-1000t), from whichever of
+            /// CarrierStats' FuelLevel or CarrierDepositFuel's Total was most recently seen for
+            /// the resolved owned CarrierID - both report an absolute level, not a delta, so no
+            /// incremental tracking is needed the way ship-hold tritium requires. Null if neither
+            /// has been seen for this carrier yet this session.
+            /// </summary>
+            public int? CarrierFuelLevel { get; init; }
         }
 
         private static JournalSummary ReadJournalSummary(string path)
@@ -260,6 +270,12 @@ namespace RouteJumper.Services
             // event wins" per carrier, then resolved against ownedCarrierId once the full pass
             // is done and CarrierStats (if it fired at all) has been seen.
             var carrierLocationsById = new Dictionary<long, (string System, string? Body)>();
+
+            // Same ownership-agnostic-until-resolved pattern as carrierLocationsById - both
+            // CarrierStats (FuelLevel) and CarrierDepositFuel (Total) report an absolute fuel
+            // level for whichever carrier their own CarrierID names, not necessarily this
+            // commander's own.
+            var carrierFuelById = new Dictionary<long, int>();
 
             try
             {
@@ -351,9 +367,20 @@ namespace RouteJumper.Services
                             case "CarrierDepositFuel":
                                 // Fueling the carrier directly from the ship's cargo hold - always
                                 // tritium, always ship -> carrier, so always a straight reduction.
+                                // Ship-side tracking applies regardless of which carrier received
+                                // it, but Total (the carrier's own new fuel level after this
+                                // deposit) is only meaningful for whichever carrier CarrierID
+                                // names here - recorded into carrierFuelById the same
+                                // ownership-agnostic way as carrierLocationsById below, resolved
+                                // against the confirmed-owned carrier after the full pass.
                                 if (root.TryGetProperty("Amount", out var depositAmount) && depositAmount.TryGetInt32(out var depositAmountValue))
                                 {
                                     trackedTritium = Math.Max(0, trackedTritium - depositAmountValue);
+                                }
+                                if (root.TryGetProperty("CarrierID", out var depositCarrierId) && depositCarrierId.TryGetInt64(out var depositCarrierIdValue) &&
+                                    root.TryGetProperty("Total", out var depositTotal) && depositTotal.TryGetInt32(out var depositTotalValue))
+                                {
+                                    carrierFuelById[depositCarrierIdValue] = depositTotalValue;
                                 }
                                 break;
 
@@ -398,6 +425,14 @@ namespace RouteJumper.Services
                                 if (root.TryGetProperty("CarrierID", out var statsId) && statsId.TryGetInt64(out var statsIdValue))
                                 {
                                     ownedCarrierId = statsIdValue;
+
+                                    // FuelLevel is the carrier's own tritium fuel tank level
+                                    // (0-1000t) - only reported when CarrierStats fires (i.e. the
+                                    // commander has opened Carrier Management this session).
+                                    if (root.TryGetProperty("FuelLevel", out var fuelLevel) && fuelLevel.TryGetInt32(out var fuelLevelValue))
+                                    {
+                                        carrierFuelById[statsIdValue] = fuelLevelValue;
+                                    }
                                 }
                                 break;
 
@@ -469,6 +504,13 @@ namespace RouteJumper.Services
                 (carrierSystem, carrierBody) = only.Value;
             }
 
+            // Same resolved-owned-ID lookup as carrierSystem/carrierBody above - a fuel figure
+            // recorded against a carrier this commander doesn't own (e.g. a squadron carrier's
+            // CarrierDepositFuel from a guest deposit) must never be shown as if it were theirs.
+            var carrierFuelLevel = resolvedCarrierId.HasValue && carrierFuelById.TryGetValue(resolvedCarrierId.Value, out var fuel)
+                ? fuel
+                : (int?)null;
+
             return new JournalSummary
             {
                 CommanderName = commanderName,
@@ -481,7 +523,8 @@ namespace RouteJumper.Services
                 CarrierName = carrierName,
                 CarrierId = resolvedCarrierId,
                 CarrierSystem = carrierSystem,
-                CarrierBody = carrierBody
+                CarrierBody = carrierBody,
+                CarrierFuelLevel = carrierFuelLevel
             };
         }
 
