@@ -15,7 +15,7 @@ namespace RouteJumper.ViewModels
         private const string CaptainFidSettingKey = "CaptainFid";
         private const string EngineerFidSettingKey = "EngineerFid";
 
-        private readonly EliteInstanceScanner _scanner = new();
+        private readonly EliteInstanceScanner _scanner;
         private readonly ManualRowEventTrigger _routeEventTrigger;
         private readonly AppSettingsStore _settings;
 
@@ -25,10 +25,11 @@ namespace RouteJumper.ViewModels
         private int? _engineerProcessId;
         private CarrierRouteJournalWatcher? _captainWatcher;
 
-        public RolesViewModel(ManualRowEventTrigger routeEventTrigger, AppSettingsStore settings)
+        public RolesViewModel(ManualRowEventTrigger routeEventTrigger, AppSettingsStore settings, EliteInstanceScanner scanner)
         {
             _routeEventTrigger = routeEventTrigger;
             _settings = settings;
+            _scanner = scanner;
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);

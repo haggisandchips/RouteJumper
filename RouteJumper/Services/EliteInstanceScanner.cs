@@ -11,16 +11,24 @@ namespace RouteJumper.Services
     /// file it owns (there's no direct OS-level link between a process and a journal file, so
     /// this matches each process to the journal whose Fileheader timestamp is closest to the
     /// process's start time), then reads that journal's Commander event for FID/name and reads
-    /// the process's window position/monitor via Win32.
+    /// the process's window position/monitor via Win32. The folder searched for journal files
+    /// comes from <see cref="AppConfigStore.JournalDirectory"/>, re-read on every scan.
     /// </summary>
     public class EliteInstanceScanner
     {
         private const string ProcessName = "EliteDangerous64";
         private static readonly TimeSpan JournalMatchTolerance = TimeSpan.FromMinutes(5);
 
+        private readonly AppConfigStore _config;
+
+        public EliteInstanceScanner(AppConfigStore config)
+        {
+            _config = config;
+        }
+
         public Task<IReadOnlyList<EliteInstanceViewModel>> ScanAsync() => Task.Run(Scan);
 
-        private static IReadOnlyList<EliteInstanceViewModel> Scan()
+        private IReadOnlyList<EliteInstanceViewModel> Scan()
         {
             using var processes = new ProcessList(Process.GetProcessesByName(ProcessName));
             if (processes.Items.Count == 0)
@@ -28,7 +36,9 @@ namespace RouteJumper.Services
                 return Array.Empty<EliteInstanceViewModel>();
             }
 
-            var journalCandidates = GetJournalFilesWithTimestamps();
+            // Re-read fresh every scan (AppConfigStore never caches) - a routejumper.conf edited
+            // by hand while the app is running takes effect on the very next Refresh.
+            var journalCandidates = GetJournalFilesWithTimestamps(_config.JournalDirectory);
             var assignedJournals = new HashSet<string>();
             var results = new List<EliteInstanceViewModel>();
 
@@ -58,19 +68,15 @@ namespace RouteJumper.Services
             }
         }
 
-        private static List<(string Path, DateTime TimestampUtc)> GetJournalFilesWithTimestamps()
+        private static List<(string Path, DateTime TimestampUtc)> GetJournalFilesWithTimestamps(string journalDirectory)
         {
-            var journalDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Saved Games", "Frontier Developments", "Elite Dangerous");
-
-            if (!Directory.Exists(journalDir))
+            if (!Directory.Exists(journalDirectory))
             {
                 return new List<(string, DateTime)>();
             }
 
             var result = new List<(string, DateTime)>();
-            foreach (var path in Directory.GetFiles(journalDir, "Journal.*.log"))
+            foreach (var path in Directory.GetFiles(journalDirectory, "Journal.*.log"))
             {
                 var timestamp = TryReadFileheaderTimestampUtc(path);
                 if (timestamp.HasValue)

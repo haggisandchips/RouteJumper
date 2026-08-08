@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.1
+**Version:** 1.2
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -198,9 +198,18 @@ See §6.
 
 ### 5.2 Journal matching
 - There is no OS-level link between a process and the journal file it
-  writes to. Every candidate journal file (`Journal.*.log` in
-  `%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous`) is
-  timestamped via its own `Fileheader` event.
+  writes to. Every candidate journal file (`Journal.*.log`, in the
+  configured journal folder — see below) is timestamped via its own
+  `Fileheader` event.
+- The journal folder itself comes from `routejumper.conf` (a plain-text,
+  `Key=Value`-per-line file beside `routejumper.db` in
+  `%LocalAppData%\RouteJumper`), specifically its `JournalDirectory`
+  entry. If the file doesn't exist yet, it's created on first read with
+  that entry set to Frontier's own standard location
+  (`%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous`) —
+  hand-editable afterward (e.g. to point at a non-default Saved Games
+  location) with no restart required, since it's re-read fresh on every
+  Roles tab refresh.
 - Each process is matched to the journal whose `Fileheader` timestamp is
   closest to that process's start time, within a 5-minute tolerance.
   Matching is greedy and one-to-one — a journal already assigned to one
@@ -345,6 +354,11 @@ operation opens and closes its own short-lived connection. A persistence
 failure (e.g. a permissions issue) degrades to "nothing persisted" rather
 than the app failing to start.
 
+A separate, deliberately hand-editable `routejumper.conf` sits beside the
+database (see §5.2) for configuration a user might reasonably want to
+change directly in a text editor — currently just the journal folder —
+rather than internal app state like the table below.
+
 | What | Persisted when | Restored when |
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
@@ -463,3 +477,8 @@ than the app failing to start.
     sub-line under Fleet carrier, resolved against the commander's own
     carrier — never a squadron carrier's — and omitted entirely until
     known.
+21. On first launch (or whenever `routejumper.conf` is missing), the file
+    is created beside `routejumper.db` with the default journal folder.
+    Hand-editing `JournalDirectory` in that file and clicking Refresh
+    rescans the newly-configured folder immediately, with no app restart
+    required.
