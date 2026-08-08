@@ -14,7 +14,7 @@ namespace RouteJumper.ViewModels
 
         public RecordedMacroViewModel(RecordedMacro macro)
         {
-            _name = macro.Name;
+            _name = macro.Name.TrimStart();
             _scriptText = macro.ScriptText;
             SourceProcessId = macro.SourceProcessId;
             SourceCommanderName = macro.SourceCommanderName;
@@ -29,10 +29,18 @@ namespace RouteJumper.ViewModels
 
         public DateTime RecordedAtUtc { get; }
 
+        /// <summary>
+        /// A leading space in the name (easy to type by accident, and invisible in the TextBox
+        /// itself) pushes the bold name text a few pixels right of the caption line below it in
+        /// the macro list, since the caption never has a matching leading space - trimmed here
+        /// (not on ScriptText, where leading whitespace is meaningful indentation) so it can never
+        /// visually happen. Only the start is trimmed live, on every keystroke - trimming the end
+        /// too would fight the user mid-typing whenever they type a space between words.
+        /// </summary>
         public string Name
         {
             get => _name;
-            set => SetProperty(ref _name, value);
+            set => SetProperty(ref _name, value.TrimStart());
         }
 
         public string ScriptText
