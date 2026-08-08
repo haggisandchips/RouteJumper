@@ -6,6 +6,7 @@
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              xmlns:vm="clr-namespace:RouteJumper.ViewModels"
              xmlns:converters="clr-namespace:RouteJumper.Converters"
+             xmlns:behaviors="clr-namespace:RouteJumper.Behaviors"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="700">
 
@@ -191,7 +192,11 @@
                                                     Text="{Binding JournalFileName}"
                                                     VerticalAlignment="Center"
                                                     Margin="0,6,0,0"
-                                                    TextTrimming="CharacterEllipsis" />
+                                                    TextTrimming="CharacterEllipsis"
+                                                    Cursor="Hand"
+                                                    ToolTip="Click to copy the journal filename to the clipboard"
+                                                    behaviors:ClickCommandBehavior.Command="{Binding DataContext.CopyJournalFileNameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    behaviors:ClickCommandBehavior.CommandParameter="{Binding JournalFileName}" />
 
                                         <materialDesign:PackIcon Grid.Row="5" Grid.Column="0"
                                                                   Kind="ApplicationOutline"

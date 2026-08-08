@@ -35,6 +35,7 @@ namespace RouteJumper.ViewModels
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
             ToggleCaptainCommand = new RelayCommand<EliteInstanceViewModel>(ToggleCaptain);
             ToggleEngineerCommand = new RelayCommand<EliteInstanceViewModel>(ToggleEngineer, CanToggleEngineer);
+            CopyJournalFileNameCommand = new RelayCommand<string>(ClipboardCopyHelper.CopyWithPing);
 
             _ = RefreshAsync();
         }
@@ -48,6 +49,13 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Assigns/unassigns the Engineer role to a card's instance.</summary>
         public RelayCommand<EliteInstanceViewModel> ToggleEngineerCommand { get; }
+
+        /// <summary>
+        /// Copies a card's journal filename to the clipboard and plays a confirmation ping - no
+        /// visual indicator afterward, unlike the Route tab's equivalent (SPEC §4.6); this is a
+        /// simpler, icon-free copy action.
+        /// </summary>
+        public RelayCommand<string> CopyJournalFileNameCommand { get; }
 
         public bool IsRefreshing
         {

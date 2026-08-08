@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Media;
 using System.Windows;
 using RouteJumper.Common;
 using RouteJumper.Models;
@@ -242,8 +241,7 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
-            Clipboard.SetText(row.SystemText);
-            SystemSounds.Asterisk.Play();
+            ClipboardCopyHelper.CopyWithPing(row.SystemText);
             MarkRowAsClipboardSource(row);
         }
 

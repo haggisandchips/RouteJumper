@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.4
+**Version:** 1.5
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -233,7 +233,7 @@ Each running instance's card shows:
 | Current location | Latest of `Location`/`Docked`/`Undocked`/`FSDJump`/`CarrierJump` (while docked) |
 | Fleet carrier | Name from `CarrierStats` (only logged if the Carrier Management panel was opened this session — "Unnamed carrier" if not); location from `CarrierJump`/`CarrierLocation` matched by `CarrierID`, `FleetCarrier` type only (never a squadron carrier) |
 | Carrier fuel | The carrier's own tritium fuel tank level (0–1000t), shown as a `Nt fuel` sub-line under Fleet carrier, omitted until known — from whichever of `CarrierStats`' `FuelLevel` or `CarrierDepositFuel`'s `Total` was most recently seen for the commander's own (resolved) `CarrierID` |
-| Journal file | Matched journal's filename |
+| Journal file | Matched journal's filename - clicking it copies the filename to the clipboard and plays a confirmation sound (no visual indicator afterward, unlike the Route tab's row click-to-copy - §4.6) |
 | Window handle | `Process.MainWindowHandle`, shown as hex |
 | Window position | `GetWindowRect` on the window handle |
 | Monitor | `MonitorFromWindow` + `GetMonitorInfo` |
@@ -501,3 +501,6 @@ rather than internal app state like the table below.
     `0`, not "Unknown", for current cargo (and tritium); once cargo
     capacity is also known, this is enough on its own to make Engineer
     assignable.
+23. Clicking a card's journal filename copies it to the clipboard and
+    plays a confirmation sound; no clipboard-source icon appears
+    afterward (unlike the Route tab's equivalent, §4.6).
