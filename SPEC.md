@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.6
+**Version:** 1.12
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -19,12 +19,13 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 
 | In scope | Out of scope |
 |---|---|
-| Route tab: paste a route, save it to a table, track progress against a real journal | Sending input (keystrokes, clicks) to a detected game window |
-| Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
-| Event-driven row-progress engine, driven by a Captain's journal | Content of the Controls tab (currently an empty placeholder — see §6) |
-| Manual "Set next system" override for correcting automatic detection | Configurable journal-match tolerance or cooldown timing |
-| Persistence of route text, window bounds, and Captain/Engineer role assignment | Persisting per-row progress (icon/status), or the last-selected tab |
+| Route tab: paste a route, save it to a table, track progress against a real journal | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
+| Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Configurable journal-match tolerance or cooldown timing |
+| Event-driven row-progress engine, driven by a Captain's journal | Persisting per-row progress (icon/status), or the last-selected tab |
+| Manual "Set next system" override for correcting automatic detection | Wiring Controls tab macros to Captain/Engineer roles automatically |
+| Persistence of route text, window bounds, and Captain/Engineer role assignment | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
+| Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
 | Material Design styling | |
 
 ---
@@ -360,7 +361,203 @@ See §7.
 
 ## 6. Controls Tab
 
-*(Empty placeholder as of this version - no content, no behavior. Requirements to be filled in.)*
+A tab to manage named sets of key bindings for the app's own automation:
+record a sequence of keypresses/clicks against a running instance, capture
+it as an editable, human-readable script, and replay it later against that
+same instance. These bindings and macros exist independently of role
+assignment (§5.4) — nothing here is currently wired to Captain/Engineer
+automatically.
+
+The tab has three vertically-stacked sections: Key Bindings and Running
+Instances stay a fixed, always-visible height at the top; Recorded Macros
+fills the rest of the tab's available space beneath them (no sub-tabs, no
+whole-page scrolling — each section scrolls internally if its own content
+overflows).
+
+### 6.1 Key Bindings
+
+A section associating each of nine named actions with a real key
+(optionally with modifiers, e.g. `Ctrl+Shift+J`) — the vocabulary a
+recorded script's tokens are drawn from (§6.3).
+
+| Action | Default Key Binding |
+|---|---|
+| UP | Up Arrow |
+| DOWN | Down Arrow |
+| LEFT | Left Arrow |
+| RIGHT | Right Arrow |
+| SELECT | Space |
+| PREV_PANEL | Del |
+| NEXT_PANEL | End |
+| EXIT | Backspace |
+| RIGHT_PANEL | 4 |
+
+- Each action is shown as a button labelled with its current binding (e.g.
+  "Ctrl+Shift+J"). Clicking it puts that row into capture mode ("Press a
+  key…"); the next key pressed anywhere in the tab becomes its new
+  binding. A bare modifier key alone (Ctrl/Shift/Alt/Win) does not
+  complete capture — only a full chord ending in a non-modifier key does.
+  `Escape` cancels capture, leaving the previous binding unchanged.
+- Bindings are persisted individually and restored on launch (§7); each
+  defaults to the table above until explicitly rebound.
+
+### 6.2 Running Instances
+
+A section listing currently-running Elite Dangerous instances — scanned
+independently of the Roles tab (its own process/journal scan), shown as
+cards styled consistently with the Roles tab's own instance cards, but
+limited to commander name, window position, and monitor, since capacity/
+cargo/route data isn't relevant to recording or playback. A **Refresh**
+button rescans on demand (also run once automatically on tab
+construction); the empty state matches the Roles tab's ("No running Elite
+Dangerous instances found.").
+
+This selected instance is the shared target for both recording and
+playback (§6.3, §6.4) — there is only one selection, not a separate one
+per action. With exactly one running instance, it is selected
+automatically, since there is no meaningful choice to make; if a second
+instance appears later that automatic selection is left alone. With more
+than one instance, or once more appear, the user clicks a card to select
+it (highlighted); clicking a different card moves the selection, it does
+not add to it.
+
+Media-style **Record**, **Stop**, and **Play** buttons sit alongside
+Refresh. A single Stop button covers both recording and playback, since
+only one of the two is ever active at a time:
+- **Record** is enabled only while an instance is selected, nothing is
+  already recording or playing, and the macro editor (§6.4) isn't open.
+- **Play** is enabled only while both an instance and a macro (§6.4) are
+  selected, and nothing is currently recording. It is not restricted to
+  the instance a macro was originally recorded against — any selected
+  running instance can play any recorded macro. Play stays enabled while
+  a macro is already playing: pressing it again cancels the running
+  playback and starts the newly-selected one in its place.
+- **Stop** is enabled while recording or while a macro is playing, and
+  cancels whichever is active — immediately, wherever in the script
+  playback currently is, not just between steps.
+
+### 6.3 Recording
+
+Pressing **Record** brings the selected instance's window to the
+foreground (the same as Play does before playback - see §6.2), then
+starts capturing keyboard and mouse input system-wide, filtered to only
+the moments the target instance's window is foreground (input while some
+other window is focused is not recorded - including, after that initial
+foregrounding, input directed back at RouteJumper's own window). Pressing
+**Stop** ends capture and turns it into a new named macro (§6.4). Only one
+recording can be active at a time.
+
+Each captured key is classified by how long it was held: a press released
+within 400ms is a **tap**; longer is a **hold**, recorded with its
+duration. A left mouse click is recorded as a click at the position
+relative to the target window's client area (top-left = `0,0`); other
+mouse buttons, drags, and scrolling are not recorded. A gap of 150ms or
+more between two recorded inputs is recorded as an explicit wait of that
+length, so played-back timing matches the original pacing.
+
+Capture is translated into a small, line-oriented, human-editable text
+script:
+
+```
+UP                    # tap the action bound to UP
+KEY Control+A         # tap a raw key with no bound action
+HOLD RIGHT 800        # hold an action's key for 800ms
+CLICK 240,160         # left-click at a position relative to the window
+WAIT 500              # pause 500ms before the next step
+PASTE {NEXT_SYSTEM}   # paste text via the clipboard + Ctrl+V
+REPEAT 3
+    UP
+    WAIT 200
+END
+MACRO refuel
+    RIGHT_PANEL
+    SELECT
+END
+CALL refuel
+```
+
+- A line naming a bound action (e.g. `UP`) taps that action's current key
+  binding; `KEY <chord>` taps an arbitrary key/chord not tied to any
+  action. `HOLD` takes the same token form plus a millisecond duration.
+- `REPEAT <n> … END` and `MACRO <name> … END` blocks nest; `MACRO` blocks
+  are only valid at the top level (not inside a `REPEAT`) and are not
+  themselves played inline — `CALL <name>` invokes one wherever it
+  appears, including from inside a `REPEAT`.
+- `PASTE <text>` sets the clipboard to `<text>` and sends `Ctrl+V`. The
+  text may contain the literal placeholder `{NEXT_SYSTEM}`, resolved at
+  play time to the Route tab's current in-progress row's system name (or
+  left as literal empty text if there is none) — this is how a macro can
+  paste a value that isn't known until it actually runs, rather than only
+  fixed text typed directly into the script. `PASTE` is never produced by
+  recording itself (there is no such thing as a "recorded paste" — manual
+  `Ctrl+V` during recording is captured as an ordinary key chord); it is
+  only ever added or edited into a script by hand.
+- Blank lines and lines starting with `#` are ignored. The parser is
+  deliberately forgiving of malformed lines (skipped, not rejected
+  outright), since this text is meant to be hand-edited.
+
+### 6.4 Recorded Macros
+
+A section listing every macro recorded so far (newest last). By default
+it shows a compact list, one row per macro:
+- The macro's **name** as a clickable button — clicking it selects that
+  macro as the Play target (§6.2), highlighting the row. It does not open
+  the macro for editing.
+- A small **pencil** icon that opens the full-size editor (below) for
+  that macro.
+- A **Delete** icon, always available; deleting the macro that is
+  currently selected and/or being edited clears that selection/edit
+  state.
+
+The source commander a macro was originally recorded against is shown as
+a small caption under its name — display only; it does not restrict which
+instance can play the macro (§6.2).
+
+Clicking the pencil replaces the list with a full-size **editor** for
+that one macro, since a script is naturally a tall, narrow list of short
+commands and benefits from as much vertical room as the window has to
+give it. Opening the editor also selects that macro as the Play target
+(§6.2) — the same as clicking its name in the list — so Play can be used
+without leaving the editor, e.g. to try out an edit immediately:
+- An editable **name** field.
+- A large, editable, multi-line **script text** box beside a narrow,
+  fixed-width reference panel listing the script grammar (§6.3) —
+  positioned as a side column, not stacked above or below the text box,
+  so the reference never competes with the script for vertical space.
+- A **Save** button below the script text box returns to the compact
+  list. Edits (to either the name or the script text) are saved as
+  they're made, independent of Save — pressing it is purely a "done for
+  now" navigation action, not a distinct save step.
+- The Key Bindings section (§6.1) stays visible above the editor, since a
+  script is written in terms of that vocabulary. **Record** (§6.2) is
+  disabled for as long as the editor is open.
+
+Pressing **Record** again while macros already exist always starts a
+brand-new recording as an additional macro; it never overwrites or
+appends to an existing one.
+
+Playing the selected macro against the selected instance (§6.2) brings
+that instance's window to the foreground, then executes the script's
+steps in order using simulated system-wide input (not messages posted to
+the window directly, since a DirectX game reads actual input device state
+rather than the window message queue) — the same key-chord/hold/click/
+wait/paste vocabulary §6.3 describes, resolving `PASTE {NEXT_SYSTEM}`
+against the Route tab's live state at the moment it executes. Starting a
+new playback while a previous one is still in progress cancels the
+previous one first, the same as pressing **Stop** (§6.2) does explicitly
+— playback can be cancelled at any point in the script, not just between
+steps.
+
+If the target window ever loses focus while a script is playing (the
+simulated input has nowhere else meaningful to go once something else has
+focus), playback aborts immediately and a closeable message is shown
+explaining why, near the Running Instances controls (§6.2) — dismissed
+via its own close button, and otherwise left showing until the user
+dismisses it or starts another playback. An ordinary user-initiated Stop
+is not treated as this kind of failure and shows no message.
+
+### 6.5 Persistence
+See §7.
 
 ---
 
@@ -382,6 +579,8 @@ rather than internal app state like the table below.
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
+| Controls tab key bindings | Every successful capture (§6.1) | App startup, per action — falling back to that action's default binding until first rebound |
+| Controls tab recorded macros | Every new recording, edit, or delete (§6.4) | App startup, as a single collection |
 
 - Role assignment is restored by FID (not `ProcessId`, which doesn't
   survive a process restart) — this covers both "app just launched" and
@@ -510,3 +709,46 @@ rather than internal app state like the table below.
 23. Clicking a card's journal filename copies it to the clipboard and
     plays a confirmation sound; no clipboard-source icon appears
     afterward (unlike the Route tab's equivalent, §4.6).
+24. The Controls tab shows all nine key-binding actions with their default
+    bindings on first launch; clicking a binding button enters capture
+    mode, a subsequent non-modifier key (chord) rebinds it and persists
+    the new binding, and `Escape` cancels capture without changing it.
+25. The Controls tab's Running Instances section scans and lists running
+    instances independently of the Roles tab, as Roles-styled cards. With
+    exactly one instance running it is selected automatically; with more
+    than one, clicking a card selects it. Record is enabled only while an
+    instance is selected and nothing is already recording or playing.
+26. Pressing Record brings the selected instance's window to the
+    foreground, then captures taps vs. holds (400ms threshold), left
+    clicks (window-relative position), and gaps ≥150ms as explicit waits,
+    and produces a human-readable script in the documented grammar
+    (§6.3) on Stop, added as a new macro without disturbing any existing
+    ones.
+27. The Recorded Macros list shows each macro as a clickable name (selects
+    it as the Play target, highlighting it) plus a pencil icon (opens the
+    full-size editor) and a delete icon. Play is enabled only once both an
+    instance and a macro are selected, and can play any selected macro
+    against any selected instance, regardless of which instance it was
+    originally recorded against.
+28. Clicking a macro's pencil icon selects that macro (as Play's target)
+    and opens an editor with an editable name, a large editable script
+    text box, and a narrow side panel documenting the script grammar
+    (§6.3); edits to either field are persisted as they're made, and
+    Save (below the script box) returns to the list without losing them.
+    The Key Bindings section remains visible above the editor throughout,
+    and Record is disabled for as long as the editor is open.
+29. Playing a macro brings the selected instance's window to the
+    foreground and executes the script's steps in order, resolving any
+    `PASTE {NEXT_SYSTEM}` against the Route tab's current in-progress row
+    at the moment it plays; starting a new playback cancels any playback
+    already in progress, the same as pressing Stop does explicitly. Stop
+    is enabled while recording or while a macro is playing (never both at
+    once) and cancels whichever is active immediately, wherever in the
+    script playback currently is.
+30. Key bindings and recorded macros both survive an app restart with no
+    manual reconfiguration required.
+31. If the target instance's window loses focus while a macro is
+    playing, playback aborts immediately and a closeable message
+    explaining why is shown; dismissing it (or starting another
+    playback) clears it. Pressing Stop or starting a replacement playback
+    does not show this message.

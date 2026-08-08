@@ -3,8 +3,383 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:RouteJumper.ViewModels"
+             xmlns:converters="clr-namespace:RouteJumper.Converters"
+             xmlns:behaviors="clr-namespace:RouteJumper.Behaviors"
              mc:Ignorable="d"
-             d:DesignHeight="500" d:DesignWidth="700">
+             d:DesignHeight="700" d:DesignWidth="700">
 
-    <Grid Margin="12" />
+    <UserControl.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+        <converters:ReferenceEqualsConverter x:Key="ReferenceEqualsConverter" />
+
+        <Style x:Key="SelectableCardStyle" TargetType="materialDesign:Card">
+            <Setter Property="Margin" Value="0,0,8,8" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="MinWidth" Value="260" />
+            <Setter Property="MaxWidth" Value="420" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Style.Triggers>
+                <DataTrigger Value="True">
+                    <DataTrigger.Binding>
+                        <MultiBinding Converter="{StaticResource ReferenceEqualsConverter}">
+                            <Binding />
+                            <Binding Path="DataContext.SelectedInstance" RelativeSource="{RelativeSource AncestorType=UserControl}" />
+                        </MultiBinding>
+                    </DataTrigger.Binding>
+                    <Setter Property="Background" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="SelectableMacroRowStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Style.Triggers>
+                <DataTrigger Value="True">
+                    <DataTrigger.Binding>
+                        <MultiBinding Converter="{StaticResource ReferenceEqualsConverter}">
+                            <Binding />
+                            <Binding Path="DataContext.SelectedMacro" RelativeSource="{RelativeSource AncestorType=UserControl}" />
+                        </MultiBinding>
+                    </DataTrigger.Binding>
+                    <Setter Property="Background" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ===================== Key Bindings (SPEC §6.1) ===================== -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Key Bindings" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <ItemsControl ItemsSource="{Binding KeyBindings}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:KeyBindingViewModel}">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,16,10">
+                            <TextBlock Text="{Binding ActionName}"
+                                       Width="90"
+                                       VerticalAlignment="Center"
+                                       FontWeight="Medium" />
+                            <Button Width="150"
+                                    Padding="4"
+                                    Command="{Binding DataContext.StartCaptureCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding}"
+                                    ToolTip="Click, then press a key to change this binding">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignOutlinedButton}">
+                                        <Setter Property="Content" Value="{Binding DisplayString}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsCapturing}" Value="True">
+                                                <Setter Property="Content" Value="Press a key…" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- ===================== Running Instances (SPEC §6.2) ===================== -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,16">
+            <TextBlock Text="Running Instances" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <TextBlock Text="{Binding StatusText}"
+                       Visibility="{Binding StatusText, Converter={StaticResource StringToVisibilityConverter}}"
+                       Opacity="0.6"
+                       FontStyle="Italic"
+                       Margin="0,0,0,8" />
+
+            <Border Visibility="{Binding PlaybackErrorMessage, Converter={StaticResource StringToVisibilityConverter}}"
+                    BorderBrush="{DynamicResource MaterialDesign.Brush.ValidationError}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="10,6"
+                    Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <materialDesign:PackIcon Grid.Column="0"
+                                              Kind="AlertCircleOutline"
+                                              Foreground="{DynamicResource MaterialDesign.Brush.ValidationError}"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,8,0" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding PlaybackErrorMessage}"
+                               Foreground="{DynamicResource MaterialDesign.Brush.ValidationError}"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="2"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Padding="4"
+                            Command="{Binding DismissPlaybackErrorCommand}"
+                            ToolTip="Dismiss"
+                            AutomationProperties.Name="Dismiss playback error">
+                        <materialDesign:PackIcon Kind="Close"
+                                                  Foreground="{DynamicResource MaterialDesign.Brush.ValidationError}"
+                                                  Width="16"
+                                                  Height="16" />
+                    </Button>
+                </Grid>
+            </Border>
+
+            <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Instances}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:EliteInstanceViewModel}">
+                            <materialDesign:Card Style="{StaticResource SelectableCardStyle}">
+                                <StackPanel Cursor="Hand"
+                                            ToolTip="Click to select as the record/play target"
+                                            behaviors:ClickCommandBehavior.Command="{Binding DataContext.SelectInstanceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            behaviors:ClickCommandBehavior.CommandParameter="{Binding}">
+                                    <TextBlock Text="{Binding CommanderName}"
+                                               FontSize="18"
+                                               FontWeight="Bold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding ProcessId, StringFormat='PID {0}'}"
+                                               Opacity="0.6"
+                                               Margin="0,0,0,8" />
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <materialDesign:PackIcon Grid.Row="0" Grid.Column="0"
+                                                                  Kind="CrosshairsGps"
+                                                                  VerticalAlignment="Center"
+                                                                  Margin="0,0,8,0" />
+                                        <TextBlock Grid.Row="0" Grid.Column="1"
+                                                   Text="{Binding WindowPosition}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+
+                                        <materialDesign:PackIcon Grid.Row="1" Grid.Column="0"
+                                                                  Kind="Monitor"
+                                                                  VerticalAlignment="Top"
+                                                                  Margin="0,6,8,0" />
+                                        <TextBlock Grid.Row="1" Grid.Column="1"
+                                                   Text="{Binding MonitorInfo}"
+                                                   Margin="0,6,0,0"
+                                                   TextWrapping="Wrap" />
+                                    </Grid>
+                                </StackPanel>
+                            </materialDesign:Card>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                <Button Command="{Binding RefreshCommand}" Padding="8,4" Margin="0,0,8,0">
+                    <StackPanel Orientation="Horizontal">
+                        <materialDesign:PackIcon Kind="Refresh" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBlock Text="Refresh" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Command="{Binding RecordCommand}"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Margin="0,0,4,0"
+                        ToolTip="Record against the selected instance"
+                        AutomationProperties.Name="Record">
+                    <materialDesign:PackIcon Kind="Record" Foreground="Red" Width="22" Height="22" />
+                </Button>
+                <Button Command="{Binding StopCommand}"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Margin="0,0,12,0"
+                        ToolTip="Stop recording or playback"
+                        AutomationProperties.Name="Stop">
+                    <materialDesign:PackIcon Kind="Stop" Width="22" Height="22" />
+                </Button>
+                <Button Command="{Binding PlayCommand}"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        ToolTip="Play the selected macro against the selected instance"
+                        AutomationProperties.Name="Play">
+                    <materialDesign:PackIcon Kind="Play" Width="22" Height="22" />
+                </Button>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- ===================== Recorded Macros (SPEC §6.3/6.4) ===================== -->
+        <DockPanel Grid.Row="2" LastChildFill="True">
+            <TextBlock DockPanel.Dock="Top" Text="Recorded Macros" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+
+            <Grid>
+                <!-- List view: a clickable name (selects as the Play target) plus edit/delete icons. -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              Visibility="{Binding IsEditingMacro, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}">
+                    <ItemsControl ItemsSource="{Binding Macros}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:RecordedMacroViewModel}">
+                                <Border Style="{StaticResource SelectableMacroRowStyle}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- A plain clickable StackPanel, not a Button - same
+                                             pattern as the instance cards above. MaterialDesign's
+                                             button templates are built for single-line labels and
+                                             both clip and add a stray focus decoration around
+                                             multi-line content like this two-line name+caption. -->
+                                        <StackPanel Grid.Column="0"
+                                                    Margin="10,6"
+                                                    Cursor="Hand"
+                                                    ToolTip="Select as the Play target"
+                                                    AutomationProperties.Name="{Binding Name}"
+                                                    behaviors:ClickCommandBehavior.Command="{Binding DataContext.SelectMacroCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    behaviors:ClickCommandBehavior.CommandParameter="{Binding}">
+                                            <TextBlock Text="{Binding Name}"
+                                                       HorizontalAlignment="Left"
+                                                       Margin="0"
+                                                       Padding="0"
+                                                       FontWeight="Bold"
+                                                       Foreground="Black"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding SourceCommanderName, StringFormat='Recorded against {0}'}"
+                                                       HorizontalAlignment="Left"
+                                                       Margin="0"
+                                                       Padding="0"
+                                                       Foreground="Black"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+
+                                        <Button Grid.Column="1"
+                                                Style="{StaticResource MaterialDesignIconButton}"
+                                                Foreground="Black"
+                                                Padding="6"
+                                                Command="{Binding DataContext.EditMacroCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Edit name and script"
+                                                AutomationProperties.Name="Edit">
+                                            <materialDesign:PackIcon Kind="Pencil" />
+                                        </Button>
+                                        <Button Grid.Column="2"
+                                                Style="{StaticResource MaterialDesignIconButton}"
+                                                Foreground="Black"
+                                                Padding="6"
+                                                Command="{Binding DataContext.DeleteMacroCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Delete"
+                                                AutomationProperties.Name="Delete">
+                                            <materialDesign:PackIcon Kind="TrashCanOutline" />
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Editor view: a large script text area (scripts are tall/thin - one short
+                     command per line) with a narrow syntax-reference panel beside it, not below
+                     it, so the reference never eats into the text area's vertical room. -->
+                <Grid Visibility="{Binding IsEditingMacro, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="230" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <materialDesign:Card Grid.Column="0" Padding="10" Margin="0,0,12,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <TextBlock Text="Script Syntax" FontWeight="Bold" Margin="0,0,0,8" />
+
+                                <TextBlock Text="ACTION_NAME" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Tap a bound action (e.g. UP)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="KEY &lt;chord&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Tap an unbound key, e.g. KEY Control+A" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="HOLD &lt;token&gt; &lt;ms&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Press and hold for ms milliseconds" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="CLICK &lt;x&gt;,&lt;y&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Left-click, relative to the window's client area" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="WAIT &lt;ms&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Pause before the next step" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="PASTE &lt;text&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Clipboard + Ctrl+V. May contain {NEXT_SYSTEM}, resolved at play time to the Route tab's current next system" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="REPEAT &lt;n&gt; … END" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Repeats its body n times (nestable)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="MACRO &lt;name&gt; … END" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Defines a reusable, named macro (top level only, not nested)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="CALL &lt;name&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Invokes a macro defined with MACRO" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="# comment" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Blank lines and # lines are ignored" Opacity="0.7" FontSize="11" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </ScrollViewer>
+                    </materialDesign:Card>
+
+                    <DockPanel Grid.Column="1" LastChildFill="True">
+                        <TextBox DockPanel.Dock="Top"
+                                 Text="{Binding EditingMacro.Name, UpdateSourceTrigger=PropertyChanged}"
+                                 FontWeight="Bold"
+                                 FontSize="14"
+                                 Margin="0,0,0,4" />
+                        <TextBlock DockPanel.Dock="Top"
+                                   Text="{Binding EditingMacro.SourceCommanderName, StringFormat='Recorded against {0}'}"
+                                   Opacity="0.6"
+                                   FontSize="11"
+                                   Margin="0,0,0,8" />
+                        <Button DockPanel.Dock="Bottom"
+                                Content="Save"
+                                HorizontalAlignment="Right"
+                                Padding="16,4"
+                                Margin="0,8,0,0"
+                                Command="{Binding CloseMacroEditorCommand}"
+                                ToolTip="Returns to the macro list - edits are already saved as you type" />
+                        <TextBox Text="{Binding EditingMacro.ScriptText, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True"
+                                 AcceptsTab="True"
+                                 FontFamily="Consolas"
+                                 FontSize="13"
+                                 TextWrapping="NoWrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 VerticalAlignment="Stretch" />
+                    </DockPanel>
+                </Grid>
+            </Grid>
+        </DockPanel>
+    </Grid>
 </UserControl>
