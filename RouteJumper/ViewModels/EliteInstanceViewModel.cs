@@ -101,14 +101,15 @@ namespace RouteJumper.ViewModels
         /// directly for CargoDisplay any more - see TotalCargoDisplayed. Derived in
         /// EliteInstanceScanner from the ship's latest Cargo event total, minus tritium tracked
         /// across every event that can move it in/out of the ship's hold (CargoTransfer,
-        /// CarrierDepositFuel, MarketBuy/MarketSell).
+        /// CarrierDepositFuel, MarketBuy/MarketSell). Defaults to 0, not unknown, if no Cargo
+        /// event has been seen for this ship at all this session - Frontier only logs one when
+        /// the hold's contents change, so no event is itself evidence of an empty hold.
         /// </summary>
         public int? CurrentCargo { get; }
 
         /// <summary>
         /// Tritium currently tracked aboard the ship's cargo hold - see EliteInstanceScanner.
-        /// Null under the same condition as CurrentCargo (no Cargo event seen for this ship at
-        /// all yet this session).
+        /// Defaults to 0 under the same condition as CurrentCargo.
         /// </summary>
         public int? CurrentTritium { get; }
 
@@ -149,8 +150,9 @@ namespace RouteJumper.ViewModels
 
         /// <summary>
         /// False when available capacity is positively known to be zero or less (no cargo
-        /// racks, or full), or when it isn't known at all (Loadout/Cargo haven't been read
-        /// yet this session).
+        /// racks, or full), or when it isn't known at all (Loadout hasn't been read yet this
+        /// session - CurrentCargo itself defaults to 0, not unknown, so a genuinely empty hold
+        /// no longer blocks this once capacity is known).
         /// </summary>
         public bool CanBeEngineer => AvailableCargoCapacity.HasValue && AvailableCargoCapacity.Value > 0;
 

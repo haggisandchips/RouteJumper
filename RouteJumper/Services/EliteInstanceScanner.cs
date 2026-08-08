@@ -203,12 +203,17 @@ namespace RouteJumper.Services
             public string? CommanderName { get; init; }
             public string? Fid { get; init; }
             public int? CargoCapacity { get; init; }
+
+            /// <summary>
+            /// Defaults to 0, not null - see ReadJournalSummary for why "no Cargo event seen
+            /// yet" means an empty hold, not unknown data.
+            /// </summary>
             public int? CurrentCargo { get; init; }
 
             /// <summary>
             /// Tritium currently tracked aboard the ship's cargo hold, shown transparently on the
-            /// card rather than silently subtracted - see ReadJournalSummary. Null under the same
-            /// condition as CurrentCargo (no Cargo event for this ship seen at all yet).
+            /// card rather than silently subtracted - see ReadJournalSummary. Defaults to 0 under
+            /// the same condition as CurrentCargo.
             /// </summary>
             public int? CurrentTritium { get; init; }
 
@@ -263,7 +268,11 @@ namespace RouteJumper.Services
             // CargoTransfer/MarketBuy can carry only a bare Count, no Inventory at all).
             // The final CurrentCargo is computed once, after the full pass, as
             // latestRawShipCargo - trackedTritium.
-            int? latestRawShipCargo = null;
+            // Defaults to 0, not "unknown" - Frontier only logs a Cargo event when the hold's
+            // contents actually change, so a ship that has carried nothing at all this session
+            // (the common case right after undocking with an empty hold) never gets one; no
+            // event is itself evidence of an empty hold, not missing data.
+            var latestRawShipCargo = 0;
             var trackedTritium = 0;
 
             string? currentSystem = null;
@@ -522,8 +531,8 @@ namespace RouteJumper.Services
                 CommanderName = commanderName,
                 Fid = fid,
                 CargoCapacity = cargoCapacity,
-                CurrentCargo = latestRawShipCargo.HasValue ? Math.Max(0, latestRawShipCargo.Value - trackedTritium) : null,
-                CurrentTritium = latestRawShipCargo.HasValue ? trackedTritium : null,
+                CurrentCargo = Math.Max(0, latestRawShipCargo - trackedTritium),
+                CurrentTritium = trackedTritium,
                 CurrentSystem = currentSystem,
                 CurrentStation = currentStation,
                 CarrierName = carrierName,

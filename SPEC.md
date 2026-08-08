@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.2
+**Version:** 1.3
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -229,7 +229,7 @@ Each running instance's card shows:
 | Field | Source |
 |---|---|
 | Commander name, FID | Latest `Commander` event |
-| Cargo | Latest `Loadout` (capacity) + latest ship `Cargo` (current), shown as `current / capacity`t, tritium included in the total with a separate `Nt tritium` sub-line underneath (omitted when zero) |
+| Cargo | Latest `Loadout` (capacity) + latest ship `Cargo` (current, defaulting to 0 - not "Unknown" - if no `Cargo` event has been seen at all this session), shown as `current / capacity`t, tritium included in the total with a separate `Nt tritium` sub-line underneath (omitted when zero) |
 | Current location | Latest of `Location`/`Docked`/`Undocked`/`FSDJump`/`CarrierJump` (while docked) |
 | Fleet carrier | Name from `CarrierStats` (only logged if the Carrier Management panel was opened this session — "Unnamed carrier" if not); location from `CarrierJump`/`CarrierLocation` matched by `CarrierID`, `FleetCarrier` type only (never a squadron carrier) |
 | Carrier fuel | The carrier's own tritium fuel tank level (0–1000t), shown as a `Nt fuel` sub-line under Fleet carrier, omitted until known — from whichever of `CarrierStats`' `FuelLevel` or `CarrierDepositFuel`'s `Total` was most recently seen for the commander's own (resolved) `CarrierID` |
@@ -247,6 +247,13 @@ Each running instance's card shows:
   `CargoTransfer`, `CarrierDepositFuel`, `MarketBuy`, `MarketSell`),
   resyncing from a `Cargo` event's own `Inventory` breakdown whenever one
   is present (it isn't always).
+- Frontier only logs a `Cargo` event when the hold's contents actually
+  change, so a ship that has carried nothing at all this session never
+  gets one - no event is itself evidence of an empty hold, not missing
+  data, so current cargo (and tritium) default to 0 rather than
+  "Unknown" in that case. This also means Engineer eligibility (§5.5)
+  correctly follows from `Loadout`'s capacity alone once it's known, even
+  before any `Cargo` event has fired.
 - Carrier fuel is an absolute reading (not a tracked delta, unlike ship
   tritium), so "latest wins" per `CarrierID` is enough — but it's still
   resolved against the commander's own confirmed `CarrierID` before
@@ -482,3 +489,7 @@ rather than internal app state like the table below.
     Hand-editing `JournalDirectory` in that file and clicking Refresh
     rescans the newly-configured folder immediately, with no app restart
     required.
+22. A ship that has never had a `Cargo` event logged this session shows
+    `0`, not "Unknown", for current cargo (and tritium); once cargo
+    capacity is also known, this is enough on its own to make Engineer
+    assignable.
