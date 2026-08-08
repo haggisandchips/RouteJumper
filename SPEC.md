@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.5
+**Version:** 1.6
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -21,7 +21,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 |---|---|
 | Route tab: paste a route, save it to a table, track progress against a real journal | Sending input (keystrokes, clicks) to a detected game window |
 | Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
-| Event-driven row-progress engine, driven by a Captain's journal | Content of the Controls tab (currently an empty placeholder) |
+| Event-driven row-progress engine, driven by a Captain's journal | Content of the Controls tab (currently an empty placeholder — see §6) |
 | Manual "Set next system" override for correcting automatic detection | Configurable journal-match tolerance or cooldown timing |
 | Persistence of route text, window bounds, and Captain/Engineer role assignment | Persisting per-row progress (icon/status), or the last-selected tab |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
@@ -45,7 +45,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 - On launch, the window is positioned against the **right edge** of the
   physically rightmost connected monitor (10px margin), vertically centered on
   that monitor — unless a previous session's bounds were persisted and are
-  still reachable (see §6), in which case those are restored instead.
+  still reachable (see §7), in which case those are restored instead.
 - The rightmost monitor is determined dynamically each launch (the monitor
   with the greatest `Left` screen coordinate), not a hardcoded device name.
 - Positioning happens at `SourceInitialized` (HWND exists, window not yet
@@ -55,7 +55,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
   scaling.
 
 ### 3.3 Controls tab
-Empty placeholder — no content, no behavior. Reserved for future use.
+See §6.
 
 ---
 
@@ -147,7 +147,7 @@ its current `Status` text:
   on that row itself.
 
 ### 4.5 Persistence
-See §6.
+See §7.
 
 ### 4.6 "Auto Copy To Clipboard"
 - A labelled toggle switch, right-aligned above the table, hidden while in
@@ -280,7 +280,7 @@ Each running instance's card shows:
 - Assigning Captain also triggers a background rescan of all instances.
 
 ### 5.5 Persistence of role assignment
-See §6.
+See §7.
 
 ### 5.6 Journal-driven route updates
 
@@ -354,11 +354,17 @@ re-set `Jumping` on a row whose jump was cancelled.
   in the row-update logic, which only ever reacts to "now".
 
 ### 5.7 Persistence of role assignment (FID-based)
-See §6.
+See §7.
 
 ---
 
-## 6. Persistence
+## 6. Controls Tab
+
+*(Empty placeholder as of this version - no content, no behavior. Requirements to be filled in.)*
+
+---
+
+## 7. Persistence
 
 A single generic `Settings(Key TEXT PRIMARY KEY, Value TEXT)` table in a
 local SQLite database at `%LocalAppData%\RouteJumper\routejumper.db`. Every
@@ -394,7 +400,7 @@ rather than internal app state like the table below.
 
 ---
 
-## 7. Non-Functional Requirements
+## 8. Non-Functional Requirements
 
 - **Framework:** WPF, .NET 8 (`net8.0-windows`), MVVM throughout — no
   business logic in code-behind. The window-placement, focus-management,
@@ -408,7 +414,7 @@ rather than internal app state like the table below.
 
 ---
 
-## 8. Styling — Material Design
+## 9. Styling — Material Design
 
 - `App.xaml` merges a `materialDesign:BundledTheme` (`PrimaryColor="Blue"`,
   `SecondaryColor="Cyan"`, `BaseTheme="Light"`) plus
@@ -423,7 +429,7 @@ rather than internal app state like the table below.
 
 ---
 
-## 9. Acceptance Criteria
+## 10. Acceptance Criteria
 
 1. Launching the app shows **Route**, **Roles**, **Controls** tabs with
    headings on the left edge; Route is selected by default.
