@@ -43,6 +43,12 @@ namespace RouteJumper.Services
     /// (never the historical replay) also raises <see cref="RowEventKind.LiveCarrierLocation"/>
     /// immediately - see that value's doc comment for what it drives.
     ///
+    /// Every RowEvent this class raises carries whether the *line* that triggered it was seen
+    /// live (via FileSystemWatcher) or during the one-off historical replay StartAsync does -
+    /// see <see cref="RowEvent.IsLive"/>. RouteSequencer currently uses this to gate whether an
+    /// Arrived event puts the next row into Cooldown at all: only ever for a genuinely live
+    /// arrival, never as a side effect of a fresh Captain assignment replaying old history.
+    ///
     /// CarrierJumpCancelled carries no SystemName, so it can't be scheduled/targeted the way
     /// the events above are - see <see cref="RowEventKind.JumpCancelled"/> for how RouteSequencer
     /// resolves it. It also cancels whatever Jumping transition the cancelled request had
@@ -67,7 +73,7 @@ namespace RouteJumper.Services
 
         private readonly string _journalPath;
         private readonly long _carrierId;
-        private readonly Action<RowEventKind, string> _onRowEvent;
+        private readonly Action<RowEventKind, string, bool> _onRowEvent;
         private readonly Action _onCarrierStatsObserved;
         private readonly object _readLock = new();
         private readonly List<Timer> _scheduledTimers = new();
@@ -103,7 +109,7 @@ namespace RouteJumper.Services
         public CarrierRouteJournalWatcher(
             string journalPath,
             long carrierId,
-            Action<RowEventKind, string> onRowEvent,
+            Action<RowEventKind, string, bool> onRowEvent,
             Action onCarrierStatsObserved)
         {
             _journalPath = journalPath;
@@ -305,12 +311,12 @@ namespace RouteJumper.Services
                     if (root.TryGetProperty("SystemName", out var sn) && sn.GetString() is { } systemName)
                     {
                         _hasSeenJumpRequest = true;
-                        _onRowEvent(RowEventKind.Plotted, systemName);
+                        _onRowEvent(RowEventKind.Plotted, systemName, isLive);
 
                         var departureTimeUtc = TryReadTimestampUtc(root, "DepartureTime");
                         if (departureTimeUtc.HasValue)
                         {
-                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value - JumpingLeadTime);
+                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value - JumpingLeadTime, isLive);
                         }
                     }
                 }
@@ -331,7 +337,7 @@ namespace RouteJumper.Services
                         }
                     }
 
-                    _onRowEvent(RowEventKind.JumpCancelled, string.Empty);
+                    _onRowEvent(RowEventKind.JumpCancelled, string.Empty, isLive);
                 }
                 else if (eventName == "CarrierStats")
                 {
@@ -363,15 +369,23 @@ namespace RouteJumper.Services
                     // is nothing to base a schedule on in that case, so CooldownElapsed is skipped
                     // too (matches the existing "can't schedule what we can't compute" pattern
                     // Jumping already has when DepartureTime is missing).
+                    //
+                    // isLive is captured here, at read time, and carried through to whichever
+                    // RowEvent eventually fires - live or replay is a property of the *line*
+                    // (was it seen while genuinely tailing the journal, or during the one-off
+                    // historical catch-up a fresh Captain assignment does), not of whether its
+                    // derived transition happens to fire immediately or later. RouteSequencer
+                    // uses it to gate whether Arrived sets Cooldown on the next row at all - see
+                    // RowEventKind.Arrived.
                     var arrivedAtUtc = TryReadTimestampUtc(root, "timestamp");
                     if (arrivedAtUtc.HasValue)
                     {
-                        ScheduleRowEvent(RowEventKind.Arrived, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay);
-                        ScheduleRowEvent(RowEventKind.CooldownElapsed, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay + CooldownDuration);
+                        ScheduleRowEvent(RowEventKind.Arrived, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay, isLive);
+                        ScheduleRowEvent(RowEventKind.CooldownElapsed, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay + CooldownDuration, isLive);
                     }
                     else
                     {
-                        _onRowEvent(RowEventKind.Arrived, arrivedSystem);
+                        _onRowEvent(RowEventKind.Arrived, arrivedSystem, isLive);
                     }
 
                     // Deliberately immediate and unscheduled, unlike Arrived above - the
@@ -383,7 +397,7 @@ namespace RouteJumper.Services
                     // for old, already-resolved jumps.
                     if (isLive)
                     {
-                        _onRowEvent(RowEventKind.LiveCarrierLocation, arrivedSystem);
+                        _onRowEvent(RowEventKind.LiveCarrierLocation, arrivedSystem, isLive);
                     }
                 }
             }
@@ -396,14 +410,17 @@ namespace RouteJumper.Services
         /// a blocking wait, and never inside RouteSequencer. Returns the created Timer (or null
         /// if it fired immediately instead, or the watcher is disposed), so a caller that needs
         /// to cancel a specific scheduled event later - see the CarrierJumpCancelled handling in
-        /// <see cref="ProcessLine"/> - can hold onto the right one.
+        /// <see cref="ProcessLine"/> - can hold onto the right one. <paramref name="isLive"/> is
+        /// carried straight through to the fired RowEvent unchanged, whether it fires immediately
+        /// here or later from the Timer callback - it describes the *line* that triggered the
+        /// schedule (genuinely live-tailed, or historical replay), not the scheduling outcome.
         /// </summary>
-        private Timer? ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc)
+        private Timer? ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc, bool isLive)
         {
             var delay = whenUtc - DateTime.UtcNow;
             if (delay <= TimeSpan.Zero)
             {
-                _onRowEvent(kind, systemName);
+                _onRowEvent(kind, systemName, isLive);
                 return null;
             }
 
@@ -421,7 +438,7 @@ namespace RouteJumper.Services
                 timer = new Timer(
                     _ =>
                     {
-                        _onRowEvent(kind, systemName);
+                        _onRowEvent(kind, systemName, isLive);
                         lock (_readLock)
                         {
                             if (timer != null)

@@ -27,10 +27,14 @@ namespace RouteJumper.Sequencing
 
         /// <summary>
         /// The composite "arrived" step: targeted row's icon -> Complete, Status ->
-        /// *(cleared)*; if a next row exists, that row's icon -> InProgress and *its* Status ->
-        /// "Cooldown" - the cooldown belongs to the row waiting on it, not the row that just
-        /// finished. Nothing is put into Cooldown if there's no next row. Raised 1 minute after
-        /// the carrier's own CarrierLocation timestamp, not immediately on that event.
+        /// *(cleared)*; if a next row exists, that row's icon -> InProgress, and - only if
+        /// <see cref="RowEvent.IsLive"/> is true - *its* Status -> "Cooldown". Cooldown is
+        /// deliberately never set while replaying a journal's history (e.g. the catch-up a fresh
+        /// Captain assignment does) - only for a genuinely live-observed arrival, since a row
+        /// merely being caught up to "already arrived" has no cooldown that can be shown
+        /// reliably after the fact. Nothing is put into Cooldown at all if there's no next row.
+        /// Raised 1 minute after the carrier's own CarrierLocation timestamp, not immediately on
+        /// that event.
         /// </summary>
         Arrived,
 

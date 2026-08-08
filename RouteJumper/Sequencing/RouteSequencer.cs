@@ -113,17 +113,30 @@ namespace RouteJumper.Sequencing
                     break;
 
                 case RowEventKind.Arrived:
-                    // Cooldown belongs to the row that's actually waiting on it - the next one -
-                    // not the row that just finished. The just-arrived row goes straight to
-                    // Complete with a blank status; if there's no next row, nothing is put into
-                    // Cooldown at all.
+                    // The just-arrived row always goes straight to Complete with a blank status,
+                    // and (if a next row exists) that row becomes the current in-progress one -
+                    // both regardless of live vs. replay, since catching a route up to where the
+                    // carrier actually is must work the same way whether that evidence is fresh
+                    // or from history.
+                    //
+                    // Cooldown itself, though, is only ever set for a genuinely live arrival
+                    // (e.IsLive) - never as a side effect of replaying history (e.g. the fresh
+                    // catch-up a Captain assignment does). A row that's merely being caught up
+                    // to "already arrived, some time ago" has no real cooldown left to show -
+                    // its 5-minute window is either already over or, worse, impossible to place
+                    // reliably against wall-clock time this long after the fact. Cooldown is
+                    // reserved for the one situation it can be shown correctly: watching an
+                    // actual jump happen in real time.
                     row.Icon = RowIcon.Complete;
                     row.Status = string.Empty;
                     if (targetIndex + 1 < rows.Count)
                     {
                         var nextRow = rows[targetIndex + 1];
                         nextRow.Icon = RowIcon.InProgress;
-                        nextRow.Status = "Cooldown";
+                        if (e.IsLive)
+                        {
+                            nextRow.Status = "Cooldown";
+                        }
                     }
                     break;
             }

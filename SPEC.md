@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.3
+**Version:** 1.4
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -321,12 +321,17 @@ history, otherwise via a non-blocking timer):
    `Jumping`.
 3. 1 minute after the matching `CarrierLocation`'s own timestamp → the
    arrived-at row's icon becomes Complete with a blank status; if a next
-   row exists, *that* row's icon becomes in-progress and *its* `Status`
-   becomes `Cooldown` — the cooldown belongs to the row waiting on it, not
-   the row that just finished. Nothing is put into Cooldown if there's no
-   next row.
+   row exists, *that* row's icon becomes in-progress. **Only if this
+   `CarrierLocation` was observed live** (genuinely tailed in real time,
+   never during the initial historical replay described above) does the
+   next row's `Status` also become `Cooldown` — the cooldown belongs to
+   the row waiting on it, not the row that just finished, but it's only
+   ever shown for a jump actually being watched happen, never as a side
+   effect of catching a route up to old history (there's no reliable way
+   to place a stale row's cooldown window against the current wall clock
+   after the fact). Nothing is put into Cooldown if there's no next row.
 4. A further 4 minutes after that (5 minutes after `CarrierLocation` in
-   total) → the next row's `Cooldown` status clears.
+   total) → the next row's `Cooldown` status clears, if it was showing one.
 
 A `CarrierJumpCancelled` event for the tracked carrier (filtered by
 `CarrierID` only — this event carries no `CarrierType`) reverts whatever
@@ -455,11 +460,14 @@ rather than internal app state like the table below.
     that have no event of their own — using the freshest evidence of a
     real, deliberate jump rather than a passive session-start snapshot.
 13. A row that receives a jump request transitions to `Jumping` 3 minutes
-    before that request's own `DepartureTime`; the composite
-    Arrived/Cooldown step happens 1 minute after the matching arrival
-    event's own timestamp, and `Cooldown` clears a further 4 minutes after
-    that — on the row *after* the one that arrived, not the arrived-at row
-    itself, and only if a next row exists.
+    before that request's own `DepartureTime`; the composite Arrived step
+    happens 1 minute after the matching arrival event's own timestamp, on
+    the row *after* the one that arrived, not the arrived-at row itself,
+    and only if a next row exists. `Cooldown` itself only ever appears for
+    a genuinely live-observed arrival — never as a side effect of
+    assigning/reassigning Captain and replaying journal history, even for
+    a jump that completed only moments before assignment — and, when
+    shown, clears a further 4 minutes later.
 14. The Engineer button is disabled on any card whose available cargo
     capacity is zero or unknown.
 15. Turning "Auto Copy To Clipboard" on immediately copies the current

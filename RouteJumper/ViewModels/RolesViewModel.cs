@@ -283,7 +283,7 @@ namespace RouteJumper.ViewModels
             _captainWatcher = new CarrierRouteJournalWatcher(
                 instance.JournalFilePath,
                 instance.CarrierId.Value,
-                (kind, systemName) => dispatcher.BeginInvoke(() => _routeEventTrigger.Fire(kind, systemName)),
+                (kind, systemName, isLive) => dispatcher.BeginInvoke(() => _routeEventTrigger.Fire(kind, systemName, isLive)),
                 () => dispatcher.BeginInvoke(() =>
                 {
                     // Same guarded-refresh pattern ToggleCaptain's own assignment-triggered
