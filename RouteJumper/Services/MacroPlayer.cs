@@ -25,6 +25,11 @@ namespace RouteJumper.Services
     /// is to paste whatever the Route tab's next system *currently* is, not whatever it happened
     /// to be when the macro was recorded. If nothing is available (e.g. no route saved) the
     /// placeholder resolves to empty text rather than pasting the literal placeholder text.
+    ///
+    /// A Click/HoldClick's X and/or Y may likewise be the literal placeholder "{CENTRE}" instead
+    /// of a number, resolved at the moment it's played against the target window's *current*
+    /// client-area size (via GetClientRect) - the window may have been resized since the macro
+    /// was recorded, so this is deliberately not baked in at record or parse time either.
     /// </summary>
     public sealed class MacroPlayer
     {
@@ -135,6 +140,10 @@ namespace RouteJumper.Services
 
                     case MacroInstruction.Click click:
                         SendClick(click.X, click.Y);
+                        break;
+
+                    case MacroInstruction.HoldClick holdClick:
+                        await SendHoldClickAsync(holdClick.X, holdClick.Y, holdClick.DurationMs, cancellationToken);
                         break;
 
                     case MacroInstruction.Wait wait:
@@ -319,34 +328,86 @@ namespace RouteJumper.Services
 
         /// <summary>
         /// Moves the cursor to the given position (relative to the target window's client area,
-        /// recomputed against its *current* screen position - the window may have moved since
-        /// the macro was recorded) and clicks.
+        /// recomputed against its *current* screen position and size - the window may have moved
+        /// or been resized since the macro was recorded) and clicks.
         /// </summary>
-        private void SendClick(int x, int y)
+        private void SendClick(string xToken, string yToken)
         {
-            var point = new NativeMethods.POINT { X = x, Y = y };
-            if (!NativeMethods.ClientToScreen(_targetWindow, ref point))
+            if (!TryResolveClickPosition(xToken, yToken, out var x, out var y) || !TryMoveCursorTo(x, y))
             {
                 return;
             }
 
-            NativeMethods.SetCursorPos(point.X, point.Y);
+            SendMouseButtonEvent(down: true);
+            SendMouseButtonEvent(down: false);
+        }
 
-            var inputs = new[]
+        /// <summary>Like SendClick, but holds the button down for durationMs before releasing.</summary>
+        private async Task SendHoldClickAsync(string xToken, string yToken, int durationMs, CancellationToken cancellationToken)
+        {
+            if (!TryResolveClickPosition(xToken, yToken, out var x, out var y) || !TryMoveCursorTo(x, y))
             {
-                new NativeMethods.INPUT
+                return;
+            }
+
+            SendMouseButtonEvent(down: true);
+            await Task.Delay(durationMs, cancellationToken);
+            SendMouseButtonEvent(down: false);
+        }
+
+        /// <summary>
+        /// Resolves a Click/HoldClick's raw X/Y tokens (each either an integer or the literal
+        /// placeholder "{CENTRE}") against the target window's current client-area size.
+        /// </summary>
+        private bool TryResolveClickPosition(string xToken, string yToken, out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+
+            if (!NativeMethods.GetClientRect(_targetWindow, out var clientRect))
+            {
+                return false;
+            }
+
+            return TryResolveCoordinate(xToken, clientRect.Right - clientRect.Left, out x) &&
+                   TryResolveCoordinate(yToken, clientRect.Bottom - clientRect.Top, out y);
+        }
+
+        private static bool TryResolveCoordinate(string token, int extent, out int value)
+        {
+            if (token.Equals("{CENTRE}", StringComparison.OrdinalIgnoreCase))
+            {
+                value = extent / 2;
+                return true;
+            }
+
+            return int.TryParse(token, out value);
+        }
+
+        private bool TryMoveCursorTo(int x, int y)
+        {
+            var point = new NativeMethods.POINT { X = x, Y = y };
+            if (!NativeMethods.ClientToScreen(_targetWindow, ref point))
+            {
+                return false;
+            }
+
+            NativeMethods.SetCursorPos(point.X, point.Y);
+            return true;
+        }
+
+        private static void SendMouseButtonEvent(bool down)
+        {
+            var input = new NativeMethods.INPUT
+            {
+                type = INPUT_MOUSE,
+                U = new NativeMethods.InputUnion
                 {
-                    type = INPUT_MOUSE,
-                    U = new NativeMethods.InputUnion { mi = new NativeMethods.MOUSEINPUT { dwFlags = MOUSEEVENTF_LEFTDOWN } }
-                },
-                new NativeMethods.INPUT
-                {
-                    type = INPUT_MOUSE,
-                    U = new NativeMethods.InputUnion { mi = new NativeMethods.MOUSEINPUT { dwFlags = MOUSEEVENTF_LEFTUP } }
+                    mi = new NativeMethods.MOUSEINPUT { dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP }
                 }
             };
 
-            NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+            NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf<NativeMethods.INPUT>());
         }
 
         private string ResolvePasteText(string text) =>
@@ -408,6 +469,10 @@ namespace RouteJumper.Services
             [DllImport("user32.dll")]
             public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
             [DllImport("user32.dll", SetLastError = true)]
             public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -415,6 +480,13 @@ namespace RouteJumper.Services
             public struct POINT
             {
                 public int X, Y;
+            }
+
+            /// <summary>Left/Top are always 0 for GetClientRect (it's relative to the window's own client area) - Right/Bottom are the client area's width/height.</summary>
+            [StructLayout(LayoutKind.Sequential)]
+            public struct RECT
+            {
+                public int Left, Top, Right, Bottom;
             }
 
             [StructLayout(LayoutKind.Sequential)]

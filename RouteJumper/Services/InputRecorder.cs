@@ -13,11 +13,12 @@ namespace RouteJumper.Services
     /// being recorded at all, so input directed elsewhere (including at this app itself) is
     /// never captured.
     ///
-    /// A key held down for at least <see cref="HoldThresholdMs"/> before being released is
-    /// recorded as a Hold (with its actual duration); anything shorter is a Tap. A gap of at
-    /// least <see cref="WaitThresholdMs"/> between two captured events is recorded as an
-    /// explicit Wait step, so playback reproduces roughly the same pacing it was recorded at -
-    /// short, incidental gaps are not, to avoid cluttering the script with near-zero waits.
+    /// A key or left-click held down for at least <see cref="HoldThresholdMs"/> before being
+    /// released is recorded as a Hold/HoldClick (with its actual duration); anything shorter is a
+    /// Tap/Click. A gap of at least <see cref="WaitThresholdMs"/> between two captured events is
+    /// recorded as an explicit Wait step, so playback reproduces roughly the same pacing it was
+    /// recorded at - short, incidental gaps are not, to avoid cluttering the script with
+    /// near-zero waits.
     ///
     /// Each captured key is translated to a script token via <paramref name="resolveToken"/> -
     /// the SPEC §6.1 action name if it matches one of the current key bindings, otherwise a
@@ -44,6 +45,7 @@ namespace RouteJumper.Services
         private const int WM_SYSKEYDOWN = 0x0104;
         private const int WM_SYSKEYUP = 0x0105;
         private const int WM_LBUTTONDOWN = 0x0201;
+        private const int WM_LBUTTONUP = 0x0202;
 
         private const int VK_LSHIFT = 0xA0;
         private const int VK_RSHIFT = 0xA1;
@@ -60,6 +62,8 @@ namespace RouteJumper.Services
         private readonly Stopwatch _stopwatch = new();
         private readonly Dictionary<int, long> _keyDownAtMs = new();
         private readonly HashSet<int> _heldModifierVks = new();
+        private long? _mouseDownAtMs;
+        private POINT _mouseDownPoint;
 
         // Kept as fields, not locals - a hook delegate must stay alive (not GC'd) for the whole
         // time its hook is installed, the same reason CarrierRouteJournalWatcher keeps its
@@ -174,17 +178,38 @@ namespace RouteJumper.Services
             return NativeMethods.CallNextHookEx(_keyboardHookId, nCode, wParam, lParam);
         }
 
+        /// <summary>
+        /// Classified by hold duration exactly like a keyboard key (see RecordKeyRelease) - the
+        /// position recorded is always where the button went *down*, not where it came up, since
+        /// drags aren't supported (SPEC §6.3) and the down position is what the user was actually
+        /// aiming at.
+        /// </summary>
         private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
             try
             {
-                if (nCode >= 0 && wParam.ToInt32() == WM_LBUTTONDOWN && IsTargetForeground())
+                if (nCode >= 0 && IsTargetForeground())
                 {
-                    var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                    var point = data.pt;
-                    if (NativeMethods.ScreenToClient(_targetWindow, ref point))
+                    var msg = wParam.ToInt32();
+                    if (msg == WM_LBUTTONDOWN)
                     {
-                        AddStep(new MacroInstruction.Click(point.X, point.Y));
+                        var data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                        _mouseDownAtMs = _stopwatch.ElapsedMilliseconds;
+                        _mouseDownPoint = data.pt;
+                    }
+                    else if (msg == WM_LBUTTONUP && _mouseDownAtMs is { } downAt)
+                    {
+                        _mouseDownAtMs = null;
+                        var durationMs = _stopwatch.ElapsedMilliseconds - downAt;
+                        var point = _mouseDownPoint;
+                        if (NativeMethods.ScreenToClient(_targetWindow, ref point))
+                        {
+                            var x = point.X.ToString();
+                            var y = point.Y.ToString();
+                            AddStep(durationMs >= HoldThresholdMs
+                                ? new MacroInstruction.HoldClick(x, y, (int)durationMs)
+                                : new MacroInstruction.Click(x, y));
+                        }
                     }
                 }
             }

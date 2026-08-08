@@ -16,7 +16,10 @@ namespace RouteJumper.Services
     ///   ACTION_NAME              - tap (e.g. UP - see ControlActionExtensions.ToActionName)
     ///   KEY &lt;storage&gt;      - tap a key with no bound action (e.g. KEY Control+A)
     ///   HOLD &lt;token&gt; &lt;ms&gt;   - press-and-hold ACTION_NAME or "KEY ..." for ms milliseconds
-    ///   CLICK &lt;x&gt;,&lt;y&gt;       - mouse click, relative to the target window's client area
+    ///   CLICK &lt;x&gt;,&lt;y&gt;       - mouse click, relative to the target window's client area;
+    ///                             either coordinate may be the literal placeholder "{CENTRE}",
+    ///                             resolved at play time to that axis' current midpoint
+    ///   HOLD CLICK &lt;x&gt;,&lt;y&gt; &lt;ms&gt; - press-and-hold a click at x,y for ms milliseconds
     ///   WAIT &lt;ms&gt;             - pause before the next step
     ///   PASTE &lt;text&gt;         - sets the clipboard to text and sends Ctrl+V; text may contain
     ///                             the "{NEXT_SYSTEM}" placeholder, resolved at play time to the
@@ -107,6 +110,19 @@ namespace RouteJumper.Services
                     continue;
                 }
 
+                if (upper.StartsWith("HOLD CLICK "))
+                {
+                    var rest = line[11..].Trim();
+                    var lastSpace = rest.LastIndexOf(' ');
+                    if (lastSpace > 0 &&
+                        int.TryParse(rest[(lastSpace + 1)..].Trim(), out var holdMs) && holdMs > 0 &&
+                        TryParseCoordinates(rest[..lastSpace].Trim(), out var holdX, out var holdY))
+                    {
+                        current.Add(new MacroInstruction.HoldClick(holdX, holdY, holdMs));
+                    }
+                    continue;
+                }
+
                 if (upper.StartsWith("HOLD "))
                 {
                     var rest = line[5..].Trim();
@@ -120,10 +136,7 @@ namespace RouteJumper.Services
 
                 if (upper.StartsWith("CLICK "))
                 {
-                    var coords = line[6..].Trim().Split(',');
-                    if (coords.Length == 2 &&
-                        int.TryParse(coords[0].Trim(), out var x) &&
-                        int.TryParse(coords[1].Trim(), out var y))
+                    if (TryParseCoordinates(line[6..].Trim(), out var x, out var y))
                     {
                         current.Add(new MacroInstruction.Click(x, y));
                     }
@@ -158,5 +171,36 @@ namespace RouteJumper.Services
                     StringComparer.OrdinalIgnoreCase)
             };
         }
+
+        /// <summary>
+        /// A coordinate token is valid if it's an integer or the literal placeholder "{CENTRE}"
+        /// (case-insensitive) - actually resolving "{CENTRE}" happens at play time (see
+        /// MacroPlayer), since it depends on the target window's current size.
+        /// </summary>
+        private static bool TryParseCoordinates(string coordinatePair, out string x, out string y)
+        {
+            x = string.Empty;
+            y = string.Empty;
+
+            var coords = coordinatePair.Split(',');
+            if (coords.Length != 2)
+            {
+                return false;
+            }
+
+            var xToken = coords[0].Trim();
+            var yToken = coords[1].Trim();
+            if (!IsValidCoordinateToken(xToken) || !IsValidCoordinateToken(yToken))
+            {
+                return false;
+            }
+
+            x = xToken;
+            y = yToken;
+            return true;
+        }
+
+        private static bool IsValidCoordinateToken(string token) =>
+            token.Equals("{CENTRE}", StringComparison.OrdinalIgnoreCase) || int.TryParse(token, out _);
     }
 }

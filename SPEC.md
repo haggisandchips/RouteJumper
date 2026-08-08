@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.12
+**Version:** 1.13
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -447,12 +447,13 @@ foregrounding, input directed back at RouteJumper's own window). Pressing
 **Stop** ends capture and turns it into a new named macro (§6.4). Only one
 recording can be active at a time.
 
-Each captured key is classified by how long it was held: a press released
-within 400ms is a **tap**; longer is a **hold**, recorded with its
-duration. A left mouse click is recorded as a click at the position
-relative to the target window's client area (top-left = `0,0`); other
-mouse buttons, drags, and scrolling are not recorded. A gap of 150ms or
-more between two recorded inputs is recorded as an explicit wait of that
+Each captured key or left-click is classified by how long it was held: a
+press released within 400ms is a **tap/click**; longer is a **hold/hold
+click**, recorded with its duration. A click's position is relative to
+the target window's client area (top-left = `0,0`), taken from where the
+button went *down* (not up), since drags aren't recorded; other mouse
+buttons and scrolling are not recorded either. A gap of 150ms or more
+between two recorded inputs is recorded as an explicit wait of that
 length, so played-back timing matches the original pacing.
 
 Capture is translated into a small, line-oriented, human-editable text
@@ -463,6 +464,8 @@ UP                    # tap the action bound to UP
 KEY Control+A         # tap a raw key with no bound action
 HOLD RIGHT 800        # hold an action's key for 800ms
 CLICK 240,160         # left-click at a position relative to the window
+HOLD CLICK 240,160 600 # left-click-and-hold at a position for 600ms
+CLICK {CENTRE},{CENTRE} # left-click the exact centre of the window
 WAIT 500              # pause 500ms before the next step
 PASTE {NEXT_SYSTEM}   # paste text via the clipboard + Ctrl+V
 REPEAT 3
@@ -479,6 +482,13 @@ CALL refuel
 - A line naming a bound action (e.g. `UP`) taps that action's current key
   binding; `KEY <chord>` taps an arbitrary key/chord not tied to any
   action. `HOLD` takes the same token form plus a millisecond duration.
+- `CLICK <x>,<y>` left-clicks that position; `HOLD CLICK <x>,<y> <ms>`
+  clicks and holds for `<ms>` before releasing. Either coordinate may be
+  the literal placeholder `{CENTRE}` instead of a number, resolved at play
+  time to that axis' current midpoint of the target window's client area
+  — this is how a macro can reliably click "the middle of the window"
+  even if the window has been resized since the macro was recorded or
+  written, rather than a fixed position typed directly into the script.
 - `REPEAT <n> … END` and `MACRO <name> … END` blocks nest; `MACRO` blocks
   are only valid at the top level (not inside a `REPEAT`) and are not
   themselves played inline — `CALL <name>` invokes one wherever it
@@ -719,25 +729,29 @@ rather than internal app state like the table below.
     than one, clicking a card selects it. Record is enabled only while an
     instance is selected and nothing is already recording or playing.
 26. Pressing Record brings the selected instance's window to the
-    foreground, then captures taps vs. holds (400ms threshold), left
-    clicks (window-relative position), and gaps ≥150ms as explicit waits,
-    and produces a human-readable script in the documented grammar
+    foreground, then captures taps vs. holds and clicks vs. held clicks
+    (400ms threshold for both), left-click position (window-relative,
+    taken from where the button went down), and gaps ≥150ms as explicit
+    waits, and produces a human-readable script in the documented grammar
     (§6.3) on Stop, added as a new macro without disturbing any existing
     ones.
-27. The Recorded Macros list shows each macro as a clickable name (selects
+27. `CLICK`/`HOLD CLICK` coordinates may use the literal placeholder
+    `{CENTRE}` in place of a number for either axis, resolved at play
+    time against the target window's then-current client-area size.
+28. The Recorded Macros list shows each macro as a clickable name (selects
     it as the Play target, highlighting it) plus a pencil icon (opens the
     full-size editor) and a delete icon. Play is enabled only once both an
     instance and a macro are selected, and can play any selected macro
     against any selected instance, regardless of which instance it was
     originally recorded against.
-28. Clicking a macro's pencil icon selects that macro (as Play's target)
+29. Clicking a macro's pencil icon selects that macro (as Play's target)
     and opens an editor with an editable name, a large editable script
     text box, and a narrow side panel documenting the script grammar
     (§6.3); edits to either field are persisted as they're made, and
     Save (below the script box) returns to the list without losing them.
     The Key Bindings section remains visible above the editor throughout,
     and Record is disabled for as long as the editor is open.
-29. Playing a macro brings the selected instance's window to the
+30. Playing a macro brings the selected instance's window to the
     foreground and executes the script's steps in order, resolving any
     `PASTE {NEXT_SYSTEM}` against the Route tab's current in-progress row
     at the moment it plays; starting a new playback cancels any playback
@@ -745,9 +759,9 @@ rather than internal app state like the table below.
     is enabled while recording or while a macro is playing (never both at
     once) and cancels whichever is active immediately, wherever in the
     script playback currently is.
-30. Key bindings and recorded macros both survive an app restart with no
+31. Key bindings and recorded macros both survive an app restart with no
     manual reconfiguration required.
-31. If the target instance's window loses focus while a macro is
+32. If the target instance's window loses focus while a macro is
     playing, playback aborts immediately and a closeable message
     explaining why is shown; dismissing it (or starting another
     playback) clears it. Pressing Stop or starting a replacement playback
