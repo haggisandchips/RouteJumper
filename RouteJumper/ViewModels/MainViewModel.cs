@@ -26,14 +26,25 @@ namespace RouteJumper.ViewModels
             var config = new AppConfigStore();
             var routeEventTrigger = new ManualRowEventTrigger();
 
-            RouteViewModel = new RouteViewModel(settings, routeEventTrigger);
-            RolesViewModel = new RolesViewModel(routeEventTrigger, settings, new EliteInstanceScanner(config));
+            // The RolesViewModel/ControlsViewModel property dereferences below are guaranteed
+            // safe despite still being unassigned at this exact statement - these closures are
+            // only ever invoked later, once the whole constructor (and both assignments) has
+            // completed; the nullable analyzer can't see that far ahead through a deferred
+            // lambda, hence the null-forgiving operators.
+            RouteViewModel = new RouteViewModel(settings, routeEventTrigger, () => RolesViewModel!.CanEngageAutoPilot);
+            RolesViewModel = new RolesViewModel(
+                routeEventTrigger,
+                settings,
+                new EliteInstanceScanner(config),
+                () => ControlsViewModel!.Macros);
             ControlsViewModel = new ControlsViewModel(
                 settings,
                 new EliteInstanceScanner(config),
                 () => RouteViewModel.Rows.FirstOrDefault(r => r.Icon == RowIcon.InProgress)?.SystemText);
 
             RouteViewModel.RouteSaved += (_, _) => RolesViewModel.RefreshRouteForCurrentCaptain();
+            RolesViewModel.AutoPilotEligibilityChanged += (_, _) => RouteViewModel.RaiseAutoPilotEligibilityChanged();
+            ControlsViewModel.MacroDeleted += (_, macro) => RolesViewModel.OnMacroDeleted(macro);
 
             // Must run after the RouteSaved wiring above - see RouteViewModel.RestoreFromSettings.
             RouteViewModel.RestoreFromSettings();

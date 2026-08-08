@@ -14,33 +14,62 @@ namespace RouteJumper.ViewModels
     {
         private const string CaptainFidSettingKey = "CaptainFid";
         private const string EngineerFidSettingKey = "EngineerFid";
+        private const string CaptainMacroIdSettingKey = "CaptainMacroId";
+        private const string EngineerMacroIdSettingKey = "EngineerMacroId";
 
         private readonly EliteInstanceScanner _scanner;
         private readonly ManualRowEventTrigger _routeEventTrigger;
         private readonly AppSettingsStore _settings;
+        private readonly Func<ObservableCollection<RecordedMacroViewModel>> _getMacros;
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
         private int? _captainProcessId;
         private int? _engineerProcessId;
         private CarrierRouteJournalWatcher? _captainWatcher;
+        private RecordedMacroViewModel? _captainMacro;
+        private RecordedMacroViewModel? _engineerMacro;
 
-        public RolesViewModel(ManualRowEventTrigger routeEventTrigger, AppSettingsStore settings, EliteInstanceScanner scanner)
+        /// <summary>
+        /// <paramref name="getMacros"/> resolves the Controls tab's live macro list (SPEC §6.4) -
+        /// supplied by MainViewModel as a closure over ControlsViewModel.Macros, the same
+        /// one-way, event-free bridging pattern already used to reach RouteViewModel.Rows from
+        /// ControlsViewModel, since this ViewModel has no reference to ControlsViewModel itself.
+        /// </summary>
+        public RolesViewModel(
+            ManualRowEventTrigger routeEventTrigger,
+            AppSettingsStore settings,
+            EliteInstanceScanner scanner,
+            Func<ObservableCollection<RecordedMacroViewModel>> getMacros)
         {
             _routeEventTrigger = routeEventTrigger;
             _settings = settings;
             _scanner = scanner;
+            _getMacros = getMacros;
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
             ToggleCaptainCommand = new RelayCommand<EliteInstanceViewModel>(ToggleCaptain);
             ToggleEngineerCommand = new RelayCommand<EliteInstanceViewModel>(ToggleEngineer, CanToggleEngineer);
             CopyJournalFileNameCommand = new RelayCommand<string>(ClipboardCopyHelper.CopyWithPing);
+            ClearCaptainMacroCommand = new RelayCommand(() => CaptainMacro = null);
+            ClearEngineerMacroCommand = new RelayCommand(() => EngineerMacro = null);
 
             _ = RefreshAsync();
         }
 
+        /// <summary>
+        /// Raised whenever anything CanEngageAutoPilot depends on changes - lets MainViewModel
+        /// tell the Route tab's Auto Pilot button to re-check whether it should be enabled,
+        /// without RolesViewModel needing a reference to RouteViewModel itself (same decoupling
+        /// principle as RouteViewModel.RouteSaved, just in the other direction).
+        /// </summary>
+        public event EventHandler? AutoPilotEligibilityChanged;
+
         public ObservableCollection<EliteInstanceViewModel> Instances { get; }
+
+        /// <summary>The Controls tab's live recorded-macro list, for the Captain/Engineer macro pickers below.</summary>
+        public ObservableCollection<RecordedMacroViewModel> AvailableMacros => _getMacros();
 
         public AsyncRelayCommand RefreshCommand { get; }
 
@@ -56,6 +85,12 @@ namespace RouteJumper.ViewModels
         /// simpler, icon-free copy action.
         /// </summary>
         public RelayCommand<string> CopyJournalFileNameCommand { get; }
+
+        /// <summary>Clears CaptainMacro back to unselected.</summary>
+        public RelayCommand ClearCaptainMacroCommand { get; }
+
+        /// <summary>Clears EngineerMacro back to unselected.</summary>
+        public RelayCommand ClearEngineerMacroCommand { get; }
 
         public bool IsRefreshing
         {
@@ -74,6 +109,68 @@ namespace RouteJumper.ViewModels
         {
             get => _statusText;
             private set => SetProperty(ref _statusText, value);
+        }
+
+        /// <summary>The macro Auto Pilot uses to have the Captain plot the next route - see CanEngageAutoPilot.</summary>
+        public RecordedMacroViewModel? CaptainMacro
+        {
+            get => _captainMacro;
+            set
+            {
+                if (SetProperty(ref _captainMacro, value))
+                {
+                    _settings.SetString(CaptainMacroIdSettingKey, value?.Id.ToString() ?? string.Empty);
+                    NotifyAutoPilotEligibilityChanged();
+                }
+            }
+        }
+
+        /// <summary>The macro Auto Pilot uses to have the Engineer deposit fuel - see CanEngageAutoPilot.</summary>
+        public RecordedMacroViewModel? EngineerMacro
+        {
+            get => _engineerMacro;
+            set
+            {
+                if (SetProperty(ref _engineerMacro, value))
+                {
+                    _settings.SetString(EngineerMacroIdSettingKey, value?.Id.ToString() ?? string.Empty);
+                    NotifyAutoPilotEligibilityChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Auto Pilot (Route tab) requires a Captain to be assigned with a macro selected for
+        /// them, and - only if Engineer is *also* currently assigned - a macro selected for
+        /// Engineer too. An unassigned Engineer imposes no macro requirement of its own.
+        /// </summary>
+        public bool CanEngageAutoPilot =>
+            _captainProcessId.HasValue && CaptainMacro != null &&
+            (!_engineerProcessId.HasValue || EngineerMacro != null);
+
+        private void NotifyAutoPilotEligibilityChanged()
+        {
+            OnPropertyChanged(nameof(CanEngageAutoPilot));
+            AutoPilotEligibilityChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Called (via MainViewModel wiring ControlsViewModel.MacroDeleted) whenever a macro is
+        /// deleted on the Controls tab - clears it from whichever role selection (if any) still
+        /// referenced it, rather than leaving a dangling selection the ComboBox can no longer
+        /// display.
+        /// </summary>
+        public void OnMacroDeleted(RecordedMacroViewModel macro)
+        {
+            if (ReferenceEquals(CaptainMacro, macro))
+            {
+                CaptainMacro = null;
+            }
+
+            if (ReferenceEquals(EngineerMacro, macro))
+            {
+                EngineerMacro = null;
+            }
         }
 
         private async Task RefreshAsync()
@@ -108,6 +205,8 @@ namespace RouteJumper.ViewModels
                 }
 
                 RestoreRolesFromSettings(results);
+                RestoreMacroSelectionFromSettings();
+                NotifyAutoPilotEligibilityChanged();
 
                 StatusText = results.Count == 0
                     ? "No running Elite Dangerous instances found."
@@ -121,6 +220,43 @@ namespace RouteJumper.ViewModels
             {
                 IsRefreshing = false;
             }
+        }
+
+        /// <summary>
+        /// Re-selects the Captain/Engineer macro that was persisted the last time each was
+        /// explicitly chosen (by Id, not Name - see RecordedMacro.Id) - runs on every refresh,
+        /// not just once at startup, the same "only while currently unselected in memory"
+        /// convention RestoreRolesFromSettings already follows, since a freshly-recorded macro
+        /// (added after this ViewModel's own construction) still needs to be resolvable once it
+        /// exists.
+        /// </summary>
+        private void RestoreMacroSelectionFromSettings()
+        {
+            if (CaptainMacro is null && TryGetSettingGuid(CaptainMacroIdSettingKey, out var captainMacroId))
+            {
+                var match = AvailableMacros.FirstOrDefault(m => m.Id == captainMacroId);
+                if (match != null)
+                {
+                    _captainMacro = match;
+                    OnPropertyChanged(nameof(CaptainMacro));
+                }
+            }
+
+            if (EngineerMacro is null && TryGetSettingGuid(EngineerMacroIdSettingKey, out var engineerMacroId))
+            {
+                var match = AvailableMacros.FirstOrDefault(m => m.Id == engineerMacroId);
+                if (match != null)
+                {
+                    _engineerMacro = match;
+                    OnPropertyChanged(nameof(EngineerMacro));
+                }
+            }
+        }
+
+        private bool TryGetSettingGuid(string key, out Guid value)
+        {
+            value = Guid.Empty;
+            return _settings.GetString(key) is { Length: > 0 } text && Guid.TryParse(text, out value);
         }
 
         /// <summary>
@@ -201,6 +337,7 @@ namespace RouteJumper.ViewModels
                 _captainProcessId = null;
                 _settings.SetString(CaptainFidSettingKey, string.Empty);
                 StopCaptainWatch();
+                NotifyAutoPilotEligibilityChanged();
                 return;
             }
 
@@ -228,6 +365,7 @@ namespace RouteJumper.ViewModels
             _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
 
             StartCaptainWatch(instance);
+            NotifyAutoPilotEligibilityChanged();
 
             // Assigning Captain also triggers a reread to refresh this tab - that same reread
             // is what replays the carrier's journal history into the route.
@@ -249,6 +387,7 @@ namespace RouteJumper.ViewModels
                 instance.IsEngineer = false;
                 _engineerProcessId = null;
                 _settings.SetString(EngineerFidSettingKey, string.Empty);
+                NotifyAutoPilotEligibilityChanged();
                 return;
             }
 
@@ -271,6 +410,8 @@ namespace RouteJumper.ViewModels
             {
                 _settings.SetString(EngineerFidSettingKey, instance.Fid);
             }
+
+            NotifyAutoPilotEligibilityChanged();
         }
 
         private static bool CanToggleEngineer(EliteInstanceViewModel? instance) =>

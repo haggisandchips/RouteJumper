@@ -14,12 +14,16 @@ namespace RouteJumper.ViewModels
 
         public RecordedMacroViewModel(RecordedMacro macro)
         {
+            Id = macro.Id;
             _name = macro.Name.TrimStart();
             _scriptText = macro.ScriptText;
             SourceProcessId = macro.SourceProcessId;
             SourceCommanderName = macro.SourceCommanderName;
             RecordedAtUtc = macro.RecordedAtUtc;
         }
+
+        /// <summary>Stable identity, independent of the (freely editable) Name - see RecordedMacro.Id. Mutable only so ControlsViewModel can heal a pre-migration Guid.Empty on load; never changes afterward.</summary>
+        public Guid Id { get; set; }
 
         /// <summary>The instance this was originally recorded against - display-only (e.g. "Recorded against Cmdr X"). Playback is not restricted to this instance - any running instance can be selected as the play target.</summary>
         public int SourceProcessId { get; }
@@ -49,8 +53,18 @@ namespace RouteJumper.ViewModels
             set => SetProperty(ref _scriptText, value);
         }
 
+        /// <summary>
+        /// WPF's default ComboBoxItem automation peer reports an item's accessible Name via
+        /// ToString(), not via whatever DisplayMemberPath renders visually - without this
+        /// override, a screen reader (or, as found while testing, UI Automation tooling) would
+        /// read the CLR type name instead of the macro's actual name for the Roles tab's
+        /// Captain/Engineer macro pickers.
+        /// </summary>
+        public override string ToString() => Name;
+
         public RecordedMacro ToModel() => new()
         {
+            Id = Id,
             Name = Name,
             ScriptText = ScriptText,
             SourceProcessId = SourceProcessId,

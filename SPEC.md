@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.13
+**Version:** 1.14
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -23,6 +23,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 | Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Configurable journal-match tolerance or cooldown timing |
 | Event-driven row-progress engine, driven by a Captain's journal | Persisting per-row progress (icon/status), or the last-selected tab |
 | Manual "Set next system" override for correcting automatic detection | Wiring Controls tab macros to Captain/Engineer roles automatically |
+| Selecting (not automatically running) a macro for each of Captain/Engineer, and gating Auto Pilot on that selection (§5.5) | |
 | Persistence of route text, window bounds, and Captain/Engineer role assignment | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
@@ -97,7 +98,7 @@ one is visible at a time.
   becomes the current (in-progress) row, and every row after it is reset to
   not-yet-started — regardless of their prior state. This is a direct,
   immediate correction for whenever automatic journal-based detection
-  (§5.6) gets it wrong, or the carrier is genuinely off-route.
+  (§5.7) gets it wrong, or the carrier is genuinely off-route.
 - Above the table, right-aligned: an **"Auto Copy To Clipboard"** toggle
   switch (§4.6). Not shown while in Edit state.
 - Below the table, right-aligned: **Edit** and **Auto Pilot** buttons.
@@ -105,14 +106,18 @@ one is visible at a time.
     (Save never alters them) and focus restored to it. Re-clicking Save
     afterward always produces a completely fresh table — even if the text
     is identical to what was there before — discarding any prior
-    icon/status state. If a Captain is currently assigned (§5.5), the fresh
+    icon/status state. If a Captain is currently assigned (§5.6), the fresh
     table is immediately re-derived from that Captain's journal; otherwise
     row 1 defaults to "next" (in-progress).
   - **Auto Pilot** toggles a placeholder running state: its label reads
     "Auto Pilot" when idle and "Stop" while engaged, and **Edit** is
     disabled while engaged. Toggling it has no other effect — it is not yet
     wired to any automation. Re-saving the route (via Edit → Save) resets
-    it to idle.
+    it to idle. Enabled only when Captain is currently assigned with a
+    macro selected for them, and — only if Engineer is *also* currently
+    assigned — a macro selected for Engineer too (§5.4); disabled
+    otherwise, including whenever assignment or macro selection changes
+    on the Roles tab while this tab is showing.
 
 ### 4.3 Line-to-row conversion (on Save)
 - Text is split on line breaks; `\r\n` is normalized to `\n` first.
@@ -143,7 +148,7 @@ its current `Status` text:
 - A row's icon is never removed once shown (`Visibility.Hidden`, not
   `Collapsed`, when hiding it — keeping its layout space reserved so row
   height doesn't visibly shift as icons appear/disappear).
-- A completed row's own `Status` is always blank — see §5.6 for why
+- A completed row's own `Status` is always blank — see §5.7 for why
   `Cooldown` is shown on the row *after* the one that just completed, not
   on that row itself.
 
@@ -159,7 +164,7 @@ See §7.
 - While on: the instant a `CarrierLocation` event for the assigned
   Captain's carrier is observed via **live** journal monitoring (never
   during the initial historical replay a fresh Captain assignment does,
-  and never for a passive session-start snapshot — same gating as §5.6's
+  and never for a passive session-start snapshot — same gating as §5.7's
   route catch-up), the **next** row's `System` text (the row after the one
   the carrier just arrived at) is copied to the clipboard automatically.
   This fires immediately on the raw journal event, ahead of the table's
@@ -242,7 +247,7 @@ Each running instance's card shows:
 - All fields are found in a single sequential pass over the journal,
   taking the latest occurrence of each relevant event.
 - Cargo's current tonnage excludes tritium for the purpose of Engineer
-  eligibility (§5.5) but *includes* it in the displayed total, with tritium
+  eligibility (§5.6) but *includes* it in the displayed total, with tritium
   broken out as its own line. Tritium is tracked incrementally across every
   event that can move it into or out of the ship's hold (`Cargo`,
   `CargoTransfer`, `CarrierDepositFuel`, `MarketBuy`, `MarketSell`),
@@ -252,7 +257,7 @@ Each running instance's card shows:
   change, so a ship that has carried nothing at all this session never
   gets one - no event is itself evidence of an empty hold, not missing
   data, so current cargo (and tritium) default to 0 rather than
-  "Unknown" in that case. This also means Engineer eligibility (§5.5)
+  "Unknown" in that case. This also means Engineer eligibility (§5.6)
   correctly follows from `Loadout`'s capacity alone once it's known, even
   before any `Cargo` event has fired.
 - Carrier fuel is an absolute reading (not a tracked delta, unlike ship
@@ -274,16 +279,34 @@ Each running instance's card shows:
   capacity is zero or unknown.
 - Assigning **Captain** to an instance (whether or not a different
   instance already held it) resets the whole route, then replays that
-  instance's journal into it (§5.6). Clearing Captain — explicitly, or
+  instance's journal into it (§5.7). Clearing Captain — explicitly, or
   because its instance stops running — leaves the route exactly as
   displayed. A new instance appearing in a scan never disturbs
   Captain/Engineer assignments already held by other running instances.
 - Assigning Captain also triggers a background rescan of all instances.
 
-### 5.5 Persistence of role assignment
+### 5.5 Role macros
+
+A section above the instance cards lets the user pick which recorded
+macro (Controls tab, §6.4) each role should use once Auto Pilot is
+engaged: **Captain plots via** and **Engineer refuels via**, each a
+dropdown of every currently recorded macro by name, with a small clear
+button beside it to unset the choice. This selection belongs to the role
+itself, not to whichever instance currently holds it — it stays put if
+the role moves to a different instance, and is independent of whether
+the role is even currently assigned at all. A macro that's deleted
+(Controls tab) while selected here is cleared back to unset rather than
+left pointing at nothing that no longer exists.
+
+Auto Pilot (§4.2) is enabled only once Captain is assigned with a macro
+selected here for them, and — only if Engineer is *also* currently
+assigned — a macro selected for Engineer too; an unassigned Engineer
+imposes no macro requirement of its own.
+
+### 5.6 Persistence of role assignment
 See §7.
 
-### 5.6 Journal-driven route updates
+### 5.7 Journal-driven route updates
 
 Once Captain is assigned, RouteJumper watches that commander's journal file
 for `CarrierJumpRequest`/`CarrierLocation` events belonging to their own
@@ -354,7 +377,7 @@ re-set `Jumping` on a row whose jump was cancelled.
   real-world scheduling described above lives in the journal watcher, not
   in the row-update logic, which only ever reacts to "now".
 
-### 5.7 Persistence of role assignment (FID-based)
+### 5.8 Persistence of role assignment (FID-based)
 See §7.
 
 ---
@@ -560,8 +583,11 @@ steps.
 
 If the target window ever loses focus while a script is playing (the
 simulated input has nowhere else meaningful to go once something else has
-focus), playback aborts immediately and a closeable message is shown
-explaining why, near the Running Instances controls (§6.2) — dismissed
+focus), playback aborts immediately and a closeable warning banner is
+shown — a solid, high-contrast fill (not just an outline), so it reads
+clearly as a warning rather than something easy to miss. It's shown above
+the tab area itself, so it stays visible regardless of which tab the user
+is currently on, not just while looking at the Controls tab — dismissed
 via its own close button, and otherwise left showing until the user
 dismisses it or starts another playback. An ordinary user-initiated Stop
 is not treated as this kind of failure and shows no message.
@@ -589,6 +615,7 @@ rather than internal app state like the table below.
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
+| Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab key bindings | Every successful capture (§6.1) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.4) | App startup, as a single collection |
 
@@ -602,6 +629,10 @@ rather than internal app state like the table below.
   longer running clears the in-memory assignment but leaves the persisted
   FID alone, so it can be picked back up automatically if that commander's
   instance reappears.
+- A role's selected macro is persisted by the macro's own stable Id, not
+  its (freely editable) name, so renaming a macro never loses a role's
+  selection of it; deleting the selected macro clears the role's
+  selection back to unset instead of leaving it pointing at nothing.
 - "Auto Copy To Clipboard" (§4.6) is deliberately **not** persisted —
   always off on a fresh launch, by design.
 - Not persisted: per-row progress (icon/status), and the last-selected
@@ -762,7 +793,19 @@ rather than internal app state like the table below.
 31. Key bindings and recorded macros both survive an app restart with no
     manual reconfiguration required.
 32. If the target instance's window loses focus while a macro is
-    playing, playback aborts immediately and a closeable message
-    explaining why is shown; dismissing it (or starting another
-    playback) clears it. Pressing Stop or starting a replacement playback
-    does not show this message.
+    playing, playback aborts immediately and a closeable, solid-red
+    warning banner (white text) explaining why is shown above the tab
+    area, visible regardless of which tab is active; dismissing it (or
+    starting another playback) clears it. Pressing Stop or starting a
+    replacement playback does not show this message.
+33. The Roles tab shows a Captain and an Engineer macro picker, listing
+    every recorded macro by name, independent of which instance (if any)
+    currently holds each role. The Route tab's Auto Pilot button is
+    disabled unless Captain is assigned with a macro selected, and -
+    only if Engineer is also assigned - a macro is selected for Engineer
+    too; toggling role assignment or macro selection on the Roles tab
+    re-evaluates this immediately, whichever tab is currently showing.
+34. Deleting a macro (Controls tab) that's currently selected for
+    Captain or Engineer clears that role's selection rather than leaving
+    it referencing a macro that no longer exists. Renaming a selected
+    macro does not lose the selection.

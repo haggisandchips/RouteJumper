@@ -10,6 +10,15 @@ namespace RouteJumper.Models
     /// </summary>
     public class RecordedMacro
     {
+        /// <summary>
+        /// Stable identity for this macro, independent of its (freely user-editable) Name -
+        /// lets a Roles-tab role's chosen macro (see RolesViewModel) survive the macro being
+        /// renamed later. Older, already-persisted macros predate this field and deserialize
+        /// with Guid.Empty; ControlsViewModel assigns and persists a real one for those the
+        /// first time they're loaded (see ControlsViewModel.LoadMacros).
+        /// </summary>
+        public Guid Id { get; set; }
+
         public string Name { get; set; } = string.Empty;
 
         public string ScriptText { get; set; } = string.Empty;

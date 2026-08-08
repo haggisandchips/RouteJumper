@@ -5,6 +5,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:views="clr-namespace:RouteJumper.Views"
         xmlns:vm="clr-namespace:RouteJumper.ViewModels"
+        xmlns:converters="clr-namespace:RouteJumper.Converters"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         mc:Ignorable="d"
         Style="{StaticResource MaterialDesignWindow}"
@@ -18,15 +19,64 @@
         <vm:MainViewModel />
     </Window.DataContext>
 
-    <TabControl Margin="8" TabStripPlacement="Left">
-        <TabItem Header="Route">
-            <views:RouteView DataContext="{Binding RouteViewModel}" />
-        </TabItem>
-        <TabItem Header="Roles">
-            <views:RolesView DataContext="{Binding RolesViewModel}" />
-        </TabItem>
-        <TabItem Header="Controls">
-            <views:ControlsView DataContext="{Binding ControlsViewModel}" />
-        </TabItem>
-    </TabControl>
+    <Window.Resources>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Shown regardless of which tab is active, since losing the target window's focus
+             mid-playback (Controls tab, §6.3) can happen while the user is looking at any of
+             them. Solid fill (not just an outline) with white text, so it reads as a clear
+             warning at a glance rather than something easy to miss. -->
+        <Border Grid.Row="0"
+                Visibility="{Binding ControlsViewModel.PlaybackErrorMessage, Converter={StaticResource StringToVisibilityConverter}}"
+                Background="{DynamicResource MaterialDesign.Brush.ValidationError}"
+                Padding="10,6"
+                Margin="8,8,8,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <materialDesign:PackIcon Grid.Column="0"
+                                          Kind="AlertCircleOutline"
+                                          Foreground="White"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,8,0" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding ControlsViewModel.PlaybackErrorMessage}"
+                           Foreground="White"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap" />
+                <Button Grid.Column="2"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Foreground="White"
+                        Padding="4"
+                        Command="{Binding ControlsViewModel.DismissPlaybackErrorCommand}"
+                        ToolTip="Dismiss"
+                        AutomationProperties.Name="Dismiss playback error">
+                    <materialDesign:PackIcon Kind="Close" Width="16" Height="16" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <TabControl Grid.Row="1" Margin="8" TabStripPlacement="Left">
+            <TabItem Header="Route">
+                <views:RouteView DataContext="{Binding RouteViewModel}" />
+            </TabItem>
+            <TabItem Header="Roles">
+                <views:RolesView DataContext="{Binding RolesViewModel}" />
+            </TabItem>
+            <TabItem Header="Controls">
+                <views:ControlsView DataContext="{Binding ControlsViewModel}" />
+            </TabItem>
+        </TabControl>
+    </Grid>
 </Window>

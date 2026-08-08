@@ -17,6 +17,7 @@ namespace RouteJumper.ViewModels
 
         private readonly RouteSequencer _sequencer;
         private readonly AppSettingsStore _settings;
+        private readonly Func<bool> _canEngageAutoPilot;
 
         private string _routeText = string.Empty;
         private bool _isSaved;
@@ -25,9 +26,18 @@ namespace RouteJumper.ViewModels
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
 
-        public RouteViewModel(AppSettingsStore settings, IRowEventTrigger? rowEventTrigger = null)
+        /// <summary>
+        /// <paramref name="canEngageAutoPilot"/> resolves whether the Roles tab currently has
+        /// everything Auto Pilot needs (Captain assigned with a macro selected, and the same for
+        /// Engineer if *it's* assigned too) - supplied by MainViewModel as a closure over
+        /// RolesViewModel, the same one-way, event-free bridging pattern used elsewhere, since
+        /// this ViewModel has no reference to RolesViewModel itself. Defaults to always-true so
+        /// existing callers/tests that don't care about role/macro gating keep working.
+        /// </summary>
+        public RouteViewModel(AppSettingsStore settings, IRowEventTrigger? rowEventTrigger = null, Func<bool>? canEngageAutoPilot = null)
         {
             _settings = settings;
+            _canEngageAutoPilot = canEngageAutoPilot ?? (() => true);
             Rows = new ObservableCollection<RouteRowViewModel>();
 
             // Row-addressable events (from the Roles tab's Captain journal watcher) apply
@@ -48,7 +58,7 @@ namespace RouteJumper.ViewModels
             SaveCommand = new RelayCommand(Save, () => !string.IsNullOrWhiteSpace(RouteText));
             CancelCommand = new RelayCommand(Cancel);
             EditCommand = new RelayCommand(Edit, () => IsSaved && !IsAutoPilotRunning);
-            AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => IsSaved && Rows.Count > 0);
+            AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
             CopySystemCommand = new RelayCommand<RouteRowViewModel>(CopySystemToClipboard);
             SetNextSystemCommand = new RelayCommand<RouteRowViewModel>(SetNextSystem);
         }
@@ -139,6 +149,9 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Toggles IsAutoPilotRunning, flipping the button's label between "Auto Pilot" and "Stop".</summary>
         public RelayCommand AutoPilotCommand { get; }
+
+        /// <summary>Called (via MainViewModel wiring RolesViewModel.AutoPilotEligibilityChanged) whenever role/macro assignment on the Roles tab changes, so this button's enabled state stays in sync without waiting for an incidental UI event to re-query it.</summary>
+        public void RaiseAutoPilotEligibilityChanged() => AutoPilotCommand.RaiseCanExecuteChanged();
 
         /// <summary>Copies a row's System text to the clipboard and plays a confirmation ping.</summary>
         public RelayCommand<RouteRowViewModel> CopySystemCommand { get; }

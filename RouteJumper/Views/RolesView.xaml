@@ -16,11 +16,66 @@
 
     <Grid Margin="12">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0">
+        <!-- ===================== Role Macros ===================== -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Role Macros" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <TextBlock Text="Auto Pilot requires Captain to be assigned with a macro selected below, and the same for Engineer if Engineer is also assigned."
+                       Opacity="0.6"
+                       FontSize="11"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,8" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="*" MaxWidth="320" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Captain plots via" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="0" Grid.Column="1"
+                          Margin="0,0,4,8"
+                          ItemsSource="{Binding AvailableMacros}"
+                          SelectedItem="{Binding CaptainMacro}"
+                          DisplayMemberPath="Name"
+                          AutomationProperties.Name="Captain macro" />
+                <Button Grid.Row="0" Grid.Column="2"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Padding="4"
+                        Margin="0,0,0,8"
+                        Command="{Binding ClearCaptainMacroCommand}"
+                        ToolTip="Clear"
+                        AutomationProperties.Name="Clear Captain macro">
+                    <materialDesign:PackIcon Kind="Close" Width="16" Height="16" />
+                </Button>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Engineer refuels via" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="1" Grid.Column="1"
+                          Margin="0,0,4,0"
+                          ItemsSource="{Binding AvailableMacros}"
+                          SelectedItem="{Binding EngineerMacro}"
+                          DisplayMemberPath="Name"
+                          AutomationProperties.Name="Engineer macro" />
+                <Button Grid.Row="1" Grid.Column="2"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Padding="4"
+                        Command="{Binding ClearEngineerMacroCommand}"
+                        ToolTip="Clear"
+                        AutomationProperties.Name="Clear Engineer macro">
+                    <materialDesign:PackIcon Kind="Close" Width="16" Height="16" />
+                </Button>
+            </Grid>
+        </StackPanel>
+
+        <Grid Grid.Row="1">
             <TextBlock Text="{Binding StatusText}"
                        Visibility="{Binding StatusText, Converter={StaticResource StringToVisibilityConverter}}"
                        HorizontalAlignment="Center"
@@ -236,7 +291,7 @@
             </Grid>
         </Grid>
 
-        <StackPanel Grid.Row="1"
+        <StackPanel Grid.Row="2"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right"
                     Margin="0,10,0,0">

@@ -86,6 +86,13 @@ namespace RouteJumper.ViewModels
             _ = RefreshAsync();
         }
 
+        /// <summary>
+        /// Raised when a macro is deleted - lets MainViewModel tell the Roles tab to clear that
+        /// macro out of a Captain/Engineer selection that referenced it (see
+        /// RolesViewModel.OnMacroDeleted), rather than leaving a dangling selection behind.
+        /// </summary>
+        public event EventHandler<RecordedMacroViewModel>? MacroDeleted;
+
         public ObservableCollection<KeyBindingViewModel> KeyBindings { get; }
 
         public ObservableCollection<EliteInstanceViewModel> Instances { get; }
@@ -367,6 +374,7 @@ namespace RouteJumper.ViewModels
             // keep the existing one."
             var macro = new RecordedMacroViewModel(new RecordedMacro
             {
+                Id = Guid.NewGuid(),
                 Name = $"Recording {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
                 ScriptText = MacroScriptSerializer.ToScriptText(steps),
                 SourceProcessId = _recordingTargetProcessId,
@@ -502,6 +510,7 @@ namespace RouteJumper.ViewModels
 
             Macros.Remove(macro);
             SaveMacros();
+            MacroDeleted?.Invoke(this, macro);
         }
 
         private void SaveMacros()
@@ -521,6 +530,26 @@ namespace RouteJumper.ViewModels
             try
             {
                 var models = JsonSerializer.Deserialize<List<RecordedMacro>>(json) ?? new List<RecordedMacro>();
+
+                // Pre-migration macros (recorded before RecordedMacro.Id existed) deserialize
+                // with Guid.Empty - heal them here, once, so a Roles-tab role's macro selection
+                // (which references a macro by Id, not by its freely-editable Name) has
+                // something stable to point at from the very first load onward.
+                var healedAny = false;
+                foreach (var model in models)
+                {
+                    if (model.Id == Guid.Empty)
+                    {
+                        model.Id = Guid.NewGuid();
+                        healedAny = true;
+                    }
+                }
+
+                if (healedAny)
+                {
+                    _settings.SetString(RecordedMacrosSettingKey, JsonSerializer.Serialize(models));
+                }
+
                 return models.Select(m => new RecordedMacroViewModel(m)).ToList();
             }
             catch (JsonException)

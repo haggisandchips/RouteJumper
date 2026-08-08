@@ -106,41 +106,8 @@
                        FontStyle="Italic"
                        Margin="0,0,0,8" />
 
-            <Border Visibility="{Binding PlaybackErrorMessage, Converter={StaticResource StringToVisibilityConverter}}"
-                    BorderBrush="{DynamicResource MaterialDesign.Brush.ValidationError}"
-                    BorderThickness="1"
-                    CornerRadius="4"
-                    Padding="10,6"
-                    Margin="0,0,0,8">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <materialDesign:PackIcon Grid.Column="0"
-                                              Kind="AlertCircleOutline"
-                                              Foreground="{DynamicResource MaterialDesign.Brush.ValidationError}"
-                                              VerticalAlignment="Center"
-                                              Margin="0,0,8,0" />
-                    <TextBlock Grid.Column="1"
-                               Text="{Binding PlaybackErrorMessage}"
-                               Foreground="{DynamicResource MaterialDesign.Brush.ValidationError}"
-                               VerticalAlignment="Center"
-                               TextWrapping="Wrap" />
-                    <Button Grid.Column="2"
-                            Style="{StaticResource MaterialDesignIconButton}"
-                            Padding="4"
-                            Command="{Binding DismissPlaybackErrorCommand}"
-                            ToolTip="Dismiss"
-                            AutomationProperties.Name="Dismiss playback error">
-                        <materialDesign:PackIcon Kind="Close"
-                                                  Foreground="{DynamicResource MaterialDesign.Brush.ValidationError}"
-                                                  Width="16"
-                                                  Height="16" />
-                    </Button>
-                </Grid>
-            </Border>
+            <!-- The playback-lost-focus warning now lives in MainWindow.xaml, above the whole
+                 TabControl, so it's visible regardless of which tab the user is on. -->
 
             <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Instances}">
