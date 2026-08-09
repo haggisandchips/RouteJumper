@@ -164,18 +164,21 @@ its current `Status` text:
   `Cooldown` is shown on the row *after* the one that just completed, not
   on that row itself.
 - A thin progress bar sits below the `Status` cell's text (its own space,
-  not overlapping it) for `Plotted`/`Jumping`/`Cooldown` only (hidden for
-  a blank or Complete status, which have no known end) — purely a
-  cosmetic countdown, not a route-progress indicator: full the instant
-  that status starts, and visually draining down to empty as it
-  approaches the real-world instant §5.7 already computes (or, for
-  `Jumping`, estimates — see below) for that status's own end (`Jumping`
-  starting, the eventual arrival, or `Cooldown` clearing, respectively).
-  Ticks on a lightweight UI timer, entirely separate from the
-  event-driven Sequencing/ logic that actually drives those transitions
-  (CLAUDE.md) — it never affects, and is never affected by, anything but
-  its own redraw. A row whose relevant journal timestamp couldn't be
-  parsed shows that status with no progress bar rather than a guess.
+  not overlapping it) for `Plotted`/`Jumping`/`Cooldown` only (invisible
+  for a blank or Complete status, which have no known end — `Visibility.
+  Hidden`, not `Collapsed`, same reserved-space convention as the row
+  icon above, so a row without the bar renders at exactly the same
+  height as one with it) — purely a cosmetic countdown, not a
+  route-progress indicator: full the instant that status starts, and
+  visually draining down to empty as it approaches the real-world
+  instant §5.7 already computes (or, for `Jumping`, estimates — see
+  below) for that status's own end (`Jumping` starting, the eventual
+  arrival, or `Cooldown` clearing, respectively). Ticks on a lightweight
+  UI timer, entirely separate from the event-driven Sequencing/ logic
+  that actually drives those transitions (CLAUDE.md) — it never affects,
+  and is never affected by, anything but its own redraw. A row whose
+  relevant journal timestamp couldn't be parsed shows that status with
+  no progress bar rather than a guess.
   `Jumping`'s own end can only be estimated at `CarrierJumpRequest` time
   as `DepartureTime` plus the same 1-minute `ArrivalToCooldownDelay` §5.7
   uses elsewhere — not `DepartureTime` itself — since the row doesn't
@@ -1072,7 +1075,8 @@ rather than internal app state like the table below.
     by the real-world instant that status is due to end, and the Status
     text itself shows the same countdown as "Status (H:MM:SS)" (hours
     unpadded, minutes/seconds always two digits), ticking down live; a
-    row with a blank or Complete status shows neither.
+    row with a blank or Complete status shows neither, and renders at
+    the same height as a row that does.
 41. Resizing a Route table column and relaunching the app restores that
     column's width exactly as left, per column, with no manual
     reconfiguration required.

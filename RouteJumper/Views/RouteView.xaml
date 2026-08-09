@@ -14,6 +14,7 @@
         <converters:IconStatusToPackIconKindConverter x:Key="IconStatusToPackIconKindConverter" />
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
         <converters:AutoPilotLabelConverter x:Key="AutoPilotLabelConverter" />
+        <converters:BoolToHiddenVisibilityConverter x:Key="BoolToHiddenVisibilityConverter" />
 
         <!-- Same appearance/selection behavior as the toolkit's own cell style - just without
              the "current cell" border a click leaves behind. That border comes from the base
@@ -199,13 +200,17 @@
                          overlapping) and visually counts down however long the current status
                          (Plotted/Jumping/Cooldown) has left - full the instant that status
                          starts, draining to empty as it approaches its own known end (see
-                         RouteRowViewModel.Progress). Hidden entirely for a status with no known
-                         end (blank "waiting" or Complete). Deliberately no attempt to force this
-                         to reach the cell's exact pixel edge (a prior attempt bound the template's
-                         own Width/Height to the DataGridCell's ActualWidth/ActualHeight, which is
-                         circular - a cell's size is normally derived FROM its content, not the
-                         other way around - and broke the whole tab's layout); it simply stretches
-                         to fill whatever width the cell's own default padding leaves it. -->
+                         RouteRowViewModel.Progress). Invisible (Hidden, not Collapsed - same
+                         reserved-space convention the icon column's RowIconToVisibilityConverter
+                         already uses) for a status with no known end (blank "waiting" or
+                         Complete), so a row without a progress bar still renders at the exact
+                         same height as one with it, rather than shrinking by the bar's own space.
+                         Deliberately no attempt to force this to reach the cell's exact pixel edge
+                         (a prior attempt bound the template's own Width/Height to the
+                         DataGridCell's ActualWidth/ActualHeight, which is circular - a cell's size
+                         is normally derived FROM its content, not the other way around - and broke
+                         the whole tab's layout); it simply stretches to fill whatever width the
+                         cell's own default padding leaves it. -->
                     <DataGridTemplateColumn Header="Status" Width="140">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
@@ -222,11 +227,12 @@
                                     <ProgressBar Grid.Row="1"
                                                  Minimum="0" Maximum="1"
                                                  Value="{Binding Progress, Mode=OneWay}"
-                                                 Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                 Visibility="{Binding HasProgress, Converter={StaticResource BoolToHiddenVisibilityConverter}}"
                                                  Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
                                                  Background="Transparent"
                                                  BorderThickness="0"
                                                  Height="4"
+                                                 Margin="0,4,0,0"
                                                  HorizontalAlignment="Stretch" />
                                 </Grid>
                             </DataTemplate>
