@@ -9,7 +9,7 @@ namespace RouteJumper.Sequencing
     {
         public event EventHandler<RowEvent>? RowTriggered;
 
-        public void Fire(RowEventKind kind, string systemName, bool isLive = false) =>
-            RowTriggered?.Invoke(this, new RowEvent(kind, systemName, isLive));
+        public void Fire(RowEventKind kind, string systemName, bool isLive = false, DateTime? phaseEndUtc = null) =>
+            RowTriggered?.Invoke(this, new RowEvent(kind, systemName, isLive, phaseEndUtc));
     }
 }

@@ -78,7 +78,8 @@
                               IsChecked="{Binding AutoCopyToClipboardEnabled}" />
             </StackPanel>
 
-            <DataGrid Grid.Row="1"
+            <DataGrid x:Name="RouteDataGrid"
+                      Grid.Row="1"
                       Style="{StaticResource MaterialDesignDataGrid}"
                       ItemsSource="{Binding Rows}"
                       AutoGenerateColumns="False"
@@ -195,9 +196,30 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTextColumn Header="Status"
-                                         Binding="{Binding Status}"
-                                         Width="140" />
+                    <!-- A ProgressBar sits behind the Status text and visually counts down
+                         however long the current status (Plotted/Jumping/Cooldown) has left -
+                         full the instant that status starts, draining to empty as it approaches
+                         its own known end (see RouteRowViewModel.Progress). Hidden entirely for
+                         a status with no known end (blank "waiting" or Complete). -->
+                    <DataGridTemplateColumn Header="Status" Width="140">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <ProgressBar Minimum="0" Maximum="1"
+                                                 Value="{Binding Progress, Mode=OneWay}"
+                                                 Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibilityConverter}}"
+                                                 Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                 Background="Transparent"
+                                                 BorderThickness="0"
+                                                 Opacity="0.3"
+                                                 HorizontalAlignment="Stretch"
+                                                 VerticalAlignment="Stretch" />
+                                    <TextBlock Text="{Binding Status}"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
 
                 </DataGrid.Columns>
             </DataGrid>

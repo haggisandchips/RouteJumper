@@ -58,6 +58,7 @@ namespace RouteJumper.Sequencing
                 {
                     eachRow.Icon = RowIcon.None;
                     eachRow.Status = string.Empty;
+                    eachRow.PhaseEndUtc = null;
                 }
                 return;
             }
@@ -93,6 +94,7 @@ namespace RouteJumper.Sequencing
                     {
                         rows[i].Icon = RowIcon.Complete;
                         rows[i].Status = string.Empty;
+                        rows[i].PhaseEndUtc = null;
                     }
                 }
             }
@@ -106,10 +108,12 @@ namespace RouteJumper.Sequencing
                         row.Icon = RowIcon.InProgress;
                     }
                     row.Status = "Plotted";
+                    row.PhaseEndUtc = e.PhaseEndUtc;
                     break;
 
                 case RowEventKind.Jumping:
                     row.Status = "Jumping";
+                    row.PhaseEndUtc = e.PhaseEndUtc;
                     break;
 
                 case RowEventKind.Arrived:
@@ -129,6 +133,7 @@ namespace RouteJumper.Sequencing
                     // actual jump happen in real time.
                     row.Icon = RowIcon.Complete;
                     row.Status = string.Empty;
+                    row.PhaseEndUtc = null;
                     if (targetIndex + 1 < rows.Count)
                     {
                         var nextRow = rows[targetIndex + 1];
@@ -136,6 +141,7 @@ namespace RouteJumper.Sequencing
                         if (e.IsLive)
                         {
                             nextRow.Status = "Cooldown";
+                            nextRow.PhaseEndUtc = e.PhaseEndUtc;
                         }
                     }
                     break;
@@ -165,6 +171,7 @@ namespace RouteJumper.Sequencing
                 if (i + 1 < rows.Count && rows[i + 1].Icon == RowIcon.InProgress && rows[i + 1].Status == "Cooldown")
                 {
                     rows[i + 1].Status = string.Empty;
+                    rows[i + 1].PhaseEndUtc = null;
                 }
 
                 return;
@@ -187,6 +194,7 @@ namespace RouteJumper.Sequencing
                 if (row.Icon == RowIcon.InProgress && row.Status is "Plotted" or "Jumping")
                 {
                     row.Status = string.Empty;
+                    row.PhaseEndUtc = null;
                     return;
                 }
             }

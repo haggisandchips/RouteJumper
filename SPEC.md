@@ -90,6 +90,9 @@ one is visible at a time.
   | 3 | `System` | The row's system text, plus a clipboard icon when this row's text is currently on the clipboard (§4.6) |
   | 4 | `Status` | Current status text — see §4.4 |
 
+- Column widths are user-resizable (drag a header's edge) and persisted
+  per column (§7) — restored on the next launch in place of the default
+  widths above, until first resized.
 - Clicking anywhere in a row copies that row's system name to the clipboard
   and plays a confirmation sound (see §4.6 for the clipboard-source icon
   this also sets).
@@ -153,6 +156,18 @@ its current `Status` text:
 - A completed row's own `Status` is always blank — see §5.7 for why
   `Cooldown` is shown on the row *after* the one that just completed, not
   on that row itself.
+- A thin progress bar sits behind the `Status` cell's text for
+  `Plotted`/`Jumping`/`Cooldown` only (hidden for a blank or Complete
+  status, which have no known end) — purely a cosmetic countdown, not a
+  route-progress indicator: full the instant that status starts, and
+  visually draining down to empty as it approaches the real-world instant
+  §5.7 already computes for that status's own end (`Jumping` starting,
+  the eventual arrival, or `Cooldown` clearing, respectively). Ticks on a
+  lightweight UI timer, entirely separate from the event-driven
+  Sequencing/ logic that actually drives those transitions (CLAUDE.md) —
+  it never affects, and is never affected by, anything but its own redraw.
+  A row whose relevant journal timestamp couldn't be parsed shows that
+  status with no progress bar rather than a guess.
 
 ### 4.5 Persistence
 See §7.
@@ -736,6 +751,7 @@ rather than internal app state like the table below.
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
+| Route table column widths | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Stepping wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
@@ -972,3 +988,10 @@ rather than internal app state like the table below.
     once per row's Cooldown period, alongside (not instead of) the
     Captain's own plot-at-Cooldown-clear trigger, and not at all with no
     Engineer assigned.
+40. A row showing Plotted, Jumping, or Cooldown shows a progress bar
+    behind its Status text that starts full and visually drains to empty
+    by the real-world instant that status is due to end; a row with a
+    blank or Complete status shows no progress bar.
+41. Resizing a Route table column and relaunching the app restores that
+    column's width exactly as left, per column, with no manual
+    reconfiguration required.

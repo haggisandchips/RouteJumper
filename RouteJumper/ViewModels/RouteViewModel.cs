@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
+using System.Windows.Threading;
 using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
@@ -25,6 +26,7 @@ namespace RouteJumper.ViewModels
         private bool _autoCopyToClipboardEnabled;
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
+        private readonly DispatcherTimer _progressTimer;
 
         /// <summary>
         /// <paramref name="canEngageAutoPilot"/> resolves whether the Roles tab currently has
@@ -61,6 +63,24 @@ namespace RouteJumper.ViewModels
             AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
             CopySystemCommand = new RelayCommand<RouteRowViewModel>(CopySystemToClipboard);
             SetNextSystemCommand = new RelayCommand<RouteRowViewModel>(SetNextSystem);
+
+            // Purely cosmetic (§4.4's Status-column countdown progress bar) - never mutates
+            // Icon/Status itself, just recomputes each row's already-cheap Progress from
+            // whatever PhaseEndUtc RouteSequencer last set, so it stays outside CLAUDE.md's
+            // event-driven rule for Sequencing/. At most one row ever has a live countdown at a
+            // time, so ticking every row on each interval is negligible.
+            _progressTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            _progressTimer.Tick += (_, _) =>
+            {
+                foreach (var row in Rows)
+                {
+                    row.RefreshProgress();
+                }
+            };
+            _progressTimer.Start();
         }
 
         /// <summary>
@@ -392,6 +412,7 @@ namespace RouteJumper.ViewModels
             {
                 var row = Rows[i];
                 row.Status = string.Empty;
+                row.PhaseEndUtc = null;
                 row.Icon = i < targetIndex ? RowIcon.Complete
                     : i == targetIndex ? RowIcon.InProgress
                     : RowIcon.None;

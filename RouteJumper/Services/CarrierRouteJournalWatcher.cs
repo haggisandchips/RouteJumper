@@ -73,7 +73,7 @@ namespace RouteJumper.Services
 
         private readonly string _journalPath;
         private readonly long _carrierId;
-        private readonly Action<RowEventKind, string, bool> _onRowEvent;
+        private readonly Action<RowEventKind, string, bool, DateTime?> _onRowEvent;
         private readonly Action _onCarrierStatsObserved;
         private readonly object _readLock = new();
         private readonly List<Timer> _scheduledTimers = new();
@@ -109,7 +109,7 @@ namespace RouteJumper.Services
         public CarrierRouteJournalWatcher(
             string journalPath,
             long carrierId,
-            Action<RowEventKind, string, bool> onRowEvent,
+            Action<RowEventKind, string, bool, DateTime?> onRowEvent,
             Action onCarrierStatsObserved)
         {
             _journalPath = journalPath;
@@ -311,12 +311,20 @@ namespace RouteJumper.Services
                     if (root.TryGetProperty("SystemName", out var sn) && sn.GetString() is { } systemName)
                     {
                         _hasSeenJumpRequest = true;
-                        _onRowEvent(RowEventKind.Plotted, systemName, isLive);
 
+                        // Plotted's own PhaseEndUtc is the instant Jumping will start (below) -
+                        // Jumping's is DepartureTime itself, the instant it will in turn end.
+                        // Both are purely cosmetic (Route tab §4.4's countdown progress bar);
+                        // null if DepartureTime couldn't be parsed, same as the existing
+                        // "can't schedule what we can't compute" fallback for Jumping itself.
                         var departureTimeUtc = TryReadTimestampUtc(root, "DepartureTime");
+                        var jumpingStartUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value - JumpingLeadTime : (DateTime?)null;
+
+                        _onRowEvent(RowEventKind.Plotted, systemName, isLive, jumpingStartUtc);
+
                         if (departureTimeUtc.HasValue)
                         {
-                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, departureTimeUtc.Value - JumpingLeadTime, isLive);
+                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, jumpingStartUtc!.Value, isLive, departureTimeUtc.Value);
                         }
                     }
                 }
@@ -337,7 +345,7 @@ namespace RouteJumper.Services
                         }
                     }
 
-                    _onRowEvent(RowEventKind.JumpCancelled, string.Empty, isLive);
+                    _onRowEvent(RowEventKind.JumpCancelled, string.Empty, isLive, null);
                 }
                 else if (eventName == "CarrierStats")
                 {
@@ -380,12 +388,18 @@ namespace RouteJumper.Services
                     var arrivedAtUtc = TryReadTimestampUtc(root, "timestamp");
                     if (arrivedAtUtc.HasValue)
                     {
-                        ScheduleRowEvent(RowEventKind.Arrived, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay, isLive);
-                        ScheduleRowEvent(RowEventKind.CooldownElapsed, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay + CooldownDuration, isLive);
+                        // Arrived's PhaseEndUtc is when Cooldown (which it may put the *next*
+                        // row into - see RowEventKind.Arrived) will itself clear - purely
+                        // cosmetic, same as Plotted/Jumping's above; RouteSequencer only ever
+                        // applies it when it actually sets Cooldown (a live arrival with a next
+                        // row), never for the arrived-at row itself.
+                        var cooldownEndUtc = arrivedAtUtc.Value + ArrivalToCooldownDelay + CooldownDuration;
+                        ScheduleRowEvent(RowEventKind.Arrived, arrivedSystem, arrivedAtUtc.Value + ArrivalToCooldownDelay, isLive, cooldownEndUtc);
+                        ScheduleRowEvent(RowEventKind.CooldownElapsed, arrivedSystem, cooldownEndUtc, isLive);
                     }
                     else
                     {
-                        _onRowEvent(RowEventKind.Arrived, arrivedSystem, isLive);
+                        _onRowEvent(RowEventKind.Arrived, arrivedSystem, isLive, null);
                     }
 
                     // Deliberately immediate and unscheduled, unlike Arrived above - the
@@ -397,7 +411,7 @@ namespace RouteJumper.Services
                     // for old, already-resolved jumps.
                     if (isLive)
                     {
-                        _onRowEvent(RowEventKind.LiveCarrierLocation, arrivedSystem, isLive);
+                        _onRowEvent(RowEventKind.LiveCarrierLocation, arrivedSystem, isLive, null);
                     }
                 }
             }
@@ -414,13 +428,15 @@ namespace RouteJumper.Services
         /// carried straight through to the fired RowEvent unchanged, whether it fires immediately
         /// here or later from the Timer callback - it describes the *line* that triggered the
         /// schedule (genuinely live-tailed, or historical replay), not the scheduling outcome.
+        /// <paramref name="phaseEndUtc"/> is likewise carried straight through unchanged - see
+        /// RowEvent.PhaseEndUtc.
         /// </summary>
-        private Timer? ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc, bool isLive)
+        private Timer? ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc, bool isLive, DateTime? phaseEndUtc = null)
         {
             var delay = whenUtc - DateTime.UtcNow;
             if (delay <= TimeSpan.Zero)
             {
-                _onRowEvent(kind, systemName, isLive);
+                _onRowEvent(kind, systemName, isLive, phaseEndUtc);
                 return null;
             }
 
@@ -438,7 +454,7 @@ namespace RouteJumper.Services
                 timer = new Timer(
                     _ =>
                     {
-                        _onRowEvent(kind, systemName, isLive);
+                        _onRowEvent(kind, systemName, isLive, phaseEndUtc);
                         lock (_readLock)
                         {
                             if (timer != null)

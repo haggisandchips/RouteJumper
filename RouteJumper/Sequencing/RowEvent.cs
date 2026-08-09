@@ -7,11 +7,12 @@ namespace RouteJumper.Sequencing
     /// </summary>
     public sealed class RowEvent : EventArgs
     {
-        public RowEvent(RowEventKind kind, string systemName, bool isLive = false)
+        public RowEvent(RowEventKind kind, string systemName, bool isLive = false, DateTime? phaseEndUtc = null)
         {
             Kind = kind;
             SystemName = systemName;
             IsLive = isLive;
+            PhaseEndUtc = phaseEndUtc;
         }
 
         public RowEventKind Kind { get; }
@@ -25,5 +26,16 @@ namespace RouteJumper.Sequencing
         /// RowEventKind.Arrived for the one place this currently changes behavior.
         /// </summary>
         public bool IsLive { get; }
+
+        /// <summary>
+        /// For Plotted/Jumping/Arrived only: the real-world UTC instant this event's resulting
+        /// Status will itself end - i.e. when the *next* transition (Jumping, the eventual
+        /// arrival, or Cooldown clearing) is actually scheduled to fire. Null if unknown (a
+        /// journal timestamp couldn't be parsed) or not meaningful for this Kind. Purely cosmetic
+        /// - RouteSequencer copies it onto RouteRowViewModel.PhaseEndUtc for the Route tab's
+        /// Status-column countdown progress bar (§4.4); it plays no part in the route-progress
+        /// state machine itself, which never reads it.
+        /// </summary>
+        public DateTime? PhaseEndUtc { get; }
     }
 }
