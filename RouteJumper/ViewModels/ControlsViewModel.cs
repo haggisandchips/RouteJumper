@@ -16,8 +16,11 @@ namespace RouteJumper.ViewModels
     {
         private const string KeyBindingSettingPrefix = "ControlAction.";
         private const string RecordedMacrosSettingKey = "RecordedMacros";
-        private const string CooldownDelayMsSettingKey = "CooldownDelayMs";
-        private const int DefaultCooldownDelayMs = 5000;
+
+        private const string AutoPilotDelayMsSettingKey = "AutoPilotDelayMs";
+        private const int DefaultAutoPilotDelayMs = 5000;
+        private const string SteppingWaitMsSettingKey = "SteppingWaitMs";
+        private const int DefaultSteppingWaitMs = 250;
 
         private static readonly IReadOnlyDictionary<ControlAction, (Key Key, ModifierKeys Modifiers)> DefaultBindings =
             new Dictionary<ControlAction, (Key, ModifierKeys)>
@@ -33,9 +36,13 @@ namespace RouteJumper.ViewModels
                 [ControlAction.RightPanel] = (Key.D4, ModifierKeys.None)
             };
 
+        private const int TritiumDepotCapacity = 1000;
+
         private readonly AppSettingsStore _settings;
         private readonly EliteInstanceScanner _scanner;
         private readonly Func<string?> _getNextSystemName;
+        private readonly Func<EliteInstanceViewModel?> _getEngineerInstance;
+        private readonly Func<Task> _refreshRolesAsync;
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
@@ -50,7 +57,14 @@ namespace RouteJumper.ViewModels
         private RecordedMacroViewModel? _editingMacro;
         private bool _isPlaying;
         private string? _playbackErrorMessage;
-        private int _cooldownDelayMs = DefaultCooldownDelayMs;
+        private int _autoPilotDelayMs = DefaultAutoPilotDelayMs;
+        private int _steppingWaitMs = DefaultSteppingWaitMs;
+        private bool _isStepping;
+        private CancellationTokenSource? _stepCts;
+        private string? _stepScriptSnapshot;
+        private IReadOnlyList<MacroInstruction> _stepInstructions = Array.Empty<MacroInstruction>();
+        private int _stepIndex;
+        private int _lastTritiumLoops;
 
         /// <summary>
         /// <paramref name="getNextSystemName"/> resolves the Route tab's current "next system"
@@ -59,15 +73,30 @@ namespace RouteJumper.ViewModels
         /// RouteViewModel.RouteSaved already uses to reach RolesViewModel, since this
         /// ViewModel has no reference to RouteViewModel itself. Used to resolve a macro's
         /// "{NEXT_SYSTEM}" paste placeholder - see MacroPlayer.
+        ///
+        /// <paramref name="getEngineerInstance"/> and <paramref name="refreshRolesAsync"/> are
+        /// the same kind of closure, over RolesViewModel.EngineerInstance/RefreshAsync - used to
+        /// resolve a macro's "{TRITIUM_LOOPS}" placeholder against the Engineer's current
+        /// cargo/carrier-fuel data (see RefreshAndComputeTritiumLoopsAsync).
         /// </summary>
-        public ControlsViewModel(AppSettingsStore settings, EliteInstanceScanner scanner, Func<string?> getNextSystemName)
+        public ControlsViewModel(
+            AppSettingsStore settings,
+            EliteInstanceScanner scanner,
+            Func<string?> getNextSystemName,
+            Func<EliteInstanceViewModel?> getEngineerInstance,
+            Func<Task> refreshRolesAsync)
         {
             _settings = settings;
             _scanner = scanner;
             _getNextSystemName = getNextSystemName;
-            _cooldownDelayMs = _settings.GetDouble(CooldownDelayMsSettingKey) is { } storedDelay
+            _getEngineerInstance = getEngineerInstance;
+            _refreshRolesAsync = refreshRolesAsync;
+            _autoPilotDelayMs = _settings.GetDouble(AutoPilotDelayMsSettingKey) is { } storedDelay
                 ? Math.Max(0, (int)storedDelay)
-                : DefaultCooldownDelayMs;
+                : DefaultAutoPilotDelayMs;
+            _steppingWaitMs = _settings.GetDouble(SteppingWaitMsSettingKey) is { } storedSteppingWait
+                ? Math.Max(0, (int)storedSteppingWait)
+                : DefaultSteppingWaitMs;
 
             KeyBindings = new ObservableCollection<KeyBindingViewModel>(LoadKeyBindings());
             Instances = new ObservableCollection<EliteInstanceViewModel>();
@@ -81,13 +110,14 @@ namespace RouteJumper.ViewModels
             StartCaptureCommand = new RelayCommand<KeyBindingViewModel>(StartCapture);
             SelectInstanceCommand = new RelayCommand<EliteInstanceViewModel>(instance => SelectedInstance = instance);
             RecordCommand = new RelayCommand(StartRecording, CanStartRecording);
-            StopCommand = new RelayCommand(StopActive, () => IsRecording || IsPlaying);
+            StopCommand = new RelayCommand(StopActive, () => IsRecording || IsPlaying || IsStepping);
             SelectMacroCommand = new RelayCommand<RecordedMacroViewModel>(macro => SelectedMacro = macro);
             PlayCommand = new RelayCommand(Play, CanPlay);
             DismissPlaybackErrorCommand = new RelayCommand(() => PlaybackErrorMessage = null);
             EditMacroCommand = new RelayCommand<RecordedMacroViewModel>(OpenEditor);
             CloseMacroEditorCommand = new RelayCommand(() => EditingMacro = null);
             DeleteMacroCommand = new RelayCommand<RecordedMacroViewModel>(DeleteMacro);
+            StepCommand = new RelayCommand(Step, CanStep);
 
             _ = RefreshAsync();
         }
@@ -132,6 +162,9 @@ namespace RouteJumper.ViewModels
 
         public RelayCommand<RecordedMacroViewModel> DeleteMacroCommand { get; }
 
+        /// <summary>Runs just the next leaf instruction of EditingMacro's script against SelectedInstance, refocusing it first - SPEC §6.5's editor "Step" facility.</summary>
+        public RelayCommand StepCommand { get; }
+
         public bool IsRefreshing
         {
             get => _isRefreshing;
@@ -159,6 +192,7 @@ namespace RouteJumper.ViewModels
                 {
                     RecordCommand.RaiseCanExecuteChanged();
                     PlayCommand.RaiseCanExecuteChanged();
+                    StepCommand.RaiseCanExecuteChanged();
                 }
             }
         }
@@ -186,6 +220,8 @@ namespace RouteJumper.ViewModels
                 {
                     OnPropertyChanged(nameof(IsEditingMacro));
                     RecordCommand.RaiseCanExecuteChanged();
+                    EnsureStepState();
+                    StepCommand.RaiseCanExecuteChanged();
                 }
             }
         }
@@ -202,6 +238,7 @@ namespace RouteJumper.ViewModels
                     RecordCommand.RaiseCanExecuteChanged();
                     PlayCommand.RaiseCanExecuteChanged();
                     StopCommand.RaiseCanExecuteChanged();
+                    StepCommand.RaiseCanExecuteChanged();
                 }
             }
         }
@@ -222,9 +259,35 @@ namespace RouteJumper.ViewModels
                 {
                     RecordCommand.RaiseCanExecuteChanged();
                     StopCommand.RaiseCanExecuteChanged();
+                    PlayCommand.RaiseCanExecuteChanged();
+                    StepCommand.RaiseCanExecuteChanged();
                 }
             }
         }
+
+        /// <summary>
+        /// True while a single stepped instruction (StepCommand) is executing - mutually
+        /// exclusive with IsRecording/IsPlaying (Play, Record, and Step all inject input against
+        /// the same target and must never overlap).
+        /// </summary>
+        public bool IsStepping
+        {
+            get => _isStepping;
+            private set
+            {
+                if (SetProperty(ref _isStepping, value))
+                {
+                    RecordCommand.RaiseCanExecuteChanged();
+                    PlayCommand.RaiseCanExecuteChanged();
+                    StopCommand.RaiseCanExecuteChanged();
+                    StepCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>"Next: &lt;instruction&gt;" (e.g. "Next: RIGHT") naming whatever the editor's Step button is about to run, or blank once there's nothing left to step through (an empty/all-comment script, or no macro being edited).</summary>
+        public string StepStatusText =>
+            _stepInstructions.Count == 0 ? string.Empty : $"Next: {DescribeInstruction(_stepInstructions[_stepIndex])}";
 
         /// <summary>
         /// Non-null while a closeable banner should be shown explaining why playback stopped
@@ -239,22 +302,45 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Options (§6.1): how long Auto Pilot (Route tab, §4.2) waits after a row's Cooldown
-        /// status clears before plotting the next jump, on top of however long the cooldown
-        /// itself already took - a real jump needs a moment after cooldown for the UI to settle
-        /// before the Captain's macro starts clicking through panels. Not used for anything
-        /// besides that - has no effect on the Cooldown status/timing itself (§5.7), and no
-        /// effect on a manually-triggered Play. Clamped to non-negative.
+        /// Options (§6.1): the delay AutoPilotController applies around a row's Cooldown, on top
+        /// of however long Cooldown itself already took - a real jump needs a moment for the
+        /// game's own UI to settle before a macro starts clicking through panels. Used twice per
+        /// row: once after Cooldown *clears*, before the Captain's macro plots the next jump, and
+        /// once after Cooldown *starts*, before the Engineer's macro (if Engineer is currently
+        /// assigned) deposits fuel - see AutoPilotController. Has no effect on the Cooldown
+        /// status/timing itself (§5.7), and no effect on a manually-triggered Play. Clamped to
+        /// non-negative.
         /// </summary>
-        public int CooldownDelayMs
+        public int AutoPilotDelayMs
         {
-            get => _cooldownDelayMs;
+            get => _autoPilotDelayMs;
             set
             {
                 var clamped = Math.Max(0, value);
-                if (SetProperty(ref _cooldownDelayMs, clamped))
+                if (SetProperty(ref _autoPilotDelayMs, clamped))
                 {
-                    _settings.SetDouble(CooldownDelayMsSettingKey, clamped);
+                    _settings.SetDouble(AutoPilotDelayMsSettingKey, clamped);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Options (§6.1): how long the macro editor's Step button (§6.5) pauses after running an
+        /// instruction before it's ready to run the next one - gives the user a moment to actually
+        /// see the game react to that step before the next one fires. Not applied after the final
+        /// step in the script (nothing follows it until Step wraps back to the start, so there's
+        /// nothing to pace against) or after a WAIT step (that instruction's own duration already
+        /// provides the pause). Clamped to non-negative.
+        /// </summary>
+        public int SteppingWaitMs
+        {
+            get => _steppingWaitMs;
+            set
+            {
+                var clamped = Math.Max(0, value);
+                if (SetProperty(ref _steppingWaitMs, clamped))
+                {
+                    _settings.SetDouble(SteppingWaitMsSettingKey, clamped);
                 }
             }
         }
@@ -272,9 +358,12 @@ namespace RouteJumper.ViewModels
                     Instances.Add(instance);
                 }
 
-                if (SelectedInstance != null && Instances.All(i => i.ProcessId != SelectedInstance.ProcessId))
+                // Re-point at the freshly-scanned object for the same instance (cargo/carrier-fuel
+                // data - used by TRITIUM_LOOPS below - would otherwise stay pinned to whatever it
+                // was at the moment of selection); null if that instance is no longer running.
+                if (SelectedInstance != null)
                 {
-                    SelectedInstance = null;
+                    SelectedInstance = Instances.FirstOrDefault(i => i.ProcessId == SelectedInstance.ProcessId);
                 }
 
                 // A lone running instance is the obvious recording/playback target - select it
@@ -358,7 +447,7 @@ namespace RouteJumper.ViewModels
         }
 
         private bool CanStartRecording() =>
-            !IsRecording && !IsPlaying && !IsEditingMacro && SelectedInstance is { WindowHandle: not 0 };
+            !IsRecording && !IsPlaying && !IsStepping && !IsEditingMacro && SelectedInstance is { WindowHandle: not 0 };
 
         private void StartRecording()
         {
@@ -421,6 +510,12 @@ namespace RouteJumper.ViewModels
                 {
                     SaveMacros();
                 }
+
+                if (e.PropertyName == nameof(RecordedMacroViewModel.ScriptText) && ReferenceEquals(macro, EditingMacro))
+                {
+                    EnsureStepState();
+                    StepCommand.RaiseCanExecuteChanged();
+                }
             };
 
         /// <summary>
@@ -442,7 +537,7 @@ namespace RouteJumper.ViewModels
             EditingMacro = macro;
         }
 
-        private bool CanPlay() => !IsRecording && SelectedInstance is { WindowHandle: not 0 } && SelectedMacro != null;
+        private bool CanPlay() => !IsRecording && !IsStepping && SelectedInstance is { WindowHandle: not 0 } && SelectedMacro != null;
 
         /// <summary>
         /// Plays SelectedMacro against SelectedInstance - deliberately not restricted to the
@@ -496,7 +591,9 @@ namespace RouteJumper.ViewModels
         {
             try
             {
-                await player.PlayAsync(scriptText, cts.Token);
+                var loops = await RefreshAndComputeTritiumLoopsAsync();
+                cts.Token.ThrowIfCancellationRequested();
+                await player.PlayAsync(SubstituteTritiumLoops(scriptText, loops), cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -514,7 +611,7 @@ namespace RouteJumper.ViewModels
             }
         }
 
-        /// <summary>Dispatches the single Stop button to whichever of recording/playback is actually active - only one of the two is ever possible at once (Record is disabled while a macro editor is open, and there's no path to start a recording while a playback is running or vice versa).</summary>
+        /// <summary>Dispatches the single Stop button to whichever of recording/playback/stepping is actually active - only one of the three is ever possible at once (Record is disabled while a macro editor is open, and there's no path to start a recording while a playback or step is running or vice versa).</summary>
         private void StopActive()
         {
             if (IsRecording)
@@ -525,9 +622,184 @@ namespace RouteJumper.ViewModels
             {
                 StopPlayback();
             }
+            else if (IsStepping)
+            {
+                _stepCts?.Cancel();
+            }
         }
 
         private void StopPlayback() => _playbackCts?.Cancel();
+
+        /// <summary>
+        /// (Re)parses and flattens EditingMacro's current script text into leaf instructions for
+        /// StepCommand - only actually redone when the script text has changed since the last
+        /// call, so repeatedly polling this from CanStep's CommandManager.RequerySuggested churn
+        /// doesn't reparse the whole script on every keystroke or focus change elsewhere in the
+        /// app. Editing the script while stepping is treated as starting over: the index resets
+        /// to 0 rather than trying to preserve a position against instructions that may no longer
+        /// correspond to the same lines.
+        ///
+        /// Flattens against the last computed TRITIUM_LOOPS value (0 until it's ever been
+        /// computed) purely as a preview - a REPEAT built from it only expands to its real size
+        /// once RunStepAsync has actually refreshed CMDR info and recomputed it fresh, at which
+        /// point it resets _stepScriptSnapshot to force this to redo the flatten.
+        /// </summary>
+        private void EnsureStepState()
+        {
+            var scriptText = EditingMacro?.ScriptText;
+            if (scriptText == _stepScriptSnapshot)
+            {
+                return;
+            }
+
+            _stepScriptSnapshot = scriptText;
+            _stepInstructions = scriptText is null
+                ? Array.Empty<MacroInstruction>()
+                : MacroPlayer.Flatten(SubstituteTritiumLoops(scriptText, _lastTritiumLoops));
+            _stepIndex = 0;
+            OnPropertyChanged(nameof(StepStatusText));
+        }
+
+        private bool CanStep()
+        {
+            EnsureStepState();
+            return !IsRecording && !IsPlaying && !IsStepping &&
+                   EditingMacro != null && SelectedInstance is { WindowHandle: not 0 } &&
+                   _stepInstructions.Count > 0;
+        }
+
+        /// <summary>
+        /// Runs just the next leaf instruction in EditingMacro's script, wrapping back to the
+        /// start once the end is reached - a debugging aid for trying a script one command at a
+        /// time (SPEC §6.5), so it naturally supports stepping through the same short script
+        /// repeatedly rather than requiring an explicit "reset" action.
+        /// </summary>
+        private void Step()
+        {
+            EnsureStepState();
+            if (EditingMacro is null || SelectedInstance is not { WindowHandle: not 0 } instance ||
+                _stepInstructions.Count == 0)
+            {
+                return;
+            }
+
+            var cts = new CancellationTokenSource();
+            _stepCts = cts;
+            IsStepping = true;
+
+            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName);
+            _ = RunStepAsync(player, cts);
+        }
+
+        /// <summary>
+        /// Refreshes CMDR info and recomputes TRITIUM_LOOPS, re-flattens the script against that
+        /// fresh value, then runs whichever instruction that leaves next in line - unless it was a
+        /// WAIT (its own duration already paces things) or the final instruction in the script
+        /// (nothing follows it until Step wraps back to the start), pauses for SteppingWaitMs
+        /// afterward so the user has a moment to see the game react before pressing Step again.
+        /// </summary>
+        private async Task RunStepAsync(MacroPlayer player, CancellationTokenSource cts)
+        {
+            try
+            {
+                await RefreshAndComputeTritiumLoopsAsync();
+                cts.Token.ThrowIfCancellationRequested();
+
+                EnsureStepState();
+                if (_stepInstructions.Count == 0)
+                {
+                    return;
+                }
+
+                _stepIndex %= _stepInstructions.Count; // clamp - the fresh flatten may be a different length
+                var instruction = _stepInstructions[_stepIndex];
+                _stepIndex = (_stepIndex + 1) % _stepInstructions.Count;
+                var isFinalStep = _stepIndex == 0; // wrapped back to the start - this was the last instruction
+                OnPropertyChanged(nameof(StepStatusText));
+
+                await player.RunSingleStepAsync(instruction, cts.Token);
+
+                if (!isFinalStep && instruction is not MacroInstruction.Wait && SteppingWaitMs > 0)
+                {
+                    await Task.Delay(SteppingWaitMs, cts.Token);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                if (ReferenceEquals(_stepCts, cts))
+                {
+                    IsStepping = false;
+                }
+            }
+        }
+
+        /// <summary>Renders one flattened instruction back into (approximately) its script-line form, for StepStatusText's "Next: …" label.</summary>
+        private static string DescribeInstruction(MacroInstruction instruction) => instruction switch
+        {
+            MacroInstruction.Tap tap => tap.Token,
+            MacroInstruction.Hold hold => $"HOLD {hold.Token} {hold.DurationMs}",
+            MacroInstruction.Click click => $"CLICK {click.X},{click.Y}",
+            MacroInstruction.HoldClick holdClick => $"HOLD CLICK {holdClick.X},{holdClick.Y} {holdClick.DurationMs}",
+            MacroInstruction.Paste paste => $"PASTE {paste.Text}",
+            _ => instruction.GetType().Name
+        };
+
+        /// <summary>
+        /// Refreshes both this tab's own instance scan and the Roles tab's (via the
+        /// _refreshRolesAsync closure), so cargo/carrier-fuel data is current for whichever
+        /// instance TRITIUM_LOOPS resolves against, then recomputes and caches it - this tab's own
+        /// SelectedInstance if one is selected here (takes priority, since it's the instance a
+        /// script in this tab is actually about to run against), otherwise the Engineer's
+        /// currently-assigned instance (e.g. an Auto Pilot-triggered run, where nothing is
+        /// selected in this tab at all). Called immediately before every Play/Step/Auto-Pilot-
+        /// triggered run (see RunPlaybackAsync/RunStepAsync), so the value a script actually sees
+        /// is always as fresh as a rescan can make it.
+        /// </summary>
+        private async Task<int> RefreshAndComputeTritiumLoopsAsync()
+        {
+            await Task.WhenAll(RefreshAsync(), _refreshRolesAsync());
+
+            var instance = SelectedInstance ?? _getEngineerInstance();
+            _lastTritiumLoops = ComputeTritiumLoops(instance);
+
+            // EnsureStepState's cache only ever looks at raw script text, so it can't see that
+            // _lastTritiumLoops just changed on its own - force the next call to re-flatten
+            // against it rather than reusing a stale preview built from the old value.
+            _stepScriptSnapshot = null;
+
+            return _lastTritiumLoops;
+        }
+
+        /// <summary>
+        /// How many full ship-loads of tritium <paramref name="instance"/> still needs to buy or
+        /// mine to fill its carrier's fuel depot to 1000t and leave its own cargo hold topped off
+        /// too, net of whatever tritium it's already carrying. Requires a known, positive cargo
+        /// capacity to divide by - returns 0 (nothing computable) rather than risk dividing by a
+        /// zero or unknown capacity.
+        /// </summary>
+        private static int ComputeTritiumLoops(EliteInstanceViewModel? instance)
+        {
+            var capacity = instance?.CargoCapacity ?? 0;
+            if (capacity <= 0)
+            {
+                return 0;
+            }
+
+            var carrierFuel = instance!.CarrierFuelLevel ?? 0;
+            var onBoard = instance.CurrentTritium ?? 0;
+
+            var carrierNeeded = Math.Max(0, TritiumDepotCapacity - carrierFuel);
+            var totalNeeded = Math.Max(0, carrierNeeded + capacity - onBoard);
+
+            return (int)Math.Ceiling(totalNeeded / (double)capacity);
+        }
+
+        /// <summary>Substitutes the literal "{TRITIUM_LOOPS}" placeholder with loops, wherever it appears in scriptText - most usefully as a REPEAT count (e.g. "REPEAT {TRITIUM_LOOPS}"), resolved here (before parsing) rather than at play time like {NEXT_SYSTEM}/{CENTRE}, since a REPEAT's count has to be known before the script can even be parsed/flattened into steps.</summary>
+        private static string SubstituteTritiumLoops(string scriptText, int loops) =>
+            scriptText.Replace("{TRITIUM_LOOPS}", loops.ToString(), StringComparison.Ordinal);
 
         private string? ResolveActionBinding(ControlAction action) =>
             KeyBindings.FirstOrDefault(b => b.Action == action)?.StorageString;

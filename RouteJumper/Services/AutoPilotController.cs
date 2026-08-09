@@ -10,27 +10,43 @@ namespace RouteJumper.Services
     /// for whichever row is currently in-progress, plays the Captain's selected macro (Roles
     /// tab, §5.5) against the Captain's assigned instance to plot that row's jump - immediately
     /// if the row isn't showing Cooldown, or after Cooldown clears plus a configurable extra
-    /// delay (Controls tab Options, §6.1) if it is. Repeats for every row in turn until the
-    /// route completes (no row is left in-progress) or Auto Pilot is stopped.
+    /// delay (Controls tab Options §6.1, AutoPilotDelayMs) if it is. The same delay is also
+    /// applied the other way around a row's Cooldown: the moment Cooldown *starts* on a row, if
+    /// an Engineer is currently assigned (with a macro selected - CanEngageAutoPilot already
+    /// guarantees that whenever Engineer is assigned at all), this waits the same delay and then
+    /// plays the Engineer's selected macro against the Engineer's assigned instance, so refueling
+    /// happens automatically alongside the Captain's own plot/jump/cooldown cycle rather than
+    /// requiring manual intervention. Repeats for every row in turn until the route completes (no
+    /// row is left in-progress) or Auto Pilot is stopped.
     ///
     /// Lives outside Sequencing/ deliberately - CLAUDE.md's non-negotiable rule only constrains
     /// RouteSequencer's own row-mutation logic. This class never mutates a row itself, only
     /// observes state RouteSequencer has already set, and its own delay is exactly the kind of
     /// real-world scheduling concern SPEC's journal-watcher note already carves out as
     /// belonging in a watcher, not in the row-update logic itself.
+    ///
+    /// Both the Captain's plot and the Engineer's refuel go through the same single _playMacro
+    /// channel (ControlsViewModel.PlayMacro), which only ever runs one playback at a time -
+    /// starting a new one cancels whichever is still running, the same as a manual Play does. In
+    /// practice the two triggers are separated by the whole Cooldown window (Engineer fires at
+    /// its start, Captain at its end) so they don't normally overlap, but a slow-running Engineer
+    /// macro could still be cancelled by the Captain's plot firing before it finishes.
     /// </summary>
     public sealed class AutoPilotController
     {
         private readonly ObservableCollection<RouteRowViewModel> _rows;
         private readonly Func<RecordedMacroViewModel?> _getCaptainMacro;
         private readonly Func<EliteInstanceViewModel?> _getCaptainInstance;
-        private readonly Func<int> _getCooldownDelayMs;
+        private readonly Func<RecordedMacroViewModel?> _getEngineerMacro;
+        private readonly Func<EliteInstanceViewModel?> _getEngineerInstance;
+        private readonly Func<int> _getAutoPilotDelayMs;
         private readonly Action<RecordedMacroViewModel, EliteInstanceViewModel> _playMacro;
         private readonly Action _onRouteComplete;
 
         private CancellationTokenSource? _cts;
         private RouteRowViewModel? _lastTriggeredRow;
         private RouteRowViewModel? _pendingCooldownRow;
+        private RouteRowViewModel? _engineerTriggeredForRow;
         private bool _isRunning;
         private bool _evaluationScheduled;
 
@@ -38,14 +54,18 @@ namespace RouteJumper.Services
             ObservableCollection<RouteRowViewModel> rows,
             Func<RecordedMacroViewModel?> getCaptainMacro,
             Func<EliteInstanceViewModel?> getCaptainInstance,
-            Func<int> getCooldownDelayMs,
+            Func<RecordedMacroViewModel?> getEngineerMacro,
+            Func<EliteInstanceViewModel?> getEngineerInstance,
+            Func<int> getAutoPilotDelayMs,
             Action<RecordedMacroViewModel, EliteInstanceViewModel> playMacro,
             Action onRouteComplete)
         {
             _rows = rows;
             _getCaptainMacro = getCaptainMacro;
             _getCaptainInstance = getCaptainInstance;
-            _getCooldownDelayMs = getCooldownDelayMs;
+            _getEngineerMacro = getEngineerMacro;
+            _getEngineerInstance = getEngineerInstance;
+            _getAutoPilotDelayMs = getAutoPilotDelayMs;
             _playMacro = playMacro;
             _onRouteComplete = onRouteComplete;
         }
@@ -61,6 +81,7 @@ namespace RouteJumper.Services
             _isRunning = true;
             _lastTriggeredRow = null;
             _pendingCooldownRow = null;
+            _engineerTriggeredForRow = null;
             _cts = new CancellationTokenSource();
 
             foreach (var row in _rows)
@@ -89,6 +110,7 @@ namespace RouteJumper.Services
             _cts?.Cancel();
             _cts = null;
             _pendingCooldownRow = null;
+            _engineerTriggeredForRow = null;
             _evaluationScheduled = false;
         }
 
@@ -172,6 +194,16 @@ namespace RouteJumper.Services
             if (currentRow.Status == "Cooldown")
             {
                 _pendingCooldownRow = currentRow;
+
+                // Fire the Engineer's refuel exactly once per row's Cooldown period - further
+                // evaluations while it's still active (e.g. some other row's Icon/Status changing
+                // elsewhere) must not restart the wait or replay the macro.
+                if (!ReferenceEquals(_engineerTriggeredForRow, currentRow))
+                {
+                    _engineerTriggeredForRow = currentRow;
+                    _ = TriggerEngineerRefuelAsync(_cts!.Token);
+                }
+
                 return;
             }
 
@@ -183,20 +215,16 @@ namespace RouteJumper.Services
             _pendingCooldownRow = null;
             _lastTriggeredRow = currentRow;
 
-            _ = TriggerAsync(applyDelay, _cts!.Token);
+            _ = TriggerCaptainPlotAsync(applyDelay, _cts!.Token);
         }
 
-        private async Task TriggerAsync(bool applyDelay, CancellationToken cancellationToken)
+        private async Task TriggerCaptainPlotAsync(bool applyDelay, CancellationToken cancellationToken)
         {
             try
             {
                 if (applyDelay)
                 {
-                    var delayMs = Math.Max(0, _getCooldownDelayMs());
-                    if (delayMs > 0)
-                    {
-                        await Task.Delay(delayMs, cancellationToken);
-                    }
+                    await DelayAsync(cancellationToken);
                 }
 
                 if (_getCaptainMacro() is { } macro && _getCaptainInstance() is { WindowHandle: not 0 } instance)
@@ -207,6 +235,40 @@ namespace RouteJumper.Services
             catch (OperationCanceledException)
             {
                 // Auto Pilot was stopped while waiting - nothing to do.
+            }
+        }
+
+        /// <summary>
+        /// Mirrors TriggerCaptainPlotAsync, but for the Engineer's refuel macro - always waits
+        /// the same AutoPilotDelayMs first (there's no "fires immediately" case here, unlike the
+        /// Captain's plot, since this is only ever called right as Cooldown starts), then plays
+        /// it if an Engineer is currently assigned with a macro selected. A no-op (after the
+        /// wait) if not - CanEngageAutoPilot already requires a selected Engineer macro whenever
+        /// Engineer is assigned at all, but Engineer being unassigned entirely is always valid.
+        /// </summary>
+        private async Task TriggerEngineerRefuelAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                await DelayAsync(cancellationToken);
+
+                if (_getEngineerMacro() is { } macro && _getEngineerInstance() is { WindowHandle: not 0 } instance)
+                {
+                    _playMacro(macro, instance);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Auto Pilot was stopped while waiting - nothing to do.
+            }
+        }
+
+        private async Task DelayAsync(CancellationToken cancellationToken)
+        {
+            var delayMs = Math.Max(0, _getAutoPilotDelayMs());
+            if (delayMs > 0)
+            {
+                await Task.Delay(delayMs, cancellationToken);
             }
         }
     }

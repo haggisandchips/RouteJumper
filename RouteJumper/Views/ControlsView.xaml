@@ -64,13 +64,21 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Options" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Plot delay after cooldown (ms)"
+                <TextBlock Text="AutoPilot delay (ms)"
                            Width="220"
                            VerticalAlignment="Center" />
-                <TextBox Text="{Binding CooldownDelayMs, UpdateSourceTrigger=LostFocus}"
+                <TextBox Text="{Binding AutoPilotDelayMs, UpdateSourceTrigger=LostFocus}"
                          Width="100"
-                         ToolTip="How long Auto Pilot waits after a jump's cooldown clears before plotting the next one"
-                         AutomationProperties.Name="Plot delay after cooldown" />
+                         ToolTip="How long Auto Pilot waits after a jump's cooldown clears before plotting the next one, and after cooldown starts before the Engineer refuels"
+                         AutomationProperties.Name="AutoPilot delay" />
+                <TextBlock Text="Stepping wait (ms)"
+                           Width="140"
+                           Margin="24,0,0,0"
+                           VerticalAlignment="Center" />
+                <TextBox Text="{Binding SteppingWaitMs, UpdateSourceTrigger=LostFocus}"
+                         Width="100"
+                         ToolTip="How long the macro editor's Step button pauses after each instruction (except WAITs and the final step) before it's ready for the next Step"
+                         AutomationProperties.Name="Stepping wait" />
             </StackPanel>
         </StackPanel>
 
@@ -321,7 +329,10 @@
                                 <TextBlock Text="Clipboard + Ctrl+V. May contain {NEXT_SYSTEM}, resolved at play time to the Route tab's current next system" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
                                 <TextBlock Text="REPEAT &lt;n&gt; … END" FontFamily="Consolas" FontWeight="Bold" />
-                                <TextBlock Text="Repeats its body n times (nestable)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock Text="Repeats its body n times (nestable). n may be {TRITIUM_LOOPS}" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="{}{TRITIUM_LOOPS}" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Full ship-loads of tritium still needed to fill this tab's selected instance's (or, with none selected, the Engineer's) carrier to 1000t and top off its hold. Refreshed and resolved fresh before every run" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
                                 <TextBlock Text="MACRO &lt;name&gt; … END" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Defines a reusable, named macro (top level only, not nested)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
@@ -346,13 +357,29 @@
                                    Opacity="0.6"
                                    FontSize="11"
                                    Margin="0,0,0,8" />
-                        <Button DockPanel.Dock="Bottom"
-                                Content="Save"
-                                HorizontalAlignment="Right"
-                                Padding="16,4"
-                                Margin="0,8,0,0"
-                                Command="{Binding CloseMacroEditorCommand}"
-                                ToolTip="Returns to the macro list - edits are already saved as you type" />
+                        <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="{Binding StepStatusText}"
+                                       VerticalAlignment="Center"
+                                       Opacity="0.6" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button Command="{Binding StepCommand}"
+                                        Style="{StaticResource MaterialDesignIconButton}"
+                                        Margin="0,0,8,0"
+                                        ToolTip="Run just the next step, refocusing the target instance first"
+                                        AutomationProperties.Name="Step">
+                                    <materialDesign:PackIcon Kind="SkipNext" Width="22" Height="22" />
+                                </Button>
+                                <Button Content="Save"
+                                        Padding="16,4"
+                                        Command="{Binding CloseMacroEditorCommand}"
+                                        ToolTip="Returns to the macro list - edits are already saved as you type" />
+                            </StackPanel>
+                        </Grid>
                         <TextBox Text="{Binding EditingMacro.ScriptText, UpdateSourceTrigger=PropertyChanged}"
                                  AcceptsReturn="True"
                                  AcceptsTab="True"

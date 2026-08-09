@@ -48,7 +48,10 @@ namespace RouteJumper.Services
         private readonly Func<ControlAction, string?> _resolveBinding;
         private readonly Func<string?> _getNextSystemName;
 
-        public MacroPlayer(IntPtr targetWindow, Func<ControlAction, string?> resolveBinding, Func<string?> getNextSystemName)
+        public MacroPlayer(
+            IntPtr targetWindow,
+            Func<ControlAction, string?> resolveBinding,
+            Func<string?> getNextSystemName)
         {
             _targetWindow = targetWindow;
             _resolveBinding = resolveBinding;
@@ -130,30 +133,6 @@ namespace RouteJumper.Services
 
                 switch (step)
                 {
-                    case MacroInstruction.Tap tap:
-                        await SendTokenAsync(tap.Token, holdMs: null, cancellationToken);
-                        break;
-
-                    case MacroInstruction.Hold hold:
-                        await SendTokenAsync(hold.Token, hold.DurationMs, cancellationToken);
-                        break;
-
-                    case MacroInstruction.Click click:
-                        SendClick(click.X, click.Y);
-                        break;
-
-                    case MacroInstruction.HoldClick holdClick:
-                        await SendHoldClickAsync(holdClick.X, holdClick.Y, holdClick.DurationMs, cancellationToken);
-                        break;
-
-                    case MacroInstruction.Wait wait:
-                        await Task.Delay(wait.DurationMs, cancellationToken);
-                        break;
-
-                    case MacroInstruction.Paste paste:
-                        await SendPasteAsync(ResolvePasteText(paste.Text), cancellationToken);
-                        break;
-
                     case MacroInstruction.Repeat repeat:
                         for (var i = 0; i < repeat.Count; i++)
                         {
@@ -168,8 +147,120 @@ namespace RouteJumper.Services
                             await RunAsync(body, macros, callDepth + 1, cancellationToken);
                         }
                         break;
+
+                    default:
+                        await ExecuteLeafAsync(step, cancellationToken);
+                        break;
                 }
             }
+        }
+
+        /// <summary>Executes one non-structural instruction - everything RunAsync's switch doesn't itself recurse into (Repeat/Call) - shared by normal playback and single-step execution (see RunSingleStepAsync/Flatten).</summary>
+        private async Task ExecuteLeafAsync(MacroInstruction step, CancellationToken cancellationToken)
+        {
+            switch (step)
+            {
+                case MacroInstruction.Tap tap:
+                    await SendTokenAsync(tap.Token, holdMs: null, cancellationToken);
+                    break;
+
+                case MacroInstruction.Hold hold:
+                    await SendTokenAsync(hold.Token, hold.DurationMs, cancellationToken);
+                    break;
+
+                case MacroInstruction.Click click:
+                    SendClick(click.X, click.Y);
+                    break;
+
+                case MacroInstruction.HoldClick holdClick:
+                    await SendHoldClickAsync(holdClick.X, holdClick.Y, holdClick.DurationMs, cancellationToken);
+                    break;
+
+                case MacroInstruction.Wait wait:
+                    await Task.Delay(wait.DurationMs, cancellationToken);
+                    break;
+
+                case MacroInstruction.Paste paste:
+                    await SendPasteAsync(ResolvePasteText(paste.Text), cancellationToken);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Parses and flattens a script into just its leaf (non-structural) instructions, in
+        /// execution order - a REPEAT block is unrolled Count times and a CALL is inlined with
+        /// the referenced macro's own leaves (recursively, to the same MaxCallDepth PlayAsync
+        /// itself enforces; an unresolvable CALL target contributes nothing, same as PlayAsync).
+        /// WAIT steps are dropped entirely - stepping is a manual, one-command-at-a-time debugging
+        /// aid (SPEC §6.5), so there's nothing useful for the user to observe from a step that's
+        /// pure delay, and it would otherwise cost them an extra Step click for no visible effect.
+        /// Used by the Controls tab editor's single-step facility, which needs a concrete,
+        /// indexable sequence to step through one instruction at a time rather than PlayAsync's
+        /// own recursive, run-to-completion walk of the parsed tree.
+        /// </summary>
+        public static IReadOnlyList<MacroInstruction> Flatten(string scriptText)
+        {
+            var parsed = MacroScriptParser.Parse(scriptText);
+            var result = new List<MacroInstruction>();
+            FlattenSteps(parsed.MainSteps, parsed.Macros, 0, result);
+            return result;
+        }
+
+        private static void FlattenSteps(
+            IReadOnlyList<MacroInstruction> steps,
+            IReadOnlyDictionary<string, IReadOnlyList<MacroInstruction>> macros,
+            int callDepth,
+            List<MacroInstruction> result)
+        {
+            if (callDepth > MaxCallDepth)
+            {
+                return;
+            }
+
+            foreach (var step in steps)
+            {
+                switch (step)
+                {
+                    case MacroInstruction.Repeat repeat:
+                        for (var i = 0; i < repeat.Count; i++)
+                        {
+                            FlattenSteps(repeat.Body, macros, callDepth + 1, result);
+                        }
+                        break;
+
+                    case MacroInstruction.Call call:
+                        if (macros.TryGetValue(call.MacroName, out var body))
+                        {
+                            FlattenSteps(body, macros, callDepth + 1, result);
+                        }
+                        break;
+
+                    case MacroInstruction.Wait:
+                        break;
+
+                    default:
+                        result.Add(step);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Executes exactly one leaf instruction (from <see cref="Flatten"/>) against the target
+        /// window, foregrounding it fresh first - unlike PlayAsync's one-time foreground at the
+        /// start of a whole script, a manual single step (SPEC §6.5's editor "Step" facility)
+        /// needs this every call, since the user's own click on RouteJumper's own Step button
+        /// will itself have taken focus away from the target in between steps. Deliberately no
+        /// focus-loss watchdog here (unlike PlayAsync) - a single step is short enough that
+        /// losing focus mid-instruction isn't a realistic concern the way it is across a whole
+        /// script.
+        /// </summary>
+        public async Task RunSingleStepAsync(MacroInstruction step, CancellationToken cancellationToken)
+        {
+            NativeMethods.ShowWindow(_targetWindow, SW_RESTORE);
+            NativeMethods.SetForegroundWindow(_targetWindow);
+            await Task.Delay(200, cancellationToken);
+            await ExecuteLeafAsync(step, cancellationToken);
         }
 
         /// <summary>

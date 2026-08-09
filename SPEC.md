@@ -22,8 +22,8 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 | Route tab: paste a route, save it to a table, track progress against a real journal | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
 | Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Configurable journal-match tolerance or cooldown timing |
 | Event-driven row-progress engine, driven by a Captain's journal | Persisting per-row progress (icon/status), or the last-selected tab |
-| Manual "Set next system" override for correcting automatic detection | Auto Pilot ever playing the Engineer's macro (only Captain's is played) |
-| Selecting a macro for each of Captain/Engineer (§5.5), gating Auto Pilot on that selection, and Auto Pilot playing the Captain's macro to plot each jump (§4.7) | Auto Pilot retrying a jump after `CarrierJumpCancelled` (§4.7) |
+| Manual "Set next system" override for correcting automatic detection | |
+| Selecting a macro for each of Captain/Engineer (§5.5), gating Auto Pilot on that selection, and Auto Pilot playing the Captain's macro to plot each jump and (if Engineer is assigned) the Engineer's to refuel each Cooldown (§4.7) | Auto Pilot retrying a jump after `CarrierJumpCancelled` (§4.7) |
 | Persistence of route text, window bounds, and Captain/Engineer role assignment | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
@@ -189,14 +189,16 @@ See §7.
 
 While engaged, Auto Pilot plots each row's jump in turn by playing the
 Captain's selected macro (§5.5) against the Captain's assigned instance,
-until the whole route reaches Complete or Auto Pilot is stopped:
+and — if Engineer is currently assigned — refuels by playing the
+Engineer's selected macro against the Engineer's assigned instance, until
+the whole route reaches Complete or Auto Pilot is stopped:
 
 - For whichever row is currently in-progress, if it isn't showing
-  `Cooldown`, the macro plays immediately.
-- If it *is* showing `Cooldown`, the macro instead plays once Cooldown
-  clears (§5.7) plus the configured extra delay (Controls tab Options,
-  §6.1) — not immediately on clearing, since the game's own UI needs a
-  moment to settle first.
+  `Cooldown`, the Captain's macro plays immediately.
+- If it *is* showing `Cooldown`, the Captain's macro instead plays once
+  Cooldown clears (§5.7) plus the configured AutoPilot delay (Controls
+  tab Options, §6.1) — not immediately on clearing, since the game's own
+  UI needs a moment to settle first.
 - The same rule applies the moment Auto Pilot is engaged, not just to
   later rows: if Cooldown happens to already be active on the
   in-progress row at that moment, the first macro play waits for it
@@ -204,10 +206,25 @@ until the whole route reaches Complete or Auto Pilot is stopped:
 - Once that row completes and journal tracking (§5.7) advances the route
   to the next row, the same rule repeats for it, and so on until no row
   is left in-progress.
-- The macro plays through the same mechanism as a manual Play (§6.5) —
-  visible via `IsPlaying`, stoppable via **Stop**, and reported through
-  the same closeable warning banner (§6.5) if the target window loses
-  focus mid-script — not a separate, invisible channel.
+- Independently of the Captain's plot above: the moment a row's `Status`
+  *becomes* `Cooldown` (§5.7) — including if it's already showing
+  `Cooldown` the instant Auto Pilot is engaged, the same as the Captain's
+  own case — Auto Pilot waits the same configured AutoPilot delay and
+  then, only if Engineer is currently assigned, plays the Engineer's
+  selected macro against the Engineer's assigned instance. This fires
+  once per row's Cooldown period (not repeatedly while it continues
+  cooling down) and runs alongside the Captain's plot-at-Cooldown-clear
+  trigger, not instead of it. With no Engineer assigned, nothing plays
+  here — Auto Pilot's own requirements (§4.2) already mean an assigned
+  Engineer always has a macro selected too.
+- Both the Captain's plot and the Engineer's refuel play through the same
+  single mechanism as a manual Play (§6.5) — visible via `IsPlaying`,
+  stoppable via **Stop**, and reported through the same closeable warning
+  banner (§6.5) if the target window loses focus mid-script — not a
+  separate, invisible channel. That mechanism only ever runs one playback
+  at a time, so if the Engineer's refuel is still playing when the
+  Captain's own plot fires (or vice versa), starting the new one cancels
+  whichever was still running, the same as it would for two manual Plays.
 - Auto Pilot stops itself automatically once every row reaches Complete
   (flipping its label back to "Auto Pilot"), and also if Captain (or, if
   assigned, Engineer) stops meeting Auto Pilot's own requirements (§4.2)
@@ -216,9 +233,11 @@ until the whole route reaches Complete or Auto Pilot is stopped:
   regardless.
 - A `CarrierJumpCancelled` (§5.7) reverting a row's `Status` back to
   blank does not, on its own, cause a further macro play for that same
-  row - Auto Pilot only ever plays a macro once per row it newly becomes
-  aware of; recovering from a cancelled jump on the row it already
-  played for requires manual intervention.
+  row - Auto Pilot only ever plays the Captain's macro once per row it
+  newly becomes aware of; recovering from a cancelled jump on the row it
+  already played for requires manual intervention. This has no bearing
+  on the Engineer's refuel trigger, which is keyed off Cooldown starting,
+  not off a jump request.
 
 ---
 
@@ -436,13 +455,22 @@ own content overflows).
 
 ### 6.1 Options
 
-A single setting: **Plot delay after cooldown (ms)**, defaulting to
-`5000`. Auto Pilot (§4.2) waits this long, on top of however long a jump's
-Cooldown itself already took, after Cooldown clears before plotting the
-next jump - a real jump needs a moment after cooldown for the game's own
-UI to settle before a macro starts clicking through panels. Has no effect
-on Cooldown's own timing (§5.7), and no effect on a manually-triggered
-Play (§6.5).
+Two settings, laid out side by side:
+- **AutoPilot delay (ms)**, defaulting to `5000`. Auto Pilot (§4.2) waits
+  this long, on top of however long a jump's Cooldown itself already
+  took, both after Cooldown clears before the Captain plots the next jump
+  and after Cooldown starts before the Engineer (if assigned) refuels
+  (§4.7) - a real jump needs a moment for the game's own UI to settle
+  before a macro starts clicking through panels, whichever end of
+  Cooldown it's settling after. Has no effect on Cooldown's own timing
+  (§5.7), and no effect on a manually-triggered Play (§6.5).
+- **Stepping wait (ms)**, defaulting to `250`. The macro editor's Step
+  button (§6.5) pauses this long after running an instruction before it's
+  ready to run the next one, giving the user a moment to actually see the
+  game react. Not applied after a `WAIT` instruction (its own duration
+  already provides the pause) or after the script's final instruction
+  (nothing follows it until Step wraps back to the start). Has no effect
+  on a manually-triggered Play, or on Auto Pilot.
 
 ### 6.2 Key Bindings
 
@@ -572,6 +600,28 @@ CALL refuel
   recording itself (there is no such thing as a "recorded paste" — manual
   `Ctrl+V` during recording is captured as an ordinary key chord); it is
   only ever added or edited into a script by hand.
+- `{TRITIUM_LOOPS}` is a further placeholder, usable anywhere a script
+  expects a number — most usefully as a REPEAT count, e.g.
+  `REPEAT {TRITIUM_LOOPS}`. Unlike `{NEXT_SYSTEM}`/`{CENTRE}` (resolved
+  live, instruction by instruction, as playback reaches them), it's
+  resolved once, textually, immediately before the whole script is parsed
+  — a REPEAT's count has to be known before the script can even be split
+  into steps. Immediately before every Play, Step, or Auto Pilot-triggered
+  run (not only ones that actually reference it), RouteJumper first
+  refreshes CMDR info for every running instance — the same rescan the
+  Roles and Controls tabs' own Refresh buttons do — then resolves the
+  placeholder against whichever instance the value should reflect: this
+  tab's own selected instance (§6.3) if one is selected here, since that's
+  the instance the script is actually about to run against, otherwise the
+  currently-assigned Engineer (§5.4) — e.g. an Auto Pilot-triggered run,
+  where nothing is selected in this tab at all. The value is the number
+  of full ship-loads of tritium that instance still needs to buy or mine
+  to fill its carrier's fuel depot to 1000t *and* leave its own cargo
+  hold topped off, net of
+  whatever tritium it's already carrying (cargo capacity, carrier fuel
+  level, and tracked onboard tritium — see §5.3). If that instance's cargo
+  capacity isn't known (or is zero), `{TRITIUM_LOOPS}` resolves to `0`
+  rather than risk dividing by it.
 - Blank lines and lines starting with `#` are ignored. The parser is
   deliberately forgiving of malformed lines (skipped, not rejected
   outright), since this text is meant to be hand-edited.
@@ -616,6 +666,26 @@ without leaving the editor, e.g. to try out an edit immediately:
 - The Key Bindings section (§6.2) stays visible above the editor, since a
   script is written in terms of that vocabulary. **Record** (§6.3) is
   disabled for as long as the editor is open.
+- A **Step** button beside Save, labelled with what it's about to run
+  next — e.g. "Next: RIGHT", "Next: CLICK 240,160" — naming the next
+  leaf instruction in the same terms its script line uses (a REPEAT is
+  counted by its unrolled iterations, a CALL by the macro it inlines).
+  Pressing it executes just that instruction against the selected
+  instance, then stops — for trying a script one command at a time
+  without running the whole thing. `WAIT` steps are skipped
+  entirely rather than counted as a step of their own — there's nothing
+  to observe from single-stepping a pure delay, so it would only cost an
+  extra click for no visible effect. Since the target instance's
+  window won't generally still be foreground after the user's own click
+  back on RouteJumper to press Step again, each step re-foregrounds it
+  first, the same as Play does once at the very start of a whole script.
+  Reaching the end wraps back to the beginning, so the same script can be
+  stepped through repeatedly; editing the script text restarts stepping
+  from the beginning. Enabled under the same conditions as Play (an
+  instance selected, nothing already recording/playing/stepping), plus a
+  macro actually open in the editor with at least one step to run.
+  **Stop** (§6.3) also cancels a step in progress, the same as it does
+  for a full playback.
 
 Pressing **Record** again while macros already exist always starts a
 brand-new recording as an additional macro; it never overwrites or
@@ -668,7 +738,7 @@ rather than internal app state like the table below.
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
-| Controls tab options (Plot delay after cooldown) | Every change | App startup, falling back to the 5000ms default until first changed |
+| Controls tab options (AutoPilot delay, Stepping wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 
@@ -863,16 +933,42 @@ rather than internal app state like the table below.
     Captain or Engineer clears that role's selection rather than leaving
     it referencing a macro that no longer exists. Renaming a selected
     macro does not lose the selection.
-35. The Controls tab shows an Options section above Key Bindings with a
-    "Plot delay after cooldown (ms)" setting, defaulting to 5000 and
-    persisting across restarts.
+35. The Controls tab shows an Options section above Key Bindings with an
+    "AutoPilot delay (ms)" setting, defaulting to 5000, and a
+    "Stepping wait (ms)" setting, defaulting to 250, laid out side by
+    side; both persist across restarts.
 36. Engaging Auto Pilot plays the Captain's selected macro against the
     Captain's assigned instance for whichever row is currently
     in-progress: immediately if it isn't showing Cooldown, or after
-    Cooldown clears plus the configured Options delay if it is - the
+    Cooldown clears plus the configured AutoPilot delay if it is - the
     same rule whether this is the first row (evaluated the moment Auto
     Pilot is engaged) or a later one (evaluated as journal tracking
     advances the route). This repeats until every row reaches Complete,
     at which point Auto Pilot stops itself automatically, or until Auto
     Pilot is stopped manually or its requirements stop being met
     mid-run.
+37. The macro editor's Step button runs exactly one leaf instruction
+    against the selected instance, re-foregrounding it first, and its
+    label names that upcoming instruction (e.g. "Next: RIGHT"); `WAIT`
+    steps are skipped rather than counted; reaching the last step wraps
+    back to the first. Step is disabled while recording, playing, or
+    already stepping, and Stop cancels a step in progress the same as
+    it cancels a full playback. After running an instruction, Step
+    pauses for the configured Stepping wait before it's ready to run the
+    next one, except when that instruction was the script's last one or
+    a `WAIT`.
+38. Before every Play, Step, or Auto Pilot-triggered macro run,
+    RouteJumper rescans CMDR info and resolves any `{TRITIUM_LOOPS}` in
+    that script's text to the number of full ship-loads of tritium this
+    tab's own selected instance (or, with none selected, the
+    currently-assigned Engineer) still needs to fill its carrier's fuel
+    depot to 1000t and top off its own cargo hold, net of tritium
+    already aboard — `0` if that instance's cargo capacity isn't known
+    or is zero.
+39. Independently of the Captain's plot, if Engineer is currently
+    assigned, the moment a row's Status becomes Cooldown, Auto Pilot
+    waits the same configured AutoPilot delay and then plays the
+    Engineer's selected macro against the Engineer's assigned instance -
+    once per row's Cooldown period, alongside (not instead of) the
+    Captain's own plot-at-Cooldown-clear trigger, and not at all with no
+    Engineer assigned.

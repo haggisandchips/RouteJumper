@@ -11,10 +11,13 @@ namespace RouteJumper.ViewModels
     /// shared row-event trigger between them (Roles' Captain journal watcher raises row events;
     /// Route's sequencer consumes them), plus RouteViewModel.RouteSaved ->
     /// RolesViewModel.RefreshRouteForCurrentCaptain, a read-only closure over RouteViewModel.Rows
-    /// so ControlsViewModel can resolve a macro's "next system" paste placeholder, and closures
-    /// over RolesViewModel/ControlsViewModel so AutoPilotController can drive Auto Pilot (Route
-    /// tab §4.2) by playing the Captain's selected macro (Roles tab §5.5) through
-    /// ControlsViewModel.PlayMacro - none of the tab ViewModels reference each other directly;
+    /// so ControlsViewModel can resolve a macro's "next system" paste placeholder, closures over
+    /// RolesViewModel.EngineerInstance/RefreshAsync so ControlsViewModel can resolve a macro's
+    /// TRITIUM_LOOPS placeholder against the Engineer's freshly-rescanned cargo/carrier-fuel data,
+    /// and closures over RolesViewModel/ControlsViewModel so AutoPilotController can drive Auto
+    /// Pilot (Route tab §4.2) by playing the Captain's selected macro (Roles tab §5.5) to plot
+    /// each jump, and the Engineer's (if assigned) to refuel once each Cooldown starts, both
+    /// through ControlsViewModel.PlayMacro - none of the tab ViewModels reference each other directly;
     /// this class is the only place that does. Also owns the single AppSettingsStore both tabs
     /// persist to/restore from, and the single AppConfigStore both Roles' and Controls' own
     /// independent EliteInstanceScanner instances read the journal folder from.
@@ -41,7 +44,9 @@ namespace RouteJumper.ViewModels
             ControlsViewModel = new ControlsViewModel(
                 settings,
                 new EliteInstanceScanner(config),
-                () => RouteViewModel.Rows.FirstOrDefault(r => r.Icon == RowIcon.InProgress)?.SystemText);
+                () => RouteViewModel.Rows.FirstOrDefault(r => r.Icon == RowIcon.InProgress)?.SystemText,
+                () => RolesViewModel.EngineerInstance,
+                RolesViewModel.RefreshAsync);
 
             RouteViewModel.RouteSaved += (_, _) => RolesViewModel.RefreshRouteForCurrentCaptain();
             RolesViewModel.AutoPilotEligibilityChanged += (_, _) =>
@@ -62,7 +67,9 @@ namespace RouteJumper.ViewModels
                 RouteViewModel.Rows,
                 () => RolesViewModel.CaptainMacro,
                 () => RolesViewModel.CaptainInstance,
-                () => ControlsViewModel.CooldownDelayMs,
+                () => RolesViewModel.EngineerMacro,
+                () => RolesViewModel.EngineerInstance,
+                () => ControlsViewModel.AutoPilotDelayMs,
                 (macro, instance) => ControlsViewModel.PlayMacro(macro, instance),
                 RouteViewModel.StopAutoPilot);
             RouteViewModel.AutoPilotRunningChanged += (_, running) =>

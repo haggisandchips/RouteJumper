@@ -74,6 +74,9 @@ namespace RouteJumper.ViewModels
         /// <summary>The instance currently holding the Captain role, if any and still running - used by AutoPilotController (Route tab's Auto Pilot) to know which window to plot into.</summary>
         public EliteInstanceViewModel? CaptainInstance => Instances.FirstOrDefault(i => i.IsCaptain);
 
+        /// <summary>The instance currently holding the Engineer role, if any and still running - used by ControlsViewModel to resolve the TRITIUM_LOOPS macro placeholder against the Engineer's own cargo/carrier data.</summary>
+        public EliteInstanceViewModel? EngineerInstance => Instances.FirstOrDefault(i => i.IsEngineer);
+
         public AsyncRelayCommand RefreshCommand { get; }
 
         /// <summary>Assigns/unassigns the Captain role to a card's instance.</summary>
@@ -176,7 +179,13 @@ namespace RouteJumper.ViewModels
             }
         }
 
-        private async Task RefreshAsync()
+        /// <summary>
+        /// Public so ControlsViewModel can await a fresh Roles-tab scan (via a closure supplied
+        /// by MainViewModel) before resolving the TRITIUM_LOOPS macro placeholder against the
+        /// Engineer's current cargo/carrier-fuel data - RefreshCommand still wraps this same
+        /// method for the tab's own manual Refresh button.
+        /// </summary>
+        public async Task RefreshAsync()
         {
             IsRefreshing = true;
             try
