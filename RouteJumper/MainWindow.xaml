@@ -12,7 +12,7 @@
         TextElement.Foreground="{DynamicResource MaterialDesignBody}"
         Background="{DynamicResource MaterialDesignPaper}"
         FontFamily="{materialDesign:MaterialDesignFont}"
-        Title="ED:FC AutoPilot" Height="600" Width="800"
+        Title="ED:FC Auto Pilot" Height="600" Width="800"
         Icon="Resources/AppIcon.ico">
 
     <Window.DataContext>

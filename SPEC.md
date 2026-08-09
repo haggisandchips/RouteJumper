@@ -39,7 +39,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 - Tab headings are placed on the **left edge** of the window
   (`TabStripPlacement="Left"`).
 - Window is resizable; content reflows (no fixed-pixel layouts).
-- Window title: **"ED:FC AutoPilot"**.
+- Window title: **"ED:FC Auto Pilot"**.
 - Window/taskbar icon: `Resources/AppIcon.ico`, a `RocketLaunch` glyph rendered
   at 16/32/48/256px, matching the row icons' style and color.
 
