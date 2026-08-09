@@ -80,6 +80,23 @@
                          ToolTip="How long a script automatically pauses after each instruction (unless the next one is a WAIT), whether played, stepped, or run via Auto Pilot"
                          AutomationProperties.Name="Auto wait" />
             </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                <TextBlock Text="Test {NEXT_SYSTEM}"
+                           Width="220"
+                           VerticalAlignment="Center" />
+                <TextBox Text="{Binding NextSystemTestOverride, UpdateSourceTrigger=PropertyChanged}"
+                         Width="100"
+                         ToolTip="What PASTE {NEXT_SYSTEM} resolves to for a manual Play/Step in this tab, so a script can be tried out without a live route. Auto Pilot always uses the real Route tab value instead. Play/Step are disabled while this is blank."
+                         AutomationProperties.Name="Test NEXT_SYSTEM" />
+                <TextBlock Text="Test {TRITIUM_LOOPS}"
+                           Width="140"
+                           Margin="24,0,0,0"
+                           VerticalAlignment="Center" />
+                <TextBox Text="{Binding TritiumLoopsTestOverride, UpdateSourceTrigger=PropertyChanged}"
+                         Width="100"
+                         ToolTip="What REPEAT {TRITIUM_LOOPS} resolves to for a manual Play/Step in this tab, so a script can be tried out without a running instance in the right cargo/fuel state. Auto Pilot always computes the real value instead. Play/Step are disabled while this is blank."
+                         AutomationProperties.Name="Test TRITIUM_LOOPS" />
+            </StackPanel>
         </StackPanel>
 
         <!-- ===================== Key Bindings (SPEC §6.1) ===================== -->
@@ -306,7 +323,7 @@
                      it, so the reference never eats into the text area's vertical room. -->
                 <Grid Visibility="{Binding IsEditingMacro, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="230" />
+                        <ColumnDefinition Width="460" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
@@ -314,6 +331,9 @@
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel>
                                 <TextBlock Text="Script Syntax" FontWeight="Bold" Margin="0,0,0,8" />
+
+                                <!-- ===== Actions ===== -->
+                                <TextBlock Text="Actions" FontWeight="Bold" Opacity="0.6" FontSize="12" Margin="0,0,0,6" />
 
                                 <TextBlock Text="ACTION_NAME" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Tap a bound action (e.g. UP)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
@@ -330,17 +350,20 @@
                                 <TextBlock Text="HOLD CLICK &lt;x&gt;,&lt;y&gt; &lt;ms&gt;" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Click and hold for ms milliseconds before releasing" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
+                                <TextBlock Text="PASTE &lt;text&gt;" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Clipboard + Ctrl+V. May contain {NEXT_SYSTEM}" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="# comment" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Blank lines and # lines are ignored" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <!-- ===== Controls ===== -->
+                                <TextBlock Text="Controls" FontWeight="Bold" Opacity="0.6" FontSize="12" Margin="0,8,0,6" />
+
                                 <TextBlock Text="WAIT &lt;ms&gt;" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Pause before the next step" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
-                                <TextBlock Text="PASTE &lt;text&gt;" FontFamily="Consolas" FontWeight="Bold" />
-                                <TextBlock Text="Clipboard + Ctrl+V. May contain {NEXT_SYSTEM}, resolved at play time to the Route tab's current next system" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
-
                                 <TextBlock Text="REPEAT &lt;n&gt; … END" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Repeats its body n times (nestable). n may be {TRITIUM_LOOPS}" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
-
-                                <TextBlock Text="{}{TRITIUM_LOOPS}" FontFamily="Consolas" FontWeight="Bold" />
-                                <TextBlock Text="Full ship-loads of tritium still needed to fill this tab's selected instance's (or, with none selected, the Engineer's) carrier to 1000t and top off its hold. Refreshed and resolved fresh before every run" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
                                 <TextBlock Text="MACRO &lt;name&gt; … END" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Defines a reusable, named macro (top level only, not nested)" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
@@ -348,8 +371,17 @@
                                 <TextBlock Text="CALL &lt;name&gt;" FontFamily="Consolas" FontWeight="Bold" />
                                 <TextBlock Text="Invokes a macro defined with MACRO" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
 
-                                <TextBlock Text="# comment" FontFamily="Consolas" FontWeight="Bold" />
-                                <TextBlock Text="Blank lines and # lines are ignored" Opacity="0.7" FontSize="11" TextWrapping="Wrap" />
+                                <!-- ===== Variables ===== -->
+                                <TextBlock Text="Variables" FontWeight="Bold" Opacity="0.6" FontSize="12" Margin="0,8,0,6" />
+
+                                <TextBlock Text="{}{CENTRE}" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Usable for either CLICK/HOLD CLICK coordinate - that axis' current midpoint of the target window's client area" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="{}{NEXT_SYSTEM}" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Usable in PASTE - the Route tab's current next system, resolved live as playback reaches it. A manual Play/Step here uses the Options section's &quot;Test {NEXT_SYSTEM}&quot; value instead" Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8" />
+
+                                <TextBlock Text="{}{TRITIUM_LOOPS}" FontFamily="Consolas" FontWeight="Bold" />
+                                <TextBlock Text="Usable anywhere a number is expected, most usefully as a REPEAT count - full ship-loads of tritium still needed to fill the carrier to 1000t and top off the hold, resolved once before the whole script runs. Only computed live (rescanning CMDR info) for an Auto Pilot-triggered run; a manual Play/Step here always uses the Options section's &quot;Test {TRITIUM_LOOPS}&quot; value instead" Opacity="0.7" FontSize="11" TextWrapping="Wrap" />
                             </StackPanel>
                         </ScrollViewer>
                     </materialDesign:Card>

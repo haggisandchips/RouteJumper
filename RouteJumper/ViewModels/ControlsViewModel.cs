@@ -38,6 +38,8 @@ namespace RouteJumper.ViewModels
 
         private const int TritiumDepotCapacity = 1000;
         private const string TritiumLoopsPlaceholder = "{TRITIUM_LOOPS}";
+        private const string DefaultNextSystemTestOverride = "Sol";
+        private const string DefaultTritiumLoopsTestOverride = "1";
 
         private readonly AppSettingsStore _settings;
         private readonly EliteInstanceScanner _scanner;
@@ -66,6 +68,8 @@ namespace RouteJumper.ViewModels
         private IReadOnlyList<MacroInstruction> _stepInstructions = Array.Empty<MacroInstruction>();
         private int _stepIndex;
         private int _lastTritiumLoops;
+        private string _nextSystemTestOverride = DefaultNextSystemTestOverride;
+        private string _tritiumLoopsTestOverride = DefaultTritiumLoopsTestOverride;
 
         /// <summary>
         /// <paramref name="getNextSystemName"/> resolves the Route tab's current "next system"
@@ -78,7 +82,9 @@ namespace RouteJumper.ViewModels
         /// <paramref name="getEngineerInstance"/> and <paramref name="refreshRolesAsync"/> are
         /// the same kind of closure, over RolesViewModel.EngineerInstance/RefreshAsync - used to
         /// resolve a macro's "{TRITIUM_LOOPS}" placeholder against the Engineer's current
-        /// cargo/carrier-fuel data (see RefreshAndComputeTritiumLoopsAsync).
+        /// cargo/carrier-fuel data during an Auto Pilot-triggered run only (see
+        /// ResolveTritiumLoopsAsync; a manual Play/Step in this tab uses the test-value fields
+        /// instead, never this closure).
         /// </summary>
         public ControlsViewModel(
             AppSettingsStore settings,
@@ -348,6 +354,46 @@ namespace RouteJumper.ViewModels
             }
         }
 
+        /// <summary>
+        /// Testing aid: the {NEXT_SYSTEM} value a manual Play or Step (this tab only - never an
+        /// Auto Pilot-triggered run, which always resolves it live against the Route tab) resolves
+        /// a script's PASTE {NEXT_SYSTEM} against, so a script can be tried out here without a live
+        /// route. Defaults to "Sol"; session-only, never persisted. Play/Step are disabled while
+        /// this is blank (see CanPlay/CanStep) rather than silently pasting nothing.
+        /// </summary>
+        public string NextSystemTestOverride
+        {
+            get => _nextSystemTestOverride;
+            set
+            {
+                if (SetProperty(ref _nextSystemTestOverride, value))
+                {
+                    PlayCommand.RaiseCanExecuteChanged();
+                    StepCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Testing aid: the {TRITIUM_LOOPS} value a manual Play or Step (this tab only - never an
+        /// Auto Pilot-triggered run, which always rescans CMDR info and computes it live) resolves
+        /// a script's REPEAT {TRITIUM_LOOPS} against, so a script can be tried out here without a
+        /// running instance in the right cargo/fuel state. Defaults to "1"; session-only, never
+        /// persisted. Play/Step are disabled while this is blank (see CanPlay/CanStep).
+        /// </summary>
+        public string TritiumLoopsTestOverride
+        {
+            get => _tritiumLoopsTestOverride;
+            set
+            {
+                if (SetProperty(ref _tritiumLoopsTestOverride, value))
+                {
+                    PlayCommand.RaiseCanExecuteChanged();
+                    StepCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
         private async Task RefreshAsync()
         {
             IsRefreshing = true;
@@ -540,7 +586,15 @@ namespace RouteJumper.ViewModels
             EditingMacro = macro;
         }
 
-        private bool CanPlay() => !IsRecording && !IsStepping && SelectedInstance is { WindowHandle: not 0 } && SelectedMacro != null;
+        /// <summary>
+        /// Play is also gated on both test-value fields being non-blank (SelectedInstance can't
+        /// tell us whether the selected macro actually needs them, and defaulting to "run it and
+        /// see" risks pasting/repeating against a blank or unparsable value) - see
+        /// NextSystemTestOverride/TritiumLoopsTestOverride.
+        /// </summary>
+        private bool CanPlay() =>
+            !IsRecording && !IsStepping && SelectedInstance is { WindowHandle: not 0 } && SelectedMacro != null &&
+            !string.IsNullOrWhiteSpace(NextSystemTestOverride) && !string.IsNullOrWhiteSpace(TritiumLoopsTestOverride);
 
         /// <summary>
         /// Plays SelectedMacro against SelectedInstance - deliberately not restricted to the
@@ -557,7 +611,7 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
-            StartPlayback(macro, instance);
+            StartPlayback(macro, instance, useTestValues: true);
         }
 
         /// <summary>
@@ -566,10 +620,14 @@ namespace RouteJumper.ViewModels
         /// §4.2) to plot the Captain's macro, so an autopilot-triggered play is exactly as
         /// visible (IsPlaying), stoppable (StopCommand), and error-reported
         /// (PlaybackErrorMessage) as a manual one, rather than a separate, invisible channel.
+        /// Always resolves {NEXT_SYSTEM}/{TRITIUM_LOOPS} live (never the test-value fields below) -
+        /// those exist purely so this tab's own Play/Step can be tried out without a live route or
+        /// a running instance in the right cargo/fuel state; a real Auto Pilot run always needs the
+        /// real values.
         /// </summary>
-        public void PlayMacro(RecordedMacroViewModel macro, EliteInstanceViewModel instance) => StartPlayback(macro, instance);
+        public void PlayMacro(RecordedMacroViewModel macro, EliteInstanceViewModel instance) => StartPlayback(macro, instance, useTestValues: false);
 
-        private void StartPlayback(RecordedMacroViewModel macro, EliteInstanceViewModel instance)
+        private void StartPlayback(RecordedMacroViewModel macro, EliteInstanceViewModel instance, bool useTestValues)
         {
             _playbackCts?.Cancel();
             var cts = new CancellationTokenSource();
@@ -577,8 +635,9 @@ namespace RouteJumper.ViewModels
             IsPlaying = true;
             PlaybackErrorMessage = null;
 
-            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName, AutoWaitMs);
-            _ = RunPlaybackAsync(player, macro.ScriptText, cts);
+            Func<string?> getNextSystemName = useTestValues ? () => NextSystemTestOverride : _getNextSystemName;
+            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, getNextSystemName, AutoWaitMs);
+            _ = RunPlaybackAsync(player, macro.ScriptText, cts, useTestValues);
         }
 
         /// <summary>
@@ -590,7 +649,7 @@ namespace RouteJumper.ViewModels
         /// OperationCanceledException (the user pressed Stop, or started a different playback)
         /// does not, since that's an intentional action, not a failure.
         /// </summary>
-        private async Task RunPlaybackAsync(MacroPlayer player, string scriptText, CancellationTokenSource cts)
+        private async Task RunPlaybackAsync(MacroPlayer player, string scriptText, CancellationTokenSource cts, bool useTestValues)
         {
             try
             {
@@ -599,13 +658,14 @@ namespace RouteJumper.ViewModels
                 // Skip the CMDR rescan entirely for the (vast majority of) scripts that don't
                 // even reference {TRITIUM_LOOPS} - it's a real, sometimes multi-second delay
                 // (scans every running instance's process/journal), and inserting it
-                // unconditionally ahead of every single Play/Auto Pilot trigger risked the game
+                // unconditionally ahead of every single Auto Pilot trigger risked the game
                 // window sitting unfocused (or the user's own attention drifting) long enough for
                 // its UI state to no longer match what the macro assumes by the time it actually
-                // starts sending input.
+                // starts sending input. A manual, test-value-driven run (useTestValues) never
+                // needs this rescan at all - see ResolveTritiumLoopsAsync.
                 if (ReferencesTritiumLoops(scriptText))
                 {
-                    var loops = await RefreshAndComputeTritiumLoopsAsync();
+                    var loops = await ResolveTritiumLoopsAsync(useTestValues);
                     cts.Token.ThrowIfCancellationRequested();
                     scriptToPlay = SubstituteTritiumLoops(scriptText, loops);
                 }
@@ -656,10 +716,10 @@ namespace RouteJumper.ViewModels
         /// to 0 rather than trying to preserve a position against instructions that may no longer
         /// correspond to the same lines.
         ///
-        /// Flattens against the last computed TRITIUM_LOOPS value (0 until it's ever been
-        /// computed) purely as a preview - a REPEAT built from it only expands to its real size
-        /// once RunStepAsync has actually refreshed CMDR info and recomputed it fresh, at which
-        /// point it resets _stepScriptSnapshot to force this to redo the flatten.
+        /// Flattens against the last resolved TRITIUM_LOOPS value (0 until it's ever been
+        /// resolved) purely as a preview - a REPEAT built from it only expands to its real size
+        /// once RunStepAsync has actually resolved it fresh from TritiumLoopsTestOverride, at
+        /// which point it resets _stepScriptSnapshot to force this to redo the flatten.
         /// </summary>
         private void EnsureStepState()
         {
@@ -677,19 +737,27 @@ namespace RouteJumper.ViewModels
             OnPropertyChanged(nameof(StepStatusText));
         }
 
+        /// <summary>
+        /// Step is also gated on both test-value fields being non-blank - Step only ever plays
+        /// against them (there's no Auto Pilot path into Step), so a blank field would otherwise
+        /// silently paste nothing or run 0 REPEAT iterations rather than actually being disabled.
+        /// </summary>
         private bool CanStep()
         {
             EnsureStepState();
             return !IsRecording && !IsPlaying && !IsStepping &&
                    EditingMacro != null && SelectedInstance is { WindowHandle: not 0 } &&
-                   _stepInstructions.Count > 0;
+                   _stepInstructions.Count > 0 &&
+                   !string.IsNullOrWhiteSpace(NextSystemTestOverride) && !string.IsNullOrWhiteSpace(TritiumLoopsTestOverride);
         }
 
         /// <summary>
         /// Runs just the next leaf instruction in EditingMacro's script, wrapping back to the
         /// start once the end is reached - a debugging aid for trying a script one command at a
         /// time (SPEC §6.5), so it naturally supports stepping through the same short script
-        /// repeatedly rather than requiring an explicit "reset" action.
+        /// repeatedly rather than requiring an explicit "reset" action. Always resolves
+        /// {NEXT_SYSTEM}/{TRITIUM_LOOPS} from the test-value fields (there's no Auto Pilot path
+        /// into Step, so there's nothing else for it to resolve against).
         /// </summary>
         private void Step()
         {
@@ -704,14 +772,14 @@ namespace RouteJumper.ViewModels
             _stepCts = cts;
             IsStepping = true;
 
-            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName, AutoWaitMs);
+            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, () => NextSystemTestOverride, AutoWaitMs);
             _ = RunStepAsync(player, cts);
         }
 
         /// <summary>
-        /// If EditingMacro's script references {TRITIUM_LOOPS}, refreshes CMDR info and
-        /// recomputes it first, re-flattening the script against that fresh value (skipped
-        /// entirely otherwise - see RunPlaybackAsync for why this rescan isn't unconditional).
+        /// If EditingMacro's script references {TRITIUM_LOOPS}, resolves it from
+        /// TritiumLoopsTestOverride first, re-flattening the script against that fresh value
+        /// (skipped entirely otherwise - see RunPlaybackAsync for why this isn't unconditional).
         /// Then runs whichever instruction that leaves next in line - unless the *next* one is a
         /// WAIT (its own duration already paces things - though this can't currently happen here,
         /// since Flatten drops WAITs from the stepped sequence entirely) or there is no next
@@ -727,7 +795,7 @@ namespace RouteJumper.ViewModels
             {
                 if (ReferencesTritiumLoops(EditingMacro?.ScriptText))
                 {
-                    await RefreshAndComputeTritiumLoopsAsync();
+                    await ResolveTritiumLoopsAsync(useTestValues: true);
                     cts.Token.ThrowIfCancellationRequested();
                 }
 
@@ -775,22 +843,32 @@ namespace RouteJumper.ViewModels
         };
 
         /// <summary>
-        /// Refreshes both this tab's own instance scan and the Roles tab's (via the
-        /// _refreshRolesAsync closure), so cargo/carrier-fuel data is current for whichever
-        /// instance TRITIUM_LOOPS resolves against, then recomputes and caches it - this tab's own
-        /// SelectedInstance if one is selected here (takes priority, since it's the instance a
-        /// script in this tab is actually about to run against), otherwise the Engineer's
-        /// currently-assigned instance (e.g. an Auto Pilot-triggered run, where nothing is
-        /// selected in this tab at all). Called immediately before every Play/Step/Auto-Pilot-
-        /// triggered run (see RunPlaybackAsync/RunStepAsync), so the value a script actually sees
-        /// is always as fresh as a rescan can make it.
+        /// Resolves {TRITIUM_LOOPS}, cached into _lastTritiumLoops for EnsureStepState's preview.
+        /// <paramref name="useTestValues"/> true (every manual Play/Step in this tab) parses
+        /// TritiumLoopsTestOverride directly and skips the CMDR rescan entirely - the whole point
+        /// of the test-value fields is trying a script out without a running instance in the right
+        /// cargo/fuel state. False (PlayMacro only, i.e. an Auto Pilot-triggered run) rescans both
+        /// this tab's own instance scan and the Roles tab's (via the _refreshRolesAsync closure)
+        /// so cargo/carrier-fuel data is current, then computes it for real - this tab's own
+        /// SelectedInstance if one happens to be selected here, otherwise the Engineer's
+        /// currently-assigned instance (the normal case for an Auto Pilot-triggered run, where
+        /// nothing is selected in this tab at all).
         /// </summary>
-        private async Task<int> RefreshAndComputeTritiumLoopsAsync()
+        private async Task<int> ResolveTritiumLoopsAsync(bool useTestValues)
         {
-            await Task.WhenAll(RefreshAsync(), _refreshRolesAsync());
+            if (useTestValues)
+            {
+                _lastTritiumLoops = int.TryParse(TritiumLoopsTestOverride, out var testLoops) && testLoops >= 0
+                    ? testLoops
+                    : 0;
+            }
+            else
+            {
+                await Task.WhenAll(RefreshAsync(), _refreshRolesAsync());
 
-            var instance = SelectedInstance ?? _getEngineerInstance();
-            _lastTritiumLoops = ComputeTritiumLoops(instance);
+                var instance = SelectedInstance ?? _getEngineerInstance();
+                _lastTritiumLoops = ComputeTritiumLoops(instance);
+            }
 
             // EnsureStepState's cache only ever looks at raw script text, so it can't see that
             // _lastTritiumLoops just changed on its own - force the next call to re-flatten
@@ -804,18 +882,20 @@ namespace RouteJumper.ViewModels
         /// How many full ship-loads of tritium <paramref name="instance"/> still needs to buy or
         /// mine to fill its carrier's fuel depot to 1000t and leave its own cargo hold topped off
         /// too, net of whatever tritium it's already carrying. Requires a known, positive cargo
-        /// capacity to divide by - returns 0 (nothing computable) rather than risk dividing by a
-        /// zero or unknown capacity.
+        /// capacity to divide by, and a known carrier fuel level - returns 0 (nothing computable)
+        /// rather than risk dividing by a zero/unknown capacity, or - previously the actual bug
+        /// here - silently treating an unknown fuel level as 0 (empty), which would wildly
+        /// overstate how many loops are still needed (continuing to mine/deposit long after the
+        /// depot and hold were, in reality, already full) instead of just declining to guess.
         /// </summary>
         private static int ComputeTritiumLoops(EliteInstanceViewModel? instance)
         {
             var capacity = instance?.CargoCapacity ?? 0;
-            if (capacity <= 0)
+            if (capacity <= 0 || instance!.CarrierFuelLevel is not { } carrierFuel)
             {
                 return 0;
             }
 
-            var carrierFuel = instance!.CarrierFuelLevel ?? 0;
             var onBoard = instance.CurrentTritium ?? 0;
 
             var carrierNeeded = Math.Max(0, TritiumDepotCapacity - carrierFuel);

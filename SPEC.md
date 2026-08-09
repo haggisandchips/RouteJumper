@@ -547,6 +547,21 @@ Two settings, laid out side by side:
   stepping specifically, when there's no next instruction at all (the
   script is about to wrap back to the start).
 
+A second row holds two more fields, purely a testing aid for trying a
+script out from this tab without a live route or a running instance in
+the right cargo/fuel state:
+- **Test {NEXT_SYSTEM}**, defaulting to `Sol`. What `PASTE {NEXT_SYSTEM}`
+  resolves to for a manual Play or Step started from this tab.
+- **Test {TRITIUM_LOOPS}**, defaulting to `1`. What `REPEAT
+  {TRITIUM_LOOPS}` resolves to for a manual Play or Step started from
+  this tab, skipping the CMDR rescan §6.4 otherwise describes entirely.
+
+Neither field is ever consulted for an Auto Pilot-triggered run (§4.7) —
+that always resolves both placeholders live, the same as before these
+fields existed. **Play** and **Step** (§6.3, §6.5) are disabled while
+either field is blank, the same as any of their other requirements.
+Session-only, like "Auto Copy To Clipboard" (§4.6) — never persisted.
+
 ### 6.2 Key Bindings
 
 A section associating each of nine named actions with a real key
@@ -669,7 +684,9 @@ CALL refuel
 - `PASTE <text>` sets the clipboard to `<text>` and sends `Ctrl+V`. The
   text may contain the literal placeholder `{NEXT_SYSTEM}`, resolved at
   play time to the Route tab's current in-progress row's system name (or
-  left as literal empty text if there is none) — this is how a macro can
+  left as literal empty text if there is none) for an Auto Pilot-triggered
+  run, or to the Options section's **Test {NEXT_SYSTEM}** field (§6.1) for
+  a manual Play or Step started from this tab — this is how a macro can
   paste a value that isn't known until it actually runs, rather than only
   fixed text typed directly into the script. `PASTE` is never produced by
   recording itself (there is no such thing as a "recorded paste" — manual
@@ -681,28 +698,39 @@ CALL refuel
   live, instruction by instruction, as playback reaches them), it's
   resolved once, textually, immediately before the whole script is parsed
   — a REPEAT's count has to be known before the script can even be split
-  into steps. Immediately before a Play, Step, or Auto Pilot-triggered run
-  of a script that actually contains this placeholder, RouteJumper first
-  refreshes CMDR info for every running instance — the same rescan the
-  Roles and Controls tabs' own Refresh buttons do — then resolves the
-  placeholder against whichever instance the value should reflect: this
-  tab's own selected instance (§6.3) if one is selected here, since that's
-  the instance the script is actually about to run against, otherwise the
-  currently-assigned Engineer (§5.4) — e.g. an Auto Pilot-triggered run,
-  where nothing is selected in this tab at all. The value is the number
-  of full ship-loads of tritium that instance still needs to buy or mine
-  to fill its carrier's fuel depot to 1000t *and* leave its own cargo
-  hold topped off, net of
-  whatever tritium it's already carrying (cargo capacity, carrier fuel
-  level, and tracked onboard tritium — see §5.3). If that instance's cargo
-  capacity isn't known (or is zero), `{TRITIUM_LOOPS}` resolves to `0`
-  rather than risk dividing by it. A script with no `{TRITIUM_LOOPS}` in
-  it at all skips this rescan entirely and plays immediately, same as
-  before this placeholder existed — the rescan is a real, sometimes
+  into steps.
+
+  For an **Auto Pilot-triggered run** of a script that actually contains
+  this placeholder, RouteJumper first refreshes CMDR info for every
+  running instance — the same rescan the Roles and Controls tabs' own
+  Refresh buttons do — then resolves the placeholder against whichever
+  instance the value should reflect: this tab's own selected instance
+  (§6.3) if one happens to be selected here, otherwise the
+  currently-assigned Engineer (§5.4) — the normal case, since nothing is
+  usually selected in this tab during an Auto Pilot run. The value is the
+  number of full ship-loads of tritium that instance still needs to buy or
+  mine to fill its carrier's fuel depot to 1000t *and* leave its own cargo
+  hold topped off, net of whatever tritium it's already carrying (cargo
+  capacity, carrier fuel level, and tracked onboard tritium — see §5.3).
+  If that instance's cargo capacity isn't known (or is zero), *or its
+  carrier fuel level isn't known yet* (e.g. `CarrierStats`/
+  `CarrierDepositFuel` haven't been seen this session, or ownership
+  couldn't be confirmed), `{TRITIUM_LOOPS}` resolves to `0` rather than
+  risk dividing by an unknown capacity or, worse, silently treating an
+  unknown fuel level as an empty depot — which would overstate the loops
+  needed rather than under-run. A script with no `{TRITIUM_LOOPS}` in it
+  at all skips this rescan entirely and plays immediately, same as before
+  this placeholder existed — the rescan is a real, sometimes
   multi-second delay (every running instance's process/journal), and
-  paying it unconditionally on every single Play/Auto Pilot trigger risked
-  the target window's actual in-game state drifting from what the script
+  paying it unconditionally on every single Auto Pilot trigger risked the
+  target window's actual in-game state drifting from what the script
   assumes by the time it finally starts sending input.
+
+  For a **manual Play or Step** started from this tab, the CMDR rescan
+  above never happens at all — the placeholder resolves directly to the
+  Options section's **Test {TRITIUM_LOOPS}** field (§6.1) instead, so a
+  `REPEAT {TRITIUM_LOOPS}` script can be tried out without any running
+  instance's cargo/fuel state being relevant.
 - Blank lines and lines starting with `#` are ignored. The parser is
   deliberately forgiving of malformed lines (skipped, not rejected
   outright), since this text is meant to be hand-edited.
@@ -740,6 +768,11 @@ without leaving the editor, e.g. to try out an edit immediately:
   fixed-width reference panel listing the script grammar (§6.4) —
   positioned as a side column, not stacked above or below the text box,
   so the reference never competes with the script for vertical space.
+  The reference is grouped under three headings, in order: **Actions**
+  (`ACTION_NAME`, `KEY`, `HOLD`, `CLICK`, `HOLD CLICK`, `PASTE`, and
+  `# comment`), **Controls** (`WAIT`, `REPEAT`, `MACRO`, `CALL`), and
+  **Variables** (the three placeholders in use — `{CENTRE}`,
+  `{NEXT_SYSTEM}`, `{TRITIUM_LOOPS}`).
 - A **Save** button below the script text box returns to the compact
   list. Edits (to either the name or the script text) are saved as
   they're made, independent of Save — pressing it is purely a "done for
@@ -1055,14 +1088,17 @@ rather than internal app state like the table below.
     pauses for the configured Auto wait before it's ready to run the
     next one, except when that instruction was the script's last one or
     the next one is a `WAIT`.
-38. Before a Play, Step, or Auto Pilot-triggered run of a script whose
-    text contains `{TRITIUM_LOOPS}`, RouteJumper rescans CMDR info and
-    resolves it to the number of full ship-loads of tritium this tab's
-    own selected instance (or, with none selected, the currently-assigned
-    Engineer) still needs to fill its carrier's fuel depot to 1000t and
-    top off its own cargo hold, net of tritium already aboard — `0` if
-    that instance's cargo capacity isn't known or is zero. A script
-    without the placeholder skips the rescan and plays immediately.
+38. Before an Auto Pilot-triggered run of a script whose text contains
+    `{TRITIUM_LOOPS}`, RouteJumper rescans CMDR info and resolves it to
+    the number of full ship-loads of tritium this tab's own selected
+    instance (or, with none selected, the currently-assigned Engineer)
+    still needs to fill its carrier's fuel depot to 1000t and top off its
+    own cargo hold, net of tritium already aboard — `0` if that
+    instance's cargo capacity or carrier fuel level isn't known (an
+    unknown fuel level must never be treated as an empty depot). A script
+    without the placeholder skips the rescan and plays immediately. A
+    manual Play or Step from this tab never rescans at all — see
+    criterion 43.
 39. Independently of the Captain's plot, if Engineer is currently
     assigned, the moment a row's Status becomes Cooldown, Auto Pilot
     waits the same configured Auto Pilot delay and then plays the
@@ -1085,3 +1121,10 @@ rather than internal app state like the table below.
     executes, unless the next one is itself a `WAIT` - the same setting
     and rule the macro editor's Step button already applies (criterion
     37), now applied uniformly regardless of how the script was started.
+43. The Options section shows "Test {NEXT_SYSTEM}" (defaulting to `Sol`)
+    and "Test {TRITIUM_LOOPS}" (defaulting to `1`) fields; a manual Play
+    or Step started from this tab resolves those placeholders directly
+    from these fields (no CMDR rescan, no Route tab dependency), while an
+    Auto Pilot-triggered run always resolves them live regardless of what
+    these fields hold. Play and Step are both disabled while either field
+    is blank. Neither field persists across a restart.
