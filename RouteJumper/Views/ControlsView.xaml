@@ -64,13 +64,13 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Options" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="AutoPilot delay (ms)"
+                <TextBlock Text="Auto Pilot delay (ms)"
                            Width="220"
                            VerticalAlignment="Center" />
                 <TextBox Text="{Binding AutoPilotDelayMs, UpdateSourceTrigger=LostFocus}"
                          Width="100"
                          ToolTip="How long Auto Pilot waits after a jump's cooldown clears before plotting the next one, and after cooldown starts before the Engineer refuels"
-                         AutomationProperties.Name="AutoPilot delay" />
+                         AutomationProperties.Name="Auto Pilot delay" />
                 <TextBlock Text="Stepping wait (ms)"
                            Width="140"
                            Margin="24,0,0,0"

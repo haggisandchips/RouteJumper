@@ -196,7 +196,7 @@ the whole route reaches Complete or Auto Pilot is stopped:
 - For whichever row is currently in-progress, if it isn't showing
   `Cooldown`, the Captain's macro plays immediately.
 - If it *is* showing `Cooldown`, the Captain's macro instead plays once
-  Cooldown clears (§5.7) plus the configured AutoPilot delay (Controls
+  Cooldown clears (§5.7) plus the configured Auto Pilot delay (Controls
   tab Options, §6.1) — not immediately on clearing, since the game's own
   UI needs a moment to settle first.
 - The same rule applies the moment Auto Pilot is engaged, not just to
@@ -209,7 +209,7 @@ the whole route reaches Complete or Auto Pilot is stopped:
 - Independently of the Captain's plot above: the moment a row's `Status`
   *becomes* `Cooldown` (§5.7) — including if it's already showing
   `Cooldown` the instant Auto Pilot is engaged, the same as the Captain's
-  own case — Auto Pilot waits the same configured AutoPilot delay and
+  own case — Auto Pilot waits the same configured Auto Pilot delay and
   then, only if Engineer is currently assigned, plays the Engineer's
   selected macro against the Engineer's assigned instance. This fires
   once per row's Cooldown period (not repeatedly while it continues
@@ -456,7 +456,7 @@ own content overflows).
 ### 6.1 Options
 
 Two settings, laid out side by side:
-- **AutoPilot delay (ms)**, defaulting to `5000`. Auto Pilot (§4.2) waits
+- **Auto Pilot delay (ms)**, defaulting to `5000`. Auto Pilot (§4.2) waits
   this long, on top of however long a jump's Cooldown itself already
   took, both after Cooldown clears before the Captain plots the next jump
   and after Cooldown starts before the Engineer (if assigned) refuels
@@ -738,7 +738,7 @@ rather than internal app state like the table below.
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
-| Controls tab options (AutoPilot delay, Stepping wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
+| Controls tab options (Auto Pilot delay, Stepping wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 
@@ -934,13 +934,13 @@ rather than internal app state like the table below.
     it referencing a macro that no longer exists. Renaming a selected
     macro does not lose the selection.
 35. The Controls tab shows an Options section above Key Bindings with an
-    "AutoPilot delay (ms)" setting, defaulting to 5000, and a
+    "Auto Pilot delay (ms)" setting, defaulting to 5000, and a
     "Stepping wait (ms)" setting, defaulting to 250, laid out side by
     side; both persist across restarts.
 36. Engaging Auto Pilot plays the Captain's selected macro against the
     Captain's assigned instance for whichever row is currently
     in-progress: immediately if it isn't showing Cooldown, or after
-    Cooldown clears plus the configured AutoPilot delay if it is - the
+    Cooldown clears plus the configured Auto Pilot delay if it is - the
     same rule whether this is the first row (evaluated the moment Auto
     Pilot is engaged) or a later one (evaluated as journal tracking
     advances the route). This repeats until every row reaches Complete,
@@ -967,7 +967,7 @@ rather than internal app state like the table below.
     or is zero.
 39. Independently of the Captain's plot, if Engineer is currently
     assigned, the moment a row's Status becomes Cooldown, Auto Pilot
-    waits the same configured AutoPilot delay and then plays the
+    waits the same configured Auto Pilot delay and then plays the
     Engineer's selected macro against the Engineer's assigned instance -
     once per row's Cooldown period, alongside (not instead of) the
     Captain's own plot-at-Cooldown-clear trigger, and not at all with no
