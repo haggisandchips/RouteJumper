@@ -156,18 +156,27 @@ its current `Status` text:
 - A completed row's own `Status` is always blank — see §5.7 for why
   `Cooldown` is shown on the row *after* the one that just completed, not
   on that row itself.
-- A thin progress bar sits behind the `Status` cell's text for
-  `Plotted`/`Jumping`/`Cooldown` only (hidden for a blank or Complete
-  status, which have no known end) — purely a cosmetic countdown, not a
-  route-progress indicator: full the instant that status starts, and
-  visually draining down to empty as it approaches the real-world instant
-  §5.7 already computes for that status's own end (`Jumping` starting,
-  the eventual arrival, or `Cooldown` clearing, respectively). Ticks on a
-  lightweight UI timer, entirely separate from the event-driven
-  Sequencing/ logic that actually drives those transitions (CLAUDE.md) —
-  it never affects, and is never affected by, anything but its own redraw.
-  A row whose relevant journal timestamp couldn't be parsed shows that
-  status with no progress bar rather than a guess.
+- A thin progress bar sits below the `Status` cell's text (its own space,
+  not overlapping it) for `Plotted`/`Jumping`/`Cooldown` only (hidden for
+  a blank or Complete status, which have no known end) — purely a
+  cosmetic countdown, not a route-progress indicator: full the instant
+  that status starts, and visually draining down to empty as it
+  approaches the real-world instant §5.7 already computes (or, for
+  `Jumping`, estimates — see below) for that status's own end (`Jumping`
+  starting, the eventual arrival, or `Cooldown` clearing, respectively).
+  Ticks on a lightweight UI timer, entirely separate from the
+  event-driven Sequencing/ logic that actually drives those transitions
+  (CLAUDE.md) — it never affects, and is never affected by, anything but
+  its own redraw. A row whose relevant journal timestamp couldn't be
+  parsed shows that status with no progress bar rather than a guess.
+  `Jumping`'s own end can only be estimated at `CarrierJumpRequest` time
+  as `DepartureTime` plus the same 1-minute `ArrivalToCooldownDelay` §5.7
+  uses elsewhere — not `DepartureTime` itself — since the row doesn't
+  actually leave `Jumping` until the composite Arrived step fires, 1
+  minute after the carrier's own arrival, which is not yet known this
+  early; the carrier's jump is effectively instantaneous at
+  `DepartureTime` in practice, making this a close approximation of the
+  real, later-confirmed arrival time.
 
 ### 4.5 Persistence
 See §7.
@@ -208,16 +217,28 @@ and — if Engineer is currently assigned — refuels by playing the
 Engineer's selected macro against the Engineer's assigned instance, until
 the whole route reaches Complete or Auto Pilot is stopped:
 
-- For whichever row is currently in-progress, if it isn't showing
-  `Cooldown`, the Captain's macro plays immediately.
+- For whichever row is currently in-progress, if its `Status` is blank
+  (not yet plotted) and it isn't showing `Cooldown`, the Captain's macro
+  plays immediately.
 - If it *is* showing `Cooldown`, the Captain's macro instead plays once
   Cooldown clears (§5.7) plus the configured Auto Pilot delay (Controls
   tab Options, §6.1) — not immediately on clearing, since the game's own
   UI needs a moment to settle first.
-- The same rule applies the moment Auto Pilot is engaged, not just to
+- If the row is already `Plotted` or `Jumping` — a jump for it has
+  already been requested, whether that happened before Auto Pilot was
+  even engaged (the app was (re)started, or the carrier's own journal
+  simply already had a plot in flight) or Auto Pilot itself triggered it
+  moments ago and journal tracking (§5.7) just hasn't advanced the row
+  past it yet — the Captain's macro does **not** play again for it.
+  Playing it a second time would plot a redundant jump; Auto Pilot just
+  waits for journal tracking to move the row on naturally, the same as
+  it does for any other row already in flight.
+- The same rules apply the moment Auto Pilot is engaged, not just to
   later rows: if Cooldown happens to already be active on the
   in-progress row at that moment, the first macro play waits for it
-  (plus the delay) exactly the same way; if not, it plays right away.
+  (plus the delay) exactly the same way; if it's already Plotted or
+  Jumping, nothing plays for it at all; if it's blank, it plays right
+  away.
 - Once that row completes and journal tracking (§5.7) advances the route
   to the next row, the same rule repeats for it, and so on until no row
   is left in-progress.
@@ -479,13 +500,16 @@ Two settings, laid out side by side:
   before a macro starts clicking through panels, whichever end of
   Cooldown it's settling after. Has no effect on Cooldown's own timing
   (§5.7), and no effect on a manually-triggered Play (§6.5).
-- **Stepping wait (ms)**, defaulting to `250`. The macro editor's Step
-  button (§6.5) pauses this long after running an instruction before it's
-  ready to run the next one, giving the user a moment to actually see the
-  game react. Not applied after a `WAIT` instruction (its own duration
-  already provides the pause) or after the script's final instruction
-  (nothing follows it until Step wraps back to the start). Has no effect
-  on a manually-triggered Play, or on Auto Pilot.
+- **Auto wait (ms)**, defaulting to `250`. Applied automatically after
+  every leaf instruction a script executes — whether played (§6.5),
+  stepped one at a time via the macro editor's Step button (§6.5), or
+  triggered by Auto Pilot (§4.7) — so a script can rely on this for
+  consistent pacing between actions instead of needing an explicit `WAIT`
+  after every single one. Skipped only when the very next instruction is
+  itself a `WAIT` (its own duration already provides the pause, so
+  stacking this one in front of it would just be redundant) or, when
+  stepping specifically, when there's no next instruction at all (the
+  script is about to wrap back to the start).
 
 ### 6.2 Key Bindings
 
@@ -621,8 +645,8 @@ CALL refuel
   live, instruction by instruction, as playback reaches them), it's
   resolved once, textually, immediately before the whole script is parsed
   — a REPEAT's count has to be known before the script can even be split
-  into steps. Immediately before every Play, Step, or Auto Pilot-triggered
-  run (not only ones that actually reference it), RouteJumper first
+  into steps. Immediately before a Play, Step, or Auto Pilot-triggered run
+  of a script that actually contains this placeholder, RouteJumper first
   refreshes CMDR info for every running instance — the same rescan the
   Roles and Controls tabs' own Refresh buttons do — then resolves the
   placeholder against whichever instance the value should reflect: this
@@ -636,7 +660,13 @@ CALL refuel
   whatever tritium it's already carrying (cargo capacity, carrier fuel
   level, and tracked onboard tritium — see §5.3). If that instance's cargo
   capacity isn't known (or is zero), `{TRITIUM_LOOPS}` resolves to `0`
-  rather than risk dividing by it.
+  rather than risk dividing by it. A script with no `{TRITIUM_LOOPS}` in
+  it at all skips this rescan entirely and plays immediately, same as
+  before this placeholder existed — the rescan is a real, sometimes
+  multi-second delay (every running instance's process/journal), and
+  paying it unconditionally on every single Play/Auto Pilot trigger risked
+  the target window's actual in-game state drifting from what the script
+  assumes by the time it finally starts sending input.
 - Blank lines and lines starting with `#` are ignored. The parser is
   deliberately forgiving of malformed lines (skipped, not rejected
   outright), since this text is meant to be hand-edited.
@@ -712,11 +742,16 @@ steps in order using simulated system-wide input (not messages posted to
 the window directly, since a DirectX game reads actual input device state
 rather than the window message queue) — the same key-chord/hold/click/
 wait/paste vocabulary §6.4 describes, resolving `PASTE {NEXT_SYSTEM}`
-against the Route tab's live state at the moment it executes. Starting a
-new playback while a previous one is still in progress cancels the
-previous one first, the same as pressing **Stop** (§6.3) does explicitly
-— playback can be cancelled at any point in the script, not just between
-steps.
+against the Route tab's live state at the moment it executes. After each
+step, the configured Auto wait (§6.1) is applied automatically before the
+next one runs, unless the next step is itself a `WAIT` — this is what
+lets a script rely on consistent built-in pacing between actions instead
+of an explicit `WAIT` after every single one, and applies the same way
+whether this playback was started manually or by Auto Pilot (§4.7).
+Starting a new playback while a previous one is still in progress cancels
+the previous one first, the same as pressing **Stop** (§6.3) does
+explicitly — playback can be cancelled at any point in the script, not
+just between steps.
 
 If the target window ever loses focus while a script is playing (the
 simulated input has nowhere else meaningful to go once something else has
@@ -754,7 +789,7 @@ rather than internal app state like the table below.
 | Route table column widths | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
-| Controls tab options (Auto Pilot delay, Stepping wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
+| Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 
@@ -950,16 +985,20 @@ rather than internal app state like the table below.
     it referencing a macro that no longer exists. Renaming a selected
     macro does not lose the selection.
 35. The Controls tab shows an Options section above Key Bindings with an
-    "Auto Pilot delay (ms)" setting, defaulting to 5000, and a
-    "Stepping wait (ms)" setting, defaulting to 250, laid out side by
+    "Auto Pilot delay (ms)" setting, defaulting to 5000, and an
+    "Auto wait (ms)" setting, defaulting to 250, laid out side by
     side; both persist across restarts.
 36. Engaging Auto Pilot plays the Captain's selected macro against the
     Captain's assigned instance for whichever row is currently
-    in-progress: immediately if it isn't showing Cooldown, or after
-    Cooldown clears plus the configured Auto Pilot delay if it is - the
-    same rule whether this is the first row (evaluated the moment Auto
-    Pilot is engaged) or a later one (evaluated as journal tracking
-    advances the route). This repeats until every row reaches Complete,
+    in-progress, but only if it still needs plotting: immediately if its
+    Status is blank and it isn't showing Cooldown, or after Cooldown
+    clears plus the configured Auto Pilot delay if it is - the same rule
+    whether this is the first row (evaluated the moment Auto Pilot is
+    engaged) or a later one (evaluated as journal tracking advances the
+    route). If the row is already Plotted or Jumping when evaluated -
+    including the moment Auto Pilot is first engaged, e.g. after an app
+    restart mid-journey with a jump already in flight - the macro is not
+    played again for it. This repeats until every row reaches Complete,
     at which point Auto Pilot stops itself automatically, or until Auto
     Pilot is stopped manually or its requirements stop being met
     mid-run.
@@ -970,17 +1009,17 @@ rather than internal app state like the table below.
     back to the first. Step is disabled while recording, playing, or
     already stepping, and Stop cancels a step in progress the same as
     it cancels a full playback. After running an instruction, Step
-    pauses for the configured Stepping wait before it's ready to run the
+    pauses for the configured Auto wait before it's ready to run the
     next one, except when that instruction was the script's last one or
-    a `WAIT`.
-38. Before every Play, Step, or Auto Pilot-triggered macro run,
-    RouteJumper rescans CMDR info and resolves any `{TRITIUM_LOOPS}` in
-    that script's text to the number of full ship-loads of tritium this
-    tab's own selected instance (or, with none selected, the
-    currently-assigned Engineer) still needs to fill its carrier's fuel
-    depot to 1000t and top off its own cargo hold, net of tritium
-    already aboard — `0` if that instance's cargo capacity isn't known
-    or is zero.
+    the next one is a `WAIT`.
+38. Before a Play, Step, or Auto Pilot-triggered run of a script whose
+    text contains `{TRITIUM_LOOPS}`, RouteJumper rescans CMDR info and
+    resolves it to the number of full ship-loads of tritium this tab's
+    own selected instance (or, with none selected, the currently-assigned
+    Engineer) still needs to fill its carrier's fuel depot to 1000t and
+    top off its own cargo hold, net of tritium already aboard — `0` if
+    that instance's cargo capacity isn't known or is zero. A script
+    without the placeholder skips the rescan and plays immediately.
 39. Independently of the Captain's plot, if Engineer is currently
     assigned, the moment a row's Status becomes Cooldown, Auto Pilot
     waits the same configured Auto Pilot delay and then plays the
@@ -995,3 +1034,8 @@ rather than internal app state like the table below.
 41. Resizing a Route table column and relaunching the app restores that
     column's width exactly as left, per column, with no manual
     reconfiguration required.
+42. During a manual Play or an Auto Pilot-triggered run, the configured
+    Auto wait is applied automatically after every instruction the script
+    executes, unless the next one is itself a `WAIT` - the same setting
+    and rule the macro editor's Step button already applies (criterion
+    37), now applied uniformly regardless of how the script was started.

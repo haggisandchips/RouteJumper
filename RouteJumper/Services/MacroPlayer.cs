@@ -47,15 +47,29 @@ namespace RouteJumper.Services
         private readonly IntPtr _targetWindow;
         private readonly Func<ControlAction, string?> _resolveBinding;
         private readonly Func<string?> _getNextSystemName;
+        private readonly int _autoWaitMs;
 
+        /// <summary>
+        /// <paramref name="autoWaitMs"/> (Controls tab Options §6.1) is applied automatically by
+        /// <see cref="RunAsync"/> after every leaf instruction it executes during a full
+        /// <see cref="PlayAsync"/> run - lets a script rely on consistent built-in pacing between
+        /// actions instead of needing an explicit WAIT after every single one, applied uniformly
+        /// regardless of how playback was started (manual Play, Auto Pilot, or - via a separate,
+        /// equivalent mechanism in ControlsViewModel.RunStepAsync, since Step executes one
+        /// instruction per call rather than a whole script - the macro editor's Step button).
+        /// Skipped only when the very next instruction is itself a WAIT, so the two delays never
+        /// stack redundantly back-to-back with nothing happening in between.
+        /// </summary>
         public MacroPlayer(
             IntPtr targetWindow,
             Func<ControlAction, string?> resolveBinding,
-            Func<string?> getNextSystemName)
+            Func<string?> getNextSystemName,
+            int autoWaitMs = 0)
         {
             _targetWindow = targetWindow;
             _resolveBinding = resolveBinding;
             _getNextSystemName = getNextSystemName;
+            _autoWaitMs = autoWaitMs;
         }
 
         /// <summary>
@@ -127,14 +141,15 @@ namespace RouteJumper.Services
                 return;
             }
 
-            foreach (var step in steps)
+            for (var i = 0; i < steps.Count; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var step = steps[i];
 
                 switch (step)
                 {
                     case MacroInstruction.Repeat repeat:
-                        for (var i = 0; i < repeat.Count; i++)
+                        for (var r = 0; r < repeat.Count; r++)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
                             await RunAsync(repeat.Body, macros, callDepth + 1, cancellationToken);
@@ -150,6 +165,20 @@ namespace RouteJumper.Services
 
                     default:
                         await ExecuteLeafAsync(step, cancellationToken);
+
+                        // Auto-pace after every leaf instruction, unless the next one (at this
+                        // same nesting level) is itself a WAIT - its own duration already
+                        // provides the pause, so stacking ours in front of it would just be a
+                        // redundant extra delay. Reaching the end of a nested REPEAT/CALL body
+                        // with nothing left to peek at here defaults to pacing anyway (rather
+                        // than trying to look across the recursion boundary into whatever the
+                        // caller's own next step is) - a harmless, at-worst-slightly-redundant
+                        // wait beats the complexity of tracking that precisely.
+                        var nextIsWait = i + 1 < steps.Count && steps[i + 1] is MacroInstruction.Wait;
+                        if (!nextIsWait && _autoWaitMs > 0)
+                        {
+                            await Task.Delay(_autoWaitMs, cancellationToken);
+                        }
                         break;
                 }
             }

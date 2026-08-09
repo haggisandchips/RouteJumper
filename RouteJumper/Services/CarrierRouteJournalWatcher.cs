@@ -312,19 +312,29 @@ namespace RouteJumper.Services
                     {
                         _hasSeenJumpRequest = true;
 
-                        // Plotted's own PhaseEndUtc is the instant Jumping will start (below) -
-                        // Jumping's is DepartureTime itself, the instant it will in turn end.
-                        // Both are purely cosmetic (Route tab §4.4's countdown progress bar);
-                        // null if DepartureTime couldn't be parsed, same as the existing
-                        // "can't schedule what we can't compute" fallback for Jumping itself.
+                        // Plotted's own PhaseEndUtc is the instant Jumping will start (below).
+                        // Jumping's is an estimate of when the row will actually leave Jumping -
+                        // not DepartureTime itself, but ArrivalToCooldownDelay (1 minute) after
+                        // it: the row doesn't move on until the composite Arrived step actually
+                        // fires, which SPEC §5.7 fires 1 minute after the carrier's own
+                        // CarrierLocation (arrival) timestamp, not at DepartureTime. Arrival
+                        // isn't known yet at CarrierJumpRequest time, but it's effectively
+                        // instantaneous at DepartureTime in practice, so DepartureTime +
+                        // ArrivalToCooldownDelay is the best available estimate (Arrived's own
+                        // PhaseEndUtc, set once CarrierLocation is actually observed, is exact).
+                        // Both PhaseEndUtc values are purely cosmetic (Route tab §4.4's countdown
+                        // progress bar); null if DepartureTime couldn't be parsed, same as the
+                        // existing "can't schedule what we can't compute" fallback for Jumping
+                        // itself.
                         var departureTimeUtc = TryReadTimestampUtc(root, "DepartureTime");
                         var jumpingStartUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value - JumpingLeadTime : (DateTime?)null;
+                        var jumpingEndEstimateUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value + ArrivalToCooldownDelay : (DateTime?)null;
 
                         _onRowEvent(RowEventKind.Plotted, systemName, isLive, jumpingStartUtc);
 
                         if (departureTimeUtc.HasValue)
                         {
-                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, jumpingStartUtc!.Value, isLive, departureTimeUtc.Value);
+                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, jumpingStartUtc!.Value, isLive, jumpingEndEstimateUtc);
                         }
                     }
                 }

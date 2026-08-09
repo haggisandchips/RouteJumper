@@ -19,8 +19,8 @@ namespace RouteJumper.ViewModels
 
         private const string AutoPilotDelayMsSettingKey = "AutoPilotDelayMs";
         private const int DefaultAutoPilotDelayMs = 5000;
-        private const string SteppingWaitMsSettingKey = "SteppingWaitMs";
-        private const int DefaultSteppingWaitMs = 250;
+        private const string AutoWaitMsSettingKey = "AutoWaitMs";
+        private const int DefaultAutoWaitMs = 250;
 
         private static readonly IReadOnlyDictionary<ControlAction, (Key Key, ModifierKeys Modifiers)> DefaultBindings =
             new Dictionary<ControlAction, (Key, ModifierKeys)>
@@ -37,6 +37,7 @@ namespace RouteJumper.ViewModels
             };
 
         private const int TritiumDepotCapacity = 1000;
+        private const string TritiumLoopsPlaceholder = "{TRITIUM_LOOPS}";
 
         private readonly AppSettingsStore _settings;
         private readonly EliteInstanceScanner _scanner;
@@ -58,7 +59,7 @@ namespace RouteJumper.ViewModels
         private bool _isPlaying;
         private string? _playbackErrorMessage;
         private int _autoPilotDelayMs = DefaultAutoPilotDelayMs;
-        private int _steppingWaitMs = DefaultSteppingWaitMs;
+        private int _autoWaitMs = DefaultAutoWaitMs;
         private bool _isStepping;
         private CancellationTokenSource? _stepCts;
         private string? _stepScriptSnapshot;
@@ -94,9 +95,9 @@ namespace RouteJumper.ViewModels
             _autoPilotDelayMs = _settings.GetDouble(AutoPilotDelayMsSettingKey) is { } storedDelay
                 ? Math.Max(0, (int)storedDelay)
                 : DefaultAutoPilotDelayMs;
-            _steppingWaitMs = _settings.GetDouble(SteppingWaitMsSettingKey) is { } storedSteppingWait
-                ? Math.Max(0, (int)storedSteppingWait)
-                : DefaultSteppingWaitMs;
+            _autoWaitMs = _settings.GetDouble(AutoWaitMsSettingKey) is { } storedAutoWait
+                ? Math.Max(0, (int)storedAutoWait)
+                : DefaultAutoWaitMs;
 
             KeyBindings = new ObservableCollection<KeyBindingViewModel>(LoadKeyBindings());
             Instances = new ObservableCollection<EliteInstanceViewModel>();
@@ -325,22 +326,24 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Options (§6.1): how long the macro editor's Step button (§6.5) pauses after running an
-        /// instruction before it's ready to run the next one - gives the user a moment to actually
-        /// see the game react to that step before the next one fires. Not applied after the final
-        /// step in the script (nothing follows it until Step wraps back to the start, so there's
-        /// nothing to pace against) or after a WAIT step (that instruction's own duration already
-        /// provides the pause). Clamped to non-negative.
+        /// Options (§6.1): how long MacroPlayer automatically pauses after each leaf instruction
+        /// it executes - lets a script rely on consistent built-in pacing between actions instead
+        /// of needing an explicit WAIT after every single one. Applied uniformly regardless of how
+        /// the script was started (manual Play, Auto Pilot, or the macro editor's Step button,
+        /// §6.5) - skipped only when the very next instruction is itself a WAIT (that one's own
+        /// duration already provides the pause; stacking ours in front of it would just be a
+        /// redundant extra delay) or, for Step specifically, when there's no next instruction to
+        /// pace against (the script is about to wrap back to the start). Clamped to non-negative.
         /// </summary>
-        public int SteppingWaitMs
+        public int AutoWaitMs
         {
-            get => _steppingWaitMs;
+            get => _autoWaitMs;
             set
             {
                 var clamped = Math.Max(0, value);
-                if (SetProperty(ref _steppingWaitMs, clamped))
+                if (SetProperty(ref _autoWaitMs, clamped))
                 {
-                    _settings.SetDouble(SteppingWaitMsSettingKey, clamped);
+                    _settings.SetDouble(AutoWaitMsSettingKey, clamped);
                 }
             }
         }
@@ -574,7 +577,7 @@ namespace RouteJumper.ViewModels
             IsPlaying = true;
             PlaybackErrorMessage = null;
 
-            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName);
+            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName, AutoWaitMs);
             _ = RunPlaybackAsync(player, macro.ScriptText, cts);
         }
 
@@ -591,9 +594,23 @@ namespace RouteJumper.ViewModels
         {
             try
             {
-                var loops = await RefreshAndComputeTritiumLoopsAsync();
-                cts.Token.ThrowIfCancellationRequested();
-                await player.PlayAsync(SubstituteTritiumLoops(scriptText, loops), cts.Token);
+                var scriptToPlay = scriptText;
+
+                // Skip the CMDR rescan entirely for the (vast majority of) scripts that don't
+                // even reference {TRITIUM_LOOPS} - it's a real, sometimes multi-second delay
+                // (scans every running instance's process/journal), and inserting it
+                // unconditionally ahead of every single Play/Auto Pilot trigger risked the game
+                // window sitting unfocused (or the user's own attention drifting) long enough for
+                // its UI state to no longer match what the macro assumes by the time it actually
+                // starts sending input.
+                if (ReferencesTritiumLoops(scriptText))
+                {
+                    var loops = await RefreshAndComputeTritiumLoopsAsync();
+                    cts.Token.ThrowIfCancellationRequested();
+                    scriptToPlay = SubstituteTritiumLoops(scriptText, loops);
+                }
+
+                await player.PlayAsync(scriptToPlay, cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -687,23 +704,32 @@ namespace RouteJumper.ViewModels
             _stepCts = cts;
             IsStepping = true;
 
-            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName);
+            var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, _getNextSystemName, AutoWaitMs);
             _ = RunStepAsync(player, cts);
         }
 
         /// <summary>
-        /// Refreshes CMDR info and recomputes TRITIUM_LOOPS, re-flattens the script against that
-        /// fresh value, then runs whichever instruction that leaves next in line - unless it was a
-        /// WAIT (its own duration already paces things) or the final instruction in the script
-        /// (nothing follows it until Step wraps back to the start), pauses for SteppingWaitMs
-        /// afterward so the user has a moment to see the game react before pressing Step again.
+        /// If EditingMacro's script references {TRITIUM_LOOPS}, refreshes CMDR info and
+        /// recomputes it first, re-flattening the script against that fresh value (skipped
+        /// entirely otherwise - see RunPlaybackAsync for why this rescan isn't unconditional).
+        /// Then runs whichever instruction that leaves next in line - unless the *next* one is a
+        /// WAIT (its own duration already paces things - though this can't currently happen here,
+        /// since Flatten drops WAITs from the stepped sequence entirely) or there is no next
+        /// instruction (the script is about to wrap back to the start), pauses for AutoWaitMs
+        /// afterward so the user has a moment to see the game react before pressing Step again -
+        /// the same rule (and the same setting) MacroPlayer itself applies during a full Play or
+        /// Auto Pilot run (see MacroPlayer.RunAsync), just evaluated here instead since Step
+        /// executes one pre-flattened instruction per call rather than a whole script in one go.
         /// </summary>
         private async Task RunStepAsync(MacroPlayer player, CancellationTokenSource cts)
         {
             try
             {
-                await RefreshAndComputeTritiumLoopsAsync();
-                cts.Token.ThrowIfCancellationRequested();
+                if (ReferencesTritiumLoops(EditingMacro?.ScriptText))
+                {
+                    await RefreshAndComputeTritiumLoopsAsync();
+                    cts.Token.ThrowIfCancellationRequested();
+                }
 
                 EnsureStepState();
                 if (_stepInstructions.Count == 0)
@@ -715,13 +741,14 @@ namespace RouteJumper.ViewModels
                 var instruction = _stepInstructions[_stepIndex];
                 _stepIndex = (_stepIndex + 1) % _stepInstructions.Count;
                 var isFinalStep = _stepIndex == 0; // wrapped back to the start - this was the last instruction
+                var nextIsWait = !isFinalStep && _stepInstructions[_stepIndex] is MacroInstruction.Wait;
                 OnPropertyChanged(nameof(StepStatusText));
 
                 await player.RunSingleStepAsync(instruction, cts.Token);
 
-                if (!isFinalStep && instruction is not MacroInstruction.Wait && SteppingWaitMs > 0)
+                if (!isFinalStep && !nextIsWait && AutoWaitMs > 0)
                 {
-                    await Task.Delay(SteppingWaitMs, cts.Token);
+                    await Task.Delay(AutoWaitMs, cts.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -799,7 +826,10 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Substitutes the literal "{TRITIUM_LOOPS}" placeholder with loops, wherever it appears in scriptText - most usefully as a REPEAT count (e.g. "REPEAT {TRITIUM_LOOPS}"), resolved here (before parsing) rather than at play time like {NEXT_SYSTEM}/{CENTRE}, since a REPEAT's count has to be known before the script can even be parsed/flattened into steps.</summary>
         private static string SubstituteTritiumLoops(string scriptText, int loops) =>
-            scriptText.Replace("{TRITIUM_LOOPS}", loops.ToString(), StringComparison.Ordinal);
+            scriptText.Replace(TritiumLoopsPlaceholder, loops.ToString(), StringComparison.Ordinal);
+
+        private static bool ReferencesTritiumLoops(string? scriptText) =>
+            scriptText != null && scriptText.Contains(TritiumLoopsPlaceholder, StringComparison.Ordinal);
 
         private string? ResolveActionBinding(ControlAction action) =>
             KeyBindings.FirstOrDefault(b => b.Action == action)?.StorageString;

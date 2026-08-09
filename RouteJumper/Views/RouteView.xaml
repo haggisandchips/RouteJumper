@@ -14,6 +14,39 @@
         <converters:IconStatusToPackIconKindConverter x:Key="IconStatusToPackIconKindConverter" />
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
         <converters:AutoPilotLabelConverter x:Key="AutoPilotLabelConverter" />
+        <converters:NegatePaddingConverter x:Key="NegatePaddingConverter" />
+
+        <!-- Same appearance/selection behavior as the toolkit's own cell style - just without
+             the "current cell" border a click leaves behind. That border comes from the base
+             style's own IsFocused/IsSelected triggers setting BorderThickness/BorderBrush on the
+             cell's template (not the FocusVisualStyle adorner, which has no effect here), so it's
+             neutralized with triggers of our own for the same conditions, appended after the
+             inherited ones and so taking precedence. The grey row selection background is a
+             separate, row-level trigger (see RowStyle below) and is untouched by this. -->
+        <Style x:Key="RouteDataGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource MaterialDesignDataGridCell}">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Style.Triggers>
+                <Trigger Property="IsFocused" Value="True">
+                    <Setter Property="BorderThickness" Value="0" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="BorderThickness" Value="0" />
+                </Trigger>
+                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                    <Setter Property="BorderThickness" Value="0" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Same as above, but also stretches its content presenter to the cell's full size -
+             the Status column's own CellTemplate needs this so its progress bar can actually
+             reach the cell's true right/bottom edges (see RouteDataGrid.Columns below); every
+             other column is happy with the base style's own (narrower, content-sized) default. -->
+        <Style x:Key="RouteStatusCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource RouteDataGridCellStyle}">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+        </Style>
     </UserControl.Resources>
 
     <Grid Margin="12">
@@ -90,33 +123,8 @@
                       IsReadOnly="True"
                       HeadersVisibility="Column"
                       GridLinesVisibility="Horizontal"
-                      RowHeaderWidth="0">
-                <DataGrid.CellStyle>
-                    <!-- Same appearance/selection behavior as the toolkit's own cell style -
-                         just without the "current cell" border a click leaves behind. That
-                         border comes from the base style's own IsFocused/IsSelected triggers
-                         setting BorderThickness/BorderBrush on the cell's template (not the
-                         FocusVisualStyle adorner, which has no effect here), so it's neutralized
-                         with triggers of our own for the same conditions, appended after the
-                         inherited ones and so taking precedence. The grey row selection
-                         background is a separate, row-level trigger (see RowStyle below) and is
-                         untouched by this. -->
-                    <Style TargetType="DataGridCell" BasedOn="{StaticResource MaterialDesignDataGridCell}">
-                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                        <Setter Property="BorderThickness" Value="0" />
-                        <Style.Triggers>
-                            <Trigger Property="IsFocused" Value="True">
-                                <Setter Property="BorderThickness" Value="0" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="BorderThickness" Value="0" />
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter Property="BorderThickness" Value="0" />
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </DataGrid.CellStyle>
+                      RowHeaderWidth="0"
+                      CellStyle="{StaticResource RouteDataGridCellStyle}">
                 <DataGrid.RowStyle>
                     <!-- Clicking anywhere in a row (not just the System cell) copies that
                          row's system name - see ClickCommandBehavior. Right-click gives a
@@ -196,26 +204,41 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <!-- A ProgressBar sits behind the Status text and visually counts down
-                         however long the current status (Plotted/Jumping/Cooldown) has left -
-                         full the instant that status starts, draining to empty as it approaches
-                         its own known end (see RouteRowViewModel.Progress). Hidden entirely for
-                         a status with no known end (blank "waiting" or Complete). -->
-                    <DataGridTemplateColumn Header="Status" Width="140">
+                    <!-- A thin ProgressBar sits below the Status text (its own Grid row, not
+                         overlapping) and visually counts down however long the current status
+                         (Plotted/Jumping/Cooldown) has left - full the instant that status
+                         starts, draining to empty as it approaches its own known end (see
+                         RouteRowViewModel.Progress). Hidden entirely for a status with no known
+                         end (blank "waiting" or Complete). This column's own CellStyle
+                         (RouteStatusCellStyle) stretches its content presenter to the cell's full
+                         size - without that, the whole template sizes to its content instead and
+                         no margin trick alone can reach the true cell edges. The bar's own Margin
+                         then cancels out just the cell's Right/Bottom Padding (via
+                         NegatePaddingConverter) so it reaches those two true edges, while its
+                         left edge is deliberately left inset by the same Padding.Left the text
+                         above it already sits at, so the two line up. -->
+                    <DataGridTemplateColumn Header="Status" Width="140" CellStyle="{StaticResource RouteStatusCellStyle}">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid>
-                                    <ProgressBar Minimum="0" Maximum="1"
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0"
+                                               Text="{Binding Status}"
+                                               VerticalAlignment="Center" />
+
+                                    <ProgressBar Grid.Row="1"
+                                                 Minimum="0" Maximum="1"
                                                  Value="{Binding Progress, Mode=OneWay}"
                                                  Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibilityConverter}}"
                                                  Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
                                                  Background="Transparent"
                                                  BorderThickness="0"
-                                                 Opacity="0.3"
-                                                 HorizontalAlignment="Stretch"
-                                                 VerticalAlignment="Stretch" />
-                                    <TextBlock Text="{Binding Status}"
-                                               VerticalAlignment="Center" />
+                                                 Height="4"
+                                                 Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType=DataGridCell}, Converter={StaticResource NegatePaddingConverter}, ConverterParameter='Right,Bottom'}" />
                                 </Grid>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>

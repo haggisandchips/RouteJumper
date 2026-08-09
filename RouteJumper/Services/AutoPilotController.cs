@@ -8,9 +8,14 @@ namespace RouteJumper.Services
     /// <summary>
     /// Drives Auto Pilot (Route tab, SPEC §4.2): while running, watches the route's rows and,
     /// for whichever row is currently in-progress, plays the Captain's selected macro (Roles
-    /// tab, §5.5) against the Captain's assigned instance to plot that row's jump - immediately
-    /// if the row isn't showing Cooldown, or after Cooldown clears plus a configurable extra
-    /// delay (Controls tab Options §6.1, AutoPilotDelayMs) if it is. The same delay is also
+    /// tab, §5.5) against the Captain's assigned instance to plot that row's jump - but only if
+    /// it actually still needs plotting (blank Status): immediately if it isn't showing Cooldown,
+    /// or after Cooldown clears plus a configurable extra delay (Controls tab Options §6.1,
+    /// AutoPilotDelayMs) if it is. A row that's already Plotted or Jumping - whether Auto Pilot
+    /// itself just triggered it moments ago and journal tracking hasn't caught up yet, or a jump
+    /// was already in flight before Auto Pilot was even engaged (app just (re)started mid-plot,
+    /// or a manual play) - is left alone entirely; playing the macro again would plot a second,
+    /// redundant jump. The same delay is also
     /// applied the other way around a row's Cooldown: the moment Cooldown *starts* on a row, if
     /// an Engineer is currently assigned (with a macro selected - CanEngageAutoPilot already
     /// guarantees that whenever Engineer is assigned at all), this waits the same delay and then
@@ -204,6 +209,21 @@ namespace RouteJumper.Services
                     _ = TriggerEngineerRefuelAsync(_cts!.Token);
                 }
 
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(currentRow.Status))
+            {
+                // Already Plotted or Jumping - a jump for this row has already been requested,
+                // whether that happened before Auto Pilot was even engaged (e.g. the app was
+                // (re)started, or the jump was plotted manually, mid-journey with a plot already
+                // in flight) or Auto Pilot itself triggered it moments ago and journal tracking
+                // just hasn't advanced the row past it yet. Either way, playing the Captain's
+                // macro again here would plot a second, redundant jump - there's nothing to do
+                // but wait for journal tracking to naturally move this row on. Still remember it
+                // as handled, so an unrelated PropertyChanged elsewhere doesn't re-examine it.
+                _pendingCooldownRow = null;
+                _lastTriggeredRow = currentRow;
                 return;
             }
 
