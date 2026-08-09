@@ -19,35 +19,40 @@ namespace RouteJumper.Services
     /// these specific offsets). All scheduling lives here, not in RouteSequencer, which has no
     /// notion of "later" and only ever reacts to events as they arrive.
     ///
-    /// On <see cref="StartAsync"/>, the whole file is read first (oldest to newest), so a
-    /// freshly-assigned Captain (or an app restart mid-journey) replays the carrier's full
-    /// history in order - which is what lets RouteSequencer's row-addressable catch-up bring
-    /// the route fully up to date from a single pass. Since that replay processes long-past
-    /// events, any derived transition whose scheduled time has already elapsed fires
-    /// immediately rather than waiting - see <see cref="ScheduleRowEvent"/>.
+    /// On <see cref="StartAsync"/>, the whole file's history is read first (see
+    /// <see cref="ComputeCatchUpState"/>) to work out a *single* authoritative answer - is a jump
+    /// currently plotted (not yet arrived), or is the carrier just sitting wherever it last
+    /// arrived - and only that one derived event is applied to the route, not one event per
+    /// historical line. This matters because the carrier's real path through a session isn't
+    /// necessarily a clean walk forward through the pasted route in order - a system visited more
+    /// than once (e.g. a fleet carrier revisiting a tritium depot between "real" hops) would, if
+    /// replayed line by line, have its row completed the first time some *later* row's event
+    /// arrived (RouteSequencer's own catch-up completes every earlier not-yet-complete row along
+    /// the way), permanently excluding it from ever matching again on its subsequent, genuine
+    /// visits. Computing the final state up front sidesteps that entirely: whichever request or
+    /// location comes last in the journal's own line order (the strictly authoritative sequence
+    /// these events actually happened in - not each one's own "timestamp" field) is applied once,
+    /// and RouteSequencer's normal "complete everything before the matched row" rule only ever
+    /// runs against that one, correct target - matching the *first* occurrence of a repeated
+    /// system name, since the scan always starts from a freshly Reset table. A CMDR plotting a
+    /// genuinely circular route (the same
+    /// system appearing more than once *as real, intended waypoints*) is the one case this can
+    /// still get wrong - §4.2's manual "Set next system" override exists for exactly that.
     ///
-    /// A CarrierLocation event is only trusted as evidence of a real, deliberate jump - and so
-    /// only used for row matching/catch-up at all - once a CarrierJumpRequest has been seen for
-    /// this carrier in this journal (see <see cref="ProcessLine"/>). The very first
-    /// CarrierLocation in a fresh journal is Frontier's passive "wherever the carrier happened
-    /// to be when the game loaded" snapshot, not the result of a jump, so it's never trusted for
-    /// row matching/catch-up on its own.
-    ///
-    /// Exception: if this carrier has made *no* jump requests anywhere in the journal at all
-    /// (e.g. the game was just restarted mid-journey and nothing new has been requested yet
-    /// this session), the passive snapshot is the only evidence of progress available at all -
-    /// <see cref="HasAnyJumpRequestSoFar"/> seeds the gate as already-open in that case, since a
-    /// long multi-session journey otherwise couldn't resume until the very next real jump.
+    /// After that one-off catch-up, new lines are live-tailed via a FileSystemWatcher and applied
+    /// incrementally, one event per line, through the ordinary <see cref="ProcessLine"/> path -
+    /// safe to do live (unlike during catch-up) since there's only ever one new event at a time,
+    /// never a backlog to reconcile.
     ///
     /// Separately from all of the above scheduling, a genuinely live-tailed CarrierLocation
-    /// (never the historical replay) also raises <see cref="RowEventKind.LiveCarrierLocation"/>
+    /// (never the historical catch-up) also raises <see cref="RowEventKind.LiveCarrierLocation"/>
     /// immediately - see that value's doc comment for what it drives.
     ///
     /// Every RowEvent this class raises carries whether the *line* that triggered it was seen
-    /// live (via FileSystemWatcher) or during the one-off historical replay StartAsync does -
+    /// live (via FileSystemWatcher) or during the one-off historical catch-up StartAsync does -
     /// see <see cref="RowEvent.IsLive"/>. RouteSequencer currently uses this to gate whether an
     /// Arrived event puts the next row into Cooldown at all: only ever for a genuinely live
-    /// arrival, never as a side effect of a fresh Captain assignment replaying old history.
+    /// arrival, never as a side effect of a fresh Captain assignment catching up on old history.
     ///
     /// CarrierJumpCancelled carries no SystemName, so it can't be scheduled/targeted the way
     /// the events above are - see <see cref="RowEventKind.JumpCancelled"/> for how RouteSequencer
@@ -90,22 +95,6 @@ namespace RouteJumper.Services
         /// </summary>
         private Timer? _pendingJumpingTimer;
 
-        /// <summary>
-        /// True once a CarrierJumpRequest for this carrier has been seen (in this replay or
-        /// live) - see ProcessLine's CarrierLocation branch. Deliberately a single flag spanning
-        /// both the initial replay and live monitoring, not reset between them: once real jump
-        /// activity has been observed, every CarrierLocation from that point on is trusted.
-        ///
-        /// Seeded (see StartAsync) from a quick pre-scan of the journal as it stands at
-        /// assignment time: if this carrier has *no* CarrierJumpRequest anywhere in it yet (e.g.
-        /// the game/journal was just restarted, mid-journey, and no new jump has been requested
-        /// this session), the passive startup CarrierLocation snapshot is the only evidence of
-        /// progress available at all - trusting it is better than showing nothing for however
-        /// long a real multi-session journey takes to resume a new request. If a request *does*
-        /// exist somewhere in the journal, this starts false as normal.
-        /// </summary>
-        private bool _hasSeenJumpRequest;
-
         public CarrierRouteJournalWatcher(
             string journalPath,
             long carrierId,
@@ -120,9 +109,22 @@ namespace RouteJumper.Services
 
         public Task StartAsync() => Task.Run(() =>
         {
-            _hasSeenJumpRequest = !HasAnyJumpRequestSoFar();
+            var initialLines = ReadNewCompleteLines();
+            var catchUp = ComputeCatchUpState(initialLines);
 
-            ReadNewLines(isLive: false);
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (catchUp is { IsPlotted: true } plotted)
+            {
+                FirePlotted(plotted.SystemName, plotted.DepartureTimeUtc, isLive: false);
+            }
+            else if (catchUp is { IsPlotted: false } arrived)
+            {
+                _onRowEvent(RowEventKind.Arrived, arrived.SystemName, false, null);
+            }
 
             if (_disposed)
             {
@@ -140,7 +142,13 @@ namespace RouteJumper.Services
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
             };
-            watcher.Changed += (_, _) => ReadNewLines(isLive: true);
+            watcher.Changed += (_, _) =>
+            {
+                foreach (var line in ReadNewCompleteLines())
+                {
+                    ProcessLine(line, isLive: true);
+                }
+            };
 
             lock (_readLock)
             {
@@ -156,18 +164,19 @@ namespace RouteJumper.Services
         });
 
         /// <summary>
-        /// <paramref name="isLive"/> is true only when called from the FileSystemWatcher
-        /// callback (i.e. a line genuinely newly observed while monitoring) - false for the
-        /// one-off historical catch-up read in StartAsync. See RowEventKind.LiveCarrierLocation
-        /// for what this distinction drives.
+        /// Reads and returns every complete line appended to the journal since <see cref="_readOffset"/>,
+        /// advancing it past them - the one file-reading mechanism shared by both the initial
+        /// catch-up scan (StartAsync) and ongoing live tailing (the FileSystemWatcher callback).
+        /// Only consumes complete lines - a trailing partial line (the game mid-write) is left
+        /// unread so the next pass picks it up whole.
         /// </summary>
-        private void ReadNewLines(bool isLive)
+        private List<string> ReadNewCompleteLines()
         {
             lock (_readLock)
             {
                 if (_disposed)
                 {
-                    return;
+                    return new List<string>();
                 }
 
                 try
@@ -185,79 +194,119 @@ namespace RouteJumper.Services
                     stream.CopyTo(buffer);
                     var text = Encoding.UTF8.GetString(buffer.ToArray());
 
-                    // Only consume complete lines - a trailing partial line (the game mid-write)
-                    // is left unread so the next pass picks it up whole.
                     var lastNewline = text.LastIndexOf('\n');
                     if (lastNewline < 0)
                     {
-                        return;
+                        return new List<string>();
                     }
 
                     var complete = text[..(lastNewline + 1)];
                     _readOffset += Encoding.UTF8.GetByteCount(complete);
 
-                    foreach (var line in complete.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        ProcessLine(line.TrimEnd('\r'), isLive);
-                    }
+                    return complete
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(line => line.TrimEnd('\r'))
+                        .ToList();
                 }
                 catch (IOException)
                 {
+                    return new List<string>();
                 }
             }
         }
 
         /// <summary>
-        /// Quick pre-scan (whole file, no state mutation) for whether this carrier has ever
-        /// requested a jump in this journal, used to seed <see cref="_hasSeenJumpRequest"/>
-        /// before the main pass. Only meaningful at the point <see cref="StartAsync"/> calls it
-        /// (before anything has been appended live) - a request that arrives later, live, is
-        /// still picked up normally by <see cref="ProcessLine"/> regardless of what this found.
+        /// Works out this carrier's single, authoritative state as of the end of
+        /// <paramref name="lines"/>: still-plotted (a CarrierJumpRequest not yet followed by a
+        /// matching arrival or a cancellation), or else wherever its most recent CarrierLocation
+        /// placed it, or null if this carrier has no relevant history in these lines at all.
+        /// Decided purely by *line order* - the journal's own sequence, which is strictly
+        /// authoritative, since it's the order these events actually happened in - never by each
+        /// event's own "timestamp" field: <paramref name="lines"/> is walked oldest to newest, and
+        /// whichever of a request/arrival/cancellation was seen *last* in that walk is definitionally
+        /// the current word on this carrier's status; a carrier can only ever have one jump in
+        /// flight at a time, so there's nothing to reconcile beyond "what happened most recently".
         /// </summary>
-        private bool HasAnyJumpRequestSoFar()
+        private (bool IsPlotted, string SystemName, DateTime? DepartureTimeUtc)? ComputeCatchUpState(IReadOnlyList<string> lines)
         {
-            try
+            (string SystemName, DateTime? DepartureTimeUtc)? lastRequest = null;
+            string? lastLocationSystem = null;
+
+            // True whenever the most recent of the three relevant kinds seen so far (in line
+            // order) was the CarrierJumpRequest currently held in lastRequest - cleared by
+            // either a CarrierLocation or a CarrierJumpCancelled, both of which resolve
+            // whatever was pending. This is the whole tie-break: no timestamp comparison needed.
+            var requestStillOpen = false;
+
+            foreach (var line in lines)
             {
-                using var stream = new FileStream(_journalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(stream);
-
-                string? line;
-                while ((line = reader.ReadLine()) != null)
+                var eventName = JournalEventName.Extract(line);
+                if (eventName is not ("CarrierJumpRequest" or "CarrierLocation" or "CarrierJumpCancelled"))
                 {
-                    if (JournalEventName.Extract(line) != "CarrierJumpRequest")
-                    {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    JsonDocument doc;
-                    try
-                    {
-                        doc = JsonDocument.Parse(line);
-                    }
-                    catch (JsonException)
-                    {
-                        continue;
-                    }
+                JsonDocument doc;
+                try
+                {
+                    doc = JsonDocument.Parse(line);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
 
-                    using (doc)
+                using (doc)
+                {
+                    var root = doc.RootElement;
+
+                    // CarrierJumpCancelled carries no CarrierType (same as ProcessLine's own
+                    // handling) - CarrierID alone identifies it.
+                    if (eventName is "CarrierJumpRequest" or "CarrierLocation")
                     {
-                        var root = doc.RootElement;
                         var carrierType = root.TryGetProperty("CarrierType", out var ct) ? ct.GetString() : null;
-                        if (carrierType == "FleetCarrier" &&
-                            root.TryGetProperty("CarrierID", out var idEl) &&
-                            idEl.TryGetInt64(out var id) &&
-                            id == _carrierId)
+                        if (carrierType != "FleetCarrier")
                         {
-                            return true;
+                            continue;
                         }
+                    }
+
+                    if (!root.TryGetProperty("CarrierID", out var idEl) || !idEl.TryGetInt64(out var id) || id != _carrierId)
+                    {
+                        continue;
+                    }
+
+                    if (eventName == "CarrierJumpRequest")
+                    {
+                        if (root.TryGetProperty("SystemName", out var sn) && sn.GetString() is { } systemName)
+                        {
+                            lastRequest = (systemName, TryReadTimestampUtc(root, "DepartureTime"));
+                            requestStillOpen = true;
+                        }
+                    }
+                    else if (eventName == "CarrierJumpCancelled")
+                    {
+                        requestStillOpen = false;
+                    }
+                    else if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } locationSystem)
+                    {
+                        lastLocationSystem = locationSystem;
+                        requestStillOpen = false;
                     }
                 }
             }
-            catch (IOException)
+
+            if (requestStillOpen && lastRequest is { } request)
             {
+                return (true, request.SystemName, request.DepartureTimeUtc);
             }
 
-            return false;
+            if (lastLocationSystem is { } location)
+            {
+                return (false, location, null);
+            }
+
+            return null;
         }
 
         private static readonly HashSet<string> RelevantEvents = new()
@@ -310,32 +359,7 @@ namespace RouteJumper.Services
                 {
                     if (root.TryGetProperty("SystemName", out var sn) && sn.GetString() is { } systemName)
                     {
-                        _hasSeenJumpRequest = true;
-
-                        // Plotted's own PhaseEndUtc is the instant Jumping will start (below).
-                        // Jumping's is an estimate of when the row will actually leave Jumping -
-                        // not DepartureTime itself, but ArrivalToCooldownDelay (1 minute) after
-                        // it: the row doesn't move on until the composite Arrived step actually
-                        // fires, which SPEC §5.7 fires 1 minute after the carrier's own
-                        // CarrierLocation (arrival) timestamp, not at DepartureTime. Arrival
-                        // isn't known yet at CarrierJumpRequest time, but it's effectively
-                        // instantaneous at DepartureTime in practice, so DepartureTime +
-                        // ArrivalToCooldownDelay is the best available estimate (Arrived's own
-                        // PhaseEndUtc, set once CarrierLocation is actually observed, is exact).
-                        // Both PhaseEndUtc values are purely cosmetic (Route tab §4.4's countdown
-                        // progress bar); null if DepartureTime couldn't be parsed, same as the
-                        // existing "can't schedule what we can't compute" fallback for Jumping
-                        // itself.
-                        var departureTimeUtc = TryReadTimestampUtc(root, "DepartureTime");
-                        var jumpingStartUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value - JumpingLeadTime : (DateTime?)null;
-                        var jumpingEndEstimateUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value + ArrivalToCooldownDelay : (DateTime?)null;
-
-                        _onRowEvent(RowEventKind.Plotted, systemName, isLive, jumpingStartUtc);
-
-                        if (departureTimeUtc.HasValue)
-                        {
-                            _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, jumpingStartUtc!.Value, isLive, jumpingEndEstimateUtc);
-                        }
+                        FirePlotted(systemName, TryReadTimestampUtc(root, "DepartureTime"), isLive);
                     }
                 }
                 else if (eventName == "CarrierJumpCancelled")
@@ -360,7 +384,7 @@ namespace RouteJumper.Services
                 else if (eventName == "CarrierStats")
                 {
                     // Only for a genuinely live occurrence - firing this during the one-off
-                    // historical replay would trigger a redundant refresh burst for old,
+                    // historical catch-up would trigger a redundant refresh burst for old,
                     // already-reflected Carrier Management visits (assigning Captain already
                     // triggers one refresh of its own regardless).
                     if (isLive)
@@ -368,25 +392,16 @@ namespace RouteJumper.Services
                         _onCarrierStatsObserved();
                     }
                 }
-                else if (!_hasSeenJumpRequest)
-                {
-                    // A CarrierLocation with no CarrierJumpRequest yet this session is Frontier's
-                    // passive startup snapshot (wherever the carrier happened to be when the
-                    // journal/session started) - not evidence of a deliberate, route-following
-                    // jump, so it's not safe to use for row matching/catch-up at all - trusting
-                    // it (even just for cooldown timing) can mark a route complete based on
-                    // where the carrier happened to be sitting, not where it actually traveled.
-                }
                 else if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } arrivedSystem)
                 {
                     // Both the composite Arrived/Cooldown step and the later status-clear are
                     // themselves scheduled - see the field comments above for the timing. If no
-                    // usable timestamp is found
-                    // (shouldn't happen for a real journal, but defensively possible), fall back
-                    // to firing Arrived immediately rather than losing the event entirely - there
-                    // is nothing to base a schedule on in that case, so CooldownElapsed is skipped
-                    // too (matches the existing "can't schedule what we can't compute" pattern
-                    // Jumping already has when DepartureTime is missing).
+                    // usable timestamp is found (shouldn't happen for a real journal, but
+                    // defensively possible), fall back to firing Arrived immediately rather than
+                    // losing the event entirely - there is nothing to base a schedule on in that
+                    // case, so CooldownElapsed is skipped too (matches the existing "can't
+                    // schedule what we can't compute" pattern Jumping already has when
+                    // DepartureTime is missing).
                     //
                     // isLive is captured here, at read time, and carried through to whichever
                     // RowEvent eventually fires - live or replay is a property of the *line*
@@ -416,7 +431,7 @@ namespace RouteJumper.Services
                     // "Auto Copy To Clipboard" feature this drives wants the next
                     // system ready to paste as soon as the carrier's actual arrival is observed,
                     // not delayed to match the (intentionally lagged) UI transition. Only for a
-                    // genuinely live-tailed line - never during the one-off historical replay a
+                    // genuinely live-tailed line - never during the one-off historical catch-up a
                     // fresh Captain assignment does, which would otherwise fire a burst of these
                     // for old, already-resolved jumps.
                     if (isLive)
@@ -428,18 +443,49 @@ namespace RouteJumper.Services
         }
 
         /// <summary>
+        /// Raises Plotted for <paramref name="systemName"/> and, if <paramref name="departureTimeUtc"/>
+        /// is known, schedules the derived Jumping transition - shared by a CarrierJumpRequest
+        /// line actually read live (ProcessLine) and the one derived from the initial catch-up
+        /// scan (StartAsync), since both need to seed the exact same Plotted/Jumping state either
+        /// way.
+        /// </summary>
+        private void FirePlotted(string systemName, DateTime? departureTimeUtc, bool isLive)
+        {
+            // Plotted's own PhaseEndUtc is the instant Jumping will start (below). Jumping's is an
+            // estimate of when the row will actually leave Jumping - not DepartureTime itself, but
+            // ArrivalToCooldownDelay (1 minute) after it: the row doesn't move on until the
+            // composite Arrived step actually fires, which SPEC §5.7 fires 1 minute after the
+            // carrier's own CarrierLocation (arrival) timestamp, not at DepartureTime. Arrival
+            // isn't known yet at CarrierJumpRequest time, but it's effectively instantaneous at
+            // DepartureTime in practice, so DepartureTime + ArrivalToCooldownDelay is the best
+            // available estimate (Arrived's own PhaseEndUtc, set once CarrierLocation is actually
+            // observed, is exact). Both PhaseEndUtc values are purely cosmetic (Route tab §4.4's
+            // countdown progress bar); null if DepartureTime couldn't be parsed, same as the
+            // existing "can't schedule what we can't compute" fallback for Jumping itself.
+            var jumpingStartUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value - JumpingLeadTime : (DateTime?)null;
+            var jumpingEndEstimateUtc = departureTimeUtc.HasValue ? departureTimeUtc.Value + ArrivalToCooldownDelay : (DateTime?)null;
+
+            _onRowEvent(RowEventKind.Plotted, systemName, isLive, jumpingStartUtc);
+
+            if (departureTimeUtc.HasValue)
+            {
+                _pendingJumpingTimer = ScheduleRowEvent(RowEventKind.Jumping, systemName, jumpingStartUtc!.Value, isLive, jumpingEndEstimateUtc);
+            }
+        }
+
+        /// <summary>
         /// Fires a derived row event at (or as soon as possible after) a real-world UTC
-        /// instant: immediately if that instant has already passed (e.g. while replaying old
-        /// journal history), otherwise via a one-shot, non-blocking <see cref="Timer"/> - never
-        /// a blocking wait, and never inside RouteSequencer. Returns the created Timer (or null
-        /// if it fired immediately instead, or the watcher is disposed), so a caller that needs
-        /// to cancel a specific scheduled event later - see the CarrierJumpCancelled handling in
-        /// <see cref="ProcessLine"/> - can hold onto the right one. <paramref name="isLive"/> is
-        /// carried straight through to the fired RowEvent unchanged, whether it fires immediately
-        /// here or later from the Timer callback - it describes the *line* that triggered the
-        /// schedule (genuinely live-tailed, or historical replay), not the scheduling outcome.
-        /// <paramref name="phaseEndUtc"/> is likewise carried straight through unchanged - see
-        /// RowEvent.PhaseEndUtc.
+        /// instant: immediately if that instant has already passed (e.g. while catching up on
+        /// old journal history), otherwise via a one-shot, non-blocking <see cref="Timer"/> -
+        /// never a blocking wait, and never inside RouteSequencer. Returns the created Timer (or
+        /// null if it fired immediately instead, or the watcher is disposed), so a caller that
+        /// needs to cancel a specific scheduled event later - see the CarrierJumpCancelled
+        /// handling in <see cref="ProcessLine"/> - can hold onto the right one. <paramref name="isLive"/>
+        /// is carried straight through to the fired RowEvent unchanged, whether it fires
+        /// immediately here or later from the Timer callback - it describes the *line* that
+        /// triggered the schedule (genuinely live-tailed, or historical catch-up), not the
+        /// scheduling outcome. <paramref name="phaseEndUtc"/> is likewise carried straight through
+        /// unchanged - see RowEvent.PhaseEndUtc.
         /// </summary>
         private Timer? ScheduleRowEvent(RowEventKind kind, string systemName, DateTime whenUtc, bool isLive, DateTime? phaseEndUtc = null)
         {

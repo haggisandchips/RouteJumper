@@ -420,25 +420,44 @@ fleet carrier (filtered by `CarrierID` and `CarrierType == "FleetCarrier"`,
 so a shared squadron carrier's events are never mistaken for the
 commander's own).
 
-- On assignment, the whole journal file is read first, oldest to newest,
-  replaying every matching historical event in order — this is what lets
-  a single assignment bring the route fully up to date even after several
-  jumps already happened (e.g. the app was restarted mid-journey). After
-  that, new lines are live-tailed via a `FileSystemWatcher`.
-- A `CarrierLocation` event is only trusted as evidence of a real jump —
-  and so only used for row matching/catch-up — once a `CarrierJumpRequest`
-  has been seen for that carrier in the journal. The very first
-  `CarrierLocation` in a session is Frontier's passive "wherever the
-  carrier happened to be when the game loaded" snapshot, not the result of
-  a jump. Exception: if the carrier has made *no* jump requests anywhere
-  in the journal at all (e.g. right after restarting the game mid-journey,
-  before requesting a new jump), the passive snapshot is trusted instead,
-  since it's the only evidence of progress available.
+- On assignment, the whole journal file is read first to work out a
+  single, authoritative answer to "what's this carrier's current status
+  right now" — **not** by replaying every historical line as its own
+  event. This is decided by the journal's own **line order** — the
+  strictly authoritative sequence these events actually happened in, not
+  each event's own `timestamp` field — walking oldest to newest and
+  keeping track of whichever of the carrier's `CarrierJumpRequest`/
+  `CarrierLocation`/`CarrierJumpCancelled` events was seen *last*: if
+  that's a `CarrierJumpRequest` not yet followed by a matching arrival or
+  a cancellation, that request's target is the current system — `Status`
+  becomes `Plotted` for it (and `Jumping`, on the normal schedule below,
+  if due). Otherwise, the carrier is wherever its most recent
+  `CarrierLocation` placed it — that row (and everything before it) is
+  marked Complete, and the row after it becomes in-progress. Only this
+  one derived result is applied to the route, as a single event — after
+  that, new lines are live-tailed via a `FileSystemWatcher` and applied
+  one at a time, same as always, since there's only ever one new event to
+  react to at a time once live, never a backlog.
+- This matters because a carrier's real path through a session isn't
+  necessarily a clean walk forward through the pasted route in order — a
+  system can legitimately be visited more than once (e.g. revisiting a
+  tritium depot between "real" hops). Applying every historical line as
+  its own event, oldest to newest, would complete that system's row the
+  *first* time some later row's event arrived (see the catch-up rule
+  below), permanently excluding it from ever matching again on its
+  subsequent, genuine visits — showing stale, wrong progress. Computing
+  the single final state first avoids this entirely.
 - Matching a route row to a journal event is always by System name
   (case-insensitive), not row position, since the journal only knows
-  system names. Matching a `CarrierJumpRequest`/arrival to a row silently
-  completes every earlier not-yet-complete row along the way, so one event
-  can catch up several rows at once.
+  system names — and always the row's *first* occurrence of that name,
+  since the route is always freshly Reset immediately before this
+  computed result is applied. Matching a `CarrierJumpRequest`/arrival to
+  a row silently completes every earlier not-yet-complete row along the
+  way, which is how a single result can catch up several rows at once. A
+  system that's a genuine, intended waypoint appearing more than once in
+  the route (a deliberately circular route) is the one case "first
+  occurrence" can point at the wrong instance of it - the manual "Set
+  next system" override (§4.2) exists for exactly that.
 
 **Transitions and timing** (all measured from a journal event's own
 timestamp, never from when the app happens to read the line; each fires
@@ -894,10 +913,13 @@ rather than internal app state like the table below.
     unassigning it from any other card that held it; the same
     independently for Engineer. Both roles can be assigned to the same
     instance.
-12. Assigning Captain resets the route, then replays that Captain's own
-    fleet carrier's journal history into it — including catching up rows
-    that have no event of their own — using the freshest evidence of a
-    real, deliberate jump rather than a passive session-start snapshot.
+12. Assigning Captain resets the route, then applies that Captain's own
+    fleet carrier's *current* status to it as a single result computed
+    from the whole journal — including catching up rows that have no
+    event of their own — using whichever of a still-pending jump request
+    or the carrier's most recent arrival is actually the latest word on
+    its progress, not a naive line-by-line replay that could complete a
+    revisited system's row too early and never match it again.
 13. A row that receives a jump request transitions to `Jumping` 3 minutes
     before that request's own `DepartureTime`; the composite Arrived step
     happens 1 minute after the matching arrival event's own timestamp, on

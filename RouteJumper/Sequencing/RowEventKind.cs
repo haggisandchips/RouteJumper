@@ -60,10 +60,11 @@ namespace RouteJumper.Sequencing
         /// Not a route-mutating event at all - RouteSequencer ignores it entirely (see
         /// RouteSequencer.ApplyRowEvent). Raised the instant a CarrierLocation line for the
         /// tracked carrier is picked up via live journal tailing (the FileSystemWatcher path) -
-        /// never during the one-off historical replay a fresh Captain assignment does, and never
-        /// for the passive session-start snapshot (same _hasSeenJumpRequest gate as
-        /// Arrived/CooldownElapsed). The event's SystemName is the system the carrier just
-        /// arrived at. RouteViewModel listens for this directly (alongside, not instead of,
+        /// never as part of the one-off historical catch-up a fresh Captain assignment does
+        /// (CarrierRouteJournalWatcher.ComputeCatchUpState), which applies a single derived
+        /// result rather than firing an event per historical line at all. The event's
+        /// SystemName is the system the carrier just arrived at. RouteViewModel listens for
+        /// this directly (alongside, not instead of,
         /// RouteSequencer's own subscription to the same trigger) to drive "Auto Copy To
         /// Clipboard": if enabled, it copies the *next* row's System text to the clipboard -
         /// deliberately ahead of the delayed Arrived/Cooldown UI transition, since the point is
