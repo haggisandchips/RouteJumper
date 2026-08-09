@@ -56,11 +56,26 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- ===================== Key Bindings (SPEC §6.1) ===================== -->
+        <!-- ===================== Options ===================== -->
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Options" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Plot delay after cooldown (ms)"
+                           Width="220"
+                           VerticalAlignment="Center" />
+                <TextBox Text="{Binding CooldownDelayMs, UpdateSourceTrigger=LostFocus}"
+                         Width="100"
+                         ToolTip="How long Auto Pilot waits after a jump's cooldown clears before plotting the next one"
+                         AutomationProperties.Name="Plot delay after cooldown" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- ===================== Key Bindings (SPEC §6.1) ===================== -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,16">
             <TextBlock Text="Key Bindings" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
             <ItemsControl ItemsSource="{Binding KeyBindings}">
                 <ItemsControl.ItemsPanel>
@@ -98,7 +113,7 @@
         </StackPanel>
 
         <!-- ===================== Running Instances (SPEC §6.2) ===================== -->
-        <StackPanel Grid.Row="1" Margin="0,0,0,16">
+        <StackPanel Grid.Row="2" Margin="0,0,0,16">
             <TextBlock Text="Running Instances" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
             <TextBlock Text="{Binding StatusText}"
                        Visibility="{Binding StatusText, Converter={StaticResource StringToVisibilityConverter}}"
@@ -167,7 +182,7 @@
             </ScrollViewer>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-                <Button Command="{Binding RefreshCommand}" Padding="8,4" Margin="0,0,8,0">
+                <Button Command="{Binding RefreshCommand}" Padding="8,4" Margin="0,0,8,0" AutomationProperties.Name="Refresh">
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="Refresh" VerticalAlignment="Center" Margin="0,0,6,0" />
                         <TextBlock Text="Refresh" VerticalAlignment="Center" />
@@ -197,7 +212,7 @@
         </StackPanel>
 
         <!-- ===================== Recorded Macros (SPEC §6.3/6.4) ===================== -->
-        <DockPanel Grid.Row="2" LastChildFill="True">
+        <DockPanel Grid.Row="3" LastChildFill="True">
             <TextBlock DockPanel.Dock="Top" Text="Recorded Macros" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
 
             <Grid>

@@ -268,13 +268,21 @@ namespace RouteJumper.Services
                 var gap = now - _lastEventAtMs;
                 if (gap >= WaitThresholdMs)
                 {
-                    _steps.Add(new MacroInstruction.Wait((int)gap));
+                    _steps.Add(new MacroInstruction.Wait(RoundWaitMs(gap)));
                 }
             }
 
             _steps.Add(step);
             _lastEventAtMs = now;
         }
+
+        /// <summary>
+        /// Recorded wait gaps are coarsened before being written to the script: anything under a
+        /// second collapses to a flat 100ms (exact sub-second pacing isn't meaningful to preserve),
+        /// and anything a second or longer rounds down to the nearest whole second (easier to read
+        /// and hand-edit than an arbitrary millisecond count).
+        /// </summary>
+        private static int RoundWaitMs(long gapMs) => gapMs < 1000 ? 100 : (int)(gapMs / 1000) * 1000;
 
         public void Dispose()
         {

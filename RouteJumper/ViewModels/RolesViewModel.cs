@@ -71,6 +71,9 @@ namespace RouteJumper.ViewModels
         /// <summary>The Controls tab's live recorded-macro list, for the Captain/Engineer macro pickers below.</summary>
         public ObservableCollection<RecordedMacroViewModel> AvailableMacros => _getMacros();
 
+        /// <summary>The instance currently holding the Captain role, if any and still running - used by AutoPilotController (Route tab's Auto Pilot) to know which window to plot into.</summary>
+        public EliteInstanceViewModel? CaptainInstance => Instances.FirstOrDefault(i => i.IsCaptain);
+
         public AsyncRelayCommand RefreshCommand { get; }
 
         /// <summary>Assigns/unassigns the Captain role to a card's instance.</summary>

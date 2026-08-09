@@ -10,8 +10,10 @@ namespace RouteJumper.Services
     }
 
     /// <summary>
-    /// Parses a macro script's text into instructions (SPEC §6.3). One instruction per line;
-    /// blank lines and lines starting with '#' are comments. Grammar:
+    /// Parses a macro script's text into instructions (SPEC §6.3). One instruction per line, or
+    /// several instructions on one line separated by ';' (surrounding whitespace ignored) for
+    /// grouping related steps together, e.g. "UP; WAIT 200; DOWN"; blank lines, blank segments,
+    /// and lines/segments starting with '#' are comments. Grammar:
     ///
     ///   ACTION_NAME              - tap (e.g. UP - see ControlActionExtensions.ToActionName)
     ///   KEY &lt;storage&gt;      - tap a key with no bound action (e.g. KEY Control+A)
@@ -48,10 +50,27 @@ namespace RouteJumper.Services
 
             foreach (var rawLine in scriptText.Replace("\r\n", "\n").Split('\n'))
             {
-                var line = rawLine.Trim();
+                foreach (var rawSegment in rawLine.Split(';'))
+                {
+                    ProcessSegment(rawSegment);
+                }
+            }
+
+            return new ParsedMacroScript
+            {
+                MainSteps = mainSteps,
+                Macros = macros.ToDictionary(
+                    kv => kv.Key,
+                    kv => (IReadOnlyList<MacroInstruction>)kv.Value,
+                    StringComparer.OrdinalIgnoreCase)
+            };
+
+            void ProcessSegment(string rawSegment)
+            {
+                var line = rawSegment.Trim();
                 if (line.Length == 0 || line.StartsWith('#'))
                 {
-                    continue;
+                    return;
                 }
 
                 var upper = line.ToUpperInvariant();
@@ -66,7 +85,7 @@ namespace RouteJumper.Services
                         frames.Add(body);
                         frameIsMacro.Add(false);
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("MACRO "))
@@ -83,7 +102,7 @@ namespace RouteJumper.Services
                         frameIsMacro.Add(true);
                         inMacro = true;
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper == "END")
@@ -97,7 +116,7 @@ namespace RouteJumper.Services
                         }
                         frameIsMacro.RemoveAt(frameIsMacro.Count - 1);
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("CALL "))
@@ -107,7 +126,7 @@ namespace RouteJumper.Services
                     {
                         current.Add(new MacroInstruction.Call(name));
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("HOLD CLICK "))
@@ -120,7 +139,7 @@ namespace RouteJumper.Services
                     {
                         current.Add(new MacroInstruction.HoldClick(holdX, holdY, holdMs));
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("HOLD "))
@@ -131,7 +150,7 @@ namespace RouteJumper.Services
                     {
                         current.Add(new MacroInstruction.Hold(rest[..lastSpace].Trim(), ms));
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("CLICK "))
@@ -140,7 +159,7 @@ namespace RouteJumper.Services
                     {
                         current.Add(new MacroInstruction.Click(x, y));
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("WAIT "))
@@ -149,27 +168,18 @@ namespace RouteJumper.Services
                     {
                         current.Add(new MacroInstruction.Wait(ms));
                     }
-                    continue;
+                    return;
                 }
 
                 if (upper.StartsWith("PASTE "))
                 {
                     current.Add(new MacroInstruction.Paste(line[6..].Trim()));
-                    continue;
+                    return;
                 }
 
                 // A bare token - either an ACTION_NAME or "KEY <storage>" - is a plain tap.
                 current.Add(new MacroInstruction.Tap(line));
             }
-
-            return new ParsedMacroScript
-            {
-                MainSteps = mainSteps,
-                Macros = macros.ToDictionary(
-                    kv => kv.Key,
-                    kv => (IReadOnlyList<MacroInstruction>)kv.Value,
-                    StringComparer.OrdinalIgnoreCase)
-            };
         }
 
         /// <summary>

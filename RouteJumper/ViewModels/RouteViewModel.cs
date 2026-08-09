@@ -125,8 +125,11 @@ namespace RouteJumper.ViewModels
 
         /// <summary>
         /// Drives the Auto Pilot button's label ("Auto Pilot" when false, "Stop" when true) and
-        /// disables Edit while engaged. Toggling it has no other effect - a placeholder for
-        /// future automation, not a real running process.
+        /// disables Edit while engaged. While true, AutoPilotController (via MainViewModel
+        /// wiring AutoPilotRunningChanged) plots each row's jump in turn using the Captain's
+        /// selected macro (Roles tab §5.5), immediately if no Cooldown is active or after it
+        /// clears plus the configured delay (Controls tab §6.1) otherwise, until the route
+        /// completes or this is toggled off again.
         /// </summary>
         public bool IsAutoPilotRunning
         {
@@ -136,9 +139,17 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _isAutoPilotRunning, value))
                 {
                     EditCommand.RaiseCanExecuteChanged();
+                    AutoPilotRunningChanged?.Invoke(this, value);
                 }
             }
         }
+
+        /// <summary>
+        /// Raised whenever IsAutoPilotRunning changes - lets MainViewModel start/stop
+        /// AutoPilotController without RouteViewModel needing a reference to it directly (same
+        /// decoupling principle as RouteSaved/AutoPilotEligibilityChanged).
+        /// </summary>
+        public event EventHandler<bool>? AutoPilotRunningChanged;
 
         public RelayCommand SaveCommand { get; }
 
@@ -152,6 +163,14 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Called (via MainViewModel wiring RolesViewModel.AutoPilotEligibilityChanged) whenever role/macro assignment on the Roles tab changes, so this button's enabled state stays in sync without waiting for an incidental UI event to re-query it.</summary>
         public void RaiseAutoPilotEligibilityChanged() => AutoPilotCommand.RaiseCanExecuteChanged();
+
+        /// <summary>
+        /// Stops Auto Pilot the same way clicking it again while running would - called
+        /// externally (via MainViewModel) when AutoPilotController detects the route has run to
+        /// completion, or when Roles-tab eligibility (Captain/macro assignment) drops out from
+        /// under a run already in progress. A no-op if not currently running.
+        /// </summary>
+        public void StopAutoPilot() => IsAutoPilotRunning = false;
 
         /// <summary>Copies a row's System text to the clipboard and plays a confirmation ping.</summary>
         public RelayCommand<RouteRowViewModel> CopySystemCommand { get; }

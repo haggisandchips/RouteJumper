@@ -1,6 +1,6 @@
 # RouteJumper — Application Specification
 
-**Version:** 1.14
+**Version:** 2.0
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
 
 ---
@@ -22,8 +22,8 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 | Route tab: paste a route, save it to a table, track progress against a real journal | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
 | Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Configurable journal-match tolerance or cooldown timing |
 | Event-driven row-progress engine, driven by a Captain's journal | Persisting per-row progress (icon/status), or the last-selected tab |
-| Manual "Set next system" override for correcting automatic detection | Wiring Controls tab macros to Captain/Engineer roles automatically |
-| Selecting (not automatically running) a macro for each of Captain/Engineer, and gating Auto Pilot on that selection (§5.5) | |
+| Manual "Set next system" override for correcting automatic detection | Auto Pilot ever playing the Engineer's macro (only Captain's is played) |
+| Selecting a macro for each of Captain/Engineer (§5.5), gating Auto Pilot on that selection, and Auto Pilot playing the Captain's macro to plot each jump (§4.7) | Auto Pilot retrying a jump after `CarrierJumpCancelled` (§4.7) |
 | Persistence of route text, window bounds, and Captain/Engineer role assignment | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
@@ -109,15 +109,17 @@ one is visible at a time.
     icon/status state. If a Captain is currently assigned (§5.6), the fresh
     table is immediately re-derived from that Captain's journal; otherwise
     row 1 defaults to "next" (in-progress).
-  - **Auto Pilot** toggles a placeholder running state: its label reads
-    "Auto Pilot" when idle and "Stop" while engaged, and **Edit** is
-    disabled while engaged. Toggling it has no other effect — it is not yet
-    wired to any automation. Re-saving the route (via Edit → Save) resets
-    it to idle. Enabled only when Captain is currently assigned with a
-    macro selected for them, and — only if Engineer is *also* currently
-    assigned — a macro selected for Engineer too (§5.4); disabled
-    otherwise, including whenever assignment or macro selection changes
-    on the Roles tab while this tab is showing.
+  - **Auto Pilot**'s label reads "Auto Pilot" when idle and "Stop" while
+    engaged, and **Edit** is disabled while engaged. While engaged, it
+    drives the route to completion by playing the Captain's selected
+    macro (§5.5) — see §4.7 for exactly when and how. Re-saving the route
+    (via Edit → Save) resets it to idle. Enabled only when Captain is
+    currently assigned with a macro selected for them, and — only if
+    Engineer is *also* currently assigned — a macro selected for Engineer
+    too (§5.5); disabled otherwise, including whenever assignment or
+    macro selection changes on the Roles tab while this tab is showing,
+    or requirements drop out from under a run already in progress (which
+    also stops that run outright, not just re-locks the button).
 
 ### 4.3 Line-to-row conversion (on Save)
 - Text is split on line breaks; `\r\n` is normalized to `\n` first.
@@ -182,6 +184,41 @@ See §7.
   the instant the system clipboard's contents actually change, for any
   reason, including an application other than RouteJumper overwriting it —
   detected via a real Windows clipboard-change notification, not polling.
+
+### 4.7 Auto Pilot execution
+
+While engaged, Auto Pilot plots each row's jump in turn by playing the
+Captain's selected macro (§5.5) against the Captain's assigned instance,
+until the whole route reaches Complete or Auto Pilot is stopped:
+
+- For whichever row is currently in-progress, if it isn't showing
+  `Cooldown`, the macro plays immediately.
+- If it *is* showing `Cooldown`, the macro instead plays once Cooldown
+  clears (§5.7) plus the configured extra delay (Controls tab Options,
+  §6.1) — not immediately on clearing, since the game's own UI needs a
+  moment to settle first.
+- The same rule applies the moment Auto Pilot is engaged, not just to
+  later rows: if Cooldown happens to already be active on the
+  in-progress row at that moment, the first macro play waits for it
+  (plus the delay) exactly the same way; if not, it plays right away.
+- Once that row completes and journal tracking (§5.7) advances the route
+  to the next row, the same rule repeats for it, and so on until no row
+  is left in-progress.
+- The macro plays through the same mechanism as a manual Play (§6.5) —
+  visible via `IsPlaying`, stoppable via **Stop**, and reported through
+  the same closeable warning banner (§6.5) if the target window loses
+  focus mid-script — not a separate, invisible channel.
+- Auto Pilot stops itself automatically once every row reaches Complete
+  (flipping its label back to "Auto Pilot"), and also if Captain (or, if
+  assigned, Engineer) stops meeting Auto Pilot's own requirements (§4.2)
+  partway through a run - a role or macro selection changing out from
+  under an active run halts it immediately rather than continuing
+  regardless.
+- A `CarrierJumpCancelled` (§5.7) reverting a row's `Status` back to
+  blank does not, on its own, cause a further macro play for that same
+  row - Auto Pilot only ever plays a macro once per row it newly becomes
+  aware of; recovering from a cancelled jump on the row it already
+  played for requires manual intervention.
 
 ---
 
@@ -288,7 +325,7 @@ Each running instance's card shows:
 ### 5.5 Role macros
 
 A section above the instance cards lets the user pick which recorded
-macro (Controls tab, §6.4) each role should use once Auto Pilot is
+macro (Controls tab, §6.5) each role should use once Auto Pilot is
 engaged: **Captain plots via** and **Engineer refuels via**, each a
 dropdown of every currently recorded macro by name, with a small clear
 button beside it to unset the choice. This selection belongs to the role
@@ -387,21 +424,31 @@ See §7.
 A tab to manage named sets of key bindings for the app's own automation:
 record a sequence of keypresses/clicks against a running instance, capture
 it as an editable, human-readable script, and replay it later against that
-same instance. These bindings and macros exist independently of role
-assignment (§5.4) — nothing here is currently wired to Captain/Engineer
-automatically.
+same instance. A macro selected for a role (Roles tab, §5.5) is what Auto
+Pilot (§4.2) actually plays once engaged; nothing else here is wired to
+Captain/Engineer automatically.
 
-The tab has three vertically-stacked sections: Key Bindings and Running
-Instances stay a fixed, always-visible height at the top; Recorded Macros
-fills the rest of the tab's available space beneath them (no sub-tabs, no
-whole-page scrolling — each section scrolls internally if its own content
-overflows).
+The tab has four vertically-stacked sections: Options, Key Bindings, and
+Running Instances stay a fixed, always-visible height at the top; Recorded
+Macros fills the rest of the tab's available space beneath them (no
+sub-tabs, no whole-page scrolling — each section scrolls internally if its
+own content overflows).
 
-### 6.1 Key Bindings
+### 6.1 Options
+
+A single setting: **Plot delay after cooldown (ms)**, defaulting to
+`5000`. Auto Pilot (§4.2) waits this long, on top of however long a jump's
+Cooldown itself already took, after Cooldown clears before plotting the
+next jump - a real jump needs a moment after cooldown for the game's own
+UI to settle before a macro starts clicking through panels. Has no effect
+on Cooldown's own timing (§5.7), and no effect on a manually-triggered
+Play (§6.5).
+
+### 6.2 Key Bindings
 
 A section associating each of nine named actions with a real key
 (optionally with modifiers, e.g. `Ctrl+Shift+J`) — the vocabulary a
-recorded script's tokens are drawn from (§6.3).
+recorded script's tokens are drawn from (§6.4).
 
 | Action | Default Key Binding |
 |---|---|
@@ -424,7 +471,7 @@ recorded script's tokens are drawn from (§6.3).
 - Bindings are persisted individually and restored on launch (§7); each
   defaults to the table above until explicitly rebound.
 
-### 6.2 Running Instances
+### 6.3 Running Instances
 
 A section listing currently-running Elite Dangerous instances — scanned
 independently of the Roles tab (its own process/journal scan), shown as
@@ -436,7 +483,7 @@ construction); the empty state matches the Roles tab's ("No running Elite
 Dangerous instances found.").
 
 This selected instance is the shared target for both recording and
-playback (§6.3, §6.4) — there is only one selection, not a separate one
+playback (§6.4, §6.5) — there is only one selection, not a separate one
 per action. With exactly one running instance, it is selected
 automatically, since there is no meaningful choice to make; if a second
 instance appears later that automatic selection is left alone. With more
@@ -448,8 +495,8 @@ Media-style **Record**, **Stop**, and **Play** buttons sit alongside
 Refresh. A single Stop button covers both recording and playback, since
 only one of the two is ever active at a time:
 - **Record** is enabled only while an instance is selected, nothing is
-  already recording or playing, and the macro editor (§6.4) isn't open.
-- **Play** is enabled only while both an instance and a macro (§6.4) are
+  already recording or playing, and the macro editor (§6.5) isn't open.
+- **Play** is enabled only while both an instance and a macro (§6.5) are
   selected, and nothing is currently recording. It is not restricted to
   the instance a macro was originally recorded against — any selected
   running instance can play any recorded macro. Play stays enabled while
@@ -459,15 +506,15 @@ only one of the two is ever active at a time:
   cancels whichever is active — immediately, wherever in the script
   playback currently is, not just between steps.
 
-### 6.3 Recording
+### 6.4 Recording
 
 Pressing **Record** brings the selected instance's window to the
-foreground (the same as Play does before playback - see §6.2), then
+foreground (the same as Play does before playback - see §6.3), then
 starts capturing keyboard and mouse input system-wide, filtered to only
 the moments the target instance's window is foreground (input while some
 other window is focused is not recorded - including, after that initial
 foregrounding, input directed back at RouteJumper's own window). Pressing
-**Stop** ends capture and turns it into a new named macro (§6.4). Only one
+**Stop** ends capture and turns it into a new named macro (§6.5). Only one
 recording can be active at a time.
 
 Each captured key or left-click is classified by how long it was held: a
@@ -528,13 +575,18 @@ CALL refuel
 - Blank lines and lines starting with `#` are ignored. The parser is
   deliberately forgiving of malformed lines (skipped, not rejected
   outright), since this text is meant to be hand-edited.
+- Multiple steps may be written on one line by separating them with `;`
+  (whitespace around the `;` is ignored), e.g. `UP; WAIT 200; DOWN` — purely
+  a readability convenience for grouping related steps; it has no effect on
+  playback, which still executes the same steps in the same order. Never
+  produced by recording itself, only by hand-editing.
 
-### 6.4 Recorded Macros
+### 6.5 Recorded Macros
 
 A section listing every macro recorded so far (newest last). By default
 it shows a compact list, one row per macro:
 - The macro's **name** as a clickable button — clicking it selects that
-  macro as the Play target (§6.2), highlighting the row. It does not open
+  macro as the Play target (§6.3), highlighting the row. It does not open
   the macro for editing.
 - A small **pencil** icon that opens the full-size editor (below) for
   that macro.
@@ -544,40 +596,40 @@ it shows a compact list, one row per macro:
 
 The source commander a macro was originally recorded against is shown as
 a small caption under its name — display only; it does not restrict which
-instance can play the macro (§6.2).
+instance can play the macro (§6.3).
 
 Clicking the pencil replaces the list with a full-size **editor** for
 that one macro, since a script is naturally a tall, narrow list of short
 commands and benefits from as much vertical room as the window has to
 give it. Opening the editor also selects that macro as the Play target
-(§6.2) — the same as clicking its name in the list — so Play can be used
+(§6.3) — the same as clicking its name in the list — so Play can be used
 without leaving the editor, e.g. to try out an edit immediately:
 - An editable **name** field.
 - A large, editable, multi-line **script text** box beside a narrow,
-  fixed-width reference panel listing the script grammar (§6.3) —
+  fixed-width reference panel listing the script grammar (§6.4) —
   positioned as a side column, not stacked above or below the text box,
   so the reference never competes with the script for vertical space.
 - A **Save** button below the script text box returns to the compact
   list. Edits (to either the name or the script text) are saved as
   they're made, independent of Save — pressing it is purely a "done for
   now" navigation action, not a distinct save step.
-- The Key Bindings section (§6.1) stays visible above the editor, since a
-  script is written in terms of that vocabulary. **Record** (§6.2) is
+- The Key Bindings section (§6.2) stays visible above the editor, since a
+  script is written in terms of that vocabulary. **Record** (§6.3) is
   disabled for as long as the editor is open.
 
 Pressing **Record** again while macros already exist always starts a
 brand-new recording as an additional macro; it never overwrites or
 appends to an existing one.
 
-Playing the selected macro against the selected instance (§6.2) brings
+Playing the selected macro against the selected instance (§6.3) brings
 that instance's window to the foreground, then executes the script's
 steps in order using simulated system-wide input (not messages posted to
 the window directly, since a DirectX game reads actual input device state
 rather than the window message queue) — the same key-chord/hold/click/
-wait/paste vocabulary §6.3 describes, resolving `PASTE {NEXT_SYSTEM}`
+wait/paste vocabulary §6.4 describes, resolving `PASTE {NEXT_SYSTEM}`
 against the Route tab's live state at the moment it executes. Starting a
 new playback while a previous one is still in progress cancels the
-previous one first, the same as pressing **Stop** (§6.2) does explicitly
+previous one first, the same as pressing **Stop** (§6.3) does explicitly
 — playback can be cancelled at any point in the script, not just between
 steps.
 
@@ -592,7 +644,7 @@ via its own close button, and otherwise left showing until the user
 dismisses it or starts another playback. An ordinary user-initiated Stop
 is not treated as this kind of failure and shows no message.
 
-### 6.5 Persistence
+### 6.6 Persistence
 See §7.
 
 ---
@@ -616,8 +668,9 @@ rather than internal app state like the table below.
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
-| Controls tab key bindings | Every successful capture (§6.1) | App startup, per action — falling back to that action's default binding until first rebound |
-| Controls tab recorded macros | Every new recording, edit, or delete (§6.4) | App startup, as a single collection |
+| Controls tab options (Plot delay after cooldown) | Every change | App startup, falling back to the 5000ms default until first changed |
+| Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
+| Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 
 - Role assignment is restored by FID (not `ProcessId`, which doesn't
   survive a process restart) — this covers both "app just launched" and
@@ -684,7 +737,8 @@ rather than internal app state like the table below.
    currently-assigned Captain's journal if one is assigned, else defaulting
    row 1 to in-progress.
 6. Clicking Auto Pilot flips its own label between "Auto Pilot" and
-   "Stop" and disables/enables Edit accordingly; it has no other effect.
+   "Stop" and disables/enables Edit accordingly; while engaged, it drives
+   the route via the Captain's macro (§4.7) rather than sitting idle.
 7. Clicking anywhere in a row copies that row's system name to the
    clipboard, plays a confirmation sound, and shows the clipboard icon
    after that row's `System` text.
@@ -764,7 +818,7 @@ rather than internal app state like the table below.
     (400ms threshold for both), left-click position (window-relative,
     taken from where the button went down), and gaps ≥150ms as explicit
     waits, and produces a human-readable script in the documented grammar
-    (§6.3) on Stop, added as a new macro without disturbing any existing
+    (§6.4) on Stop, added as a new macro without disturbing any existing
     ones.
 27. `CLICK`/`HOLD CLICK` coordinates may use the literal placeholder
     `{CENTRE}` in place of a number for either axis, resolved at play
@@ -778,7 +832,7 @@ rather than internal app state like the table below.
 29. Clicking a macro's pencil icon selects that macro (as Play's target)
     and opens an editor with an editable name, a large editable script
     text box, and a narrow side panel documenting the script grammar
-    (§6.3); edits to either field are persisted as they're made, and
+    (§6.4); edits to either field are persisted as they're made, and
     Save (below the script box) returns to the list without losing them.
     The Key Bindings section remains visible above the editor throughout,
     and Record is disabled for as long as the editor is open.
@@ -809,3 +863,16 @@ rather than internal app state like the table below.
     Captain or Engineer clears that role's selection rather than leaving
     it referencing a macro that no longer exists. Renaming a selected
     macro does not lose the selection.
+35. The Controls tab shows an Options section above Key Bindings with a
+    "Plot delay after cooldown (ms)" setting, defaulting to 5000 and
+    persisting across restarts.
+36. Engaging Auto Pilot plays the Captain's selected macro against the
+    Captain's assigned instance for whichever row is currently
+    in-progress: immediately if it isn't showing Cooldown, or after
+    Cooldown clears plus the configured Options delay if it is - the
+    same rule whether this is the first row (evaluated the moment Auto
+    Pilot is engaged) or a later one (evaluated as journal tracking
+    advances the route). This repeats until every row reaches Complete,
+    at which point Auto Pilot stops itself automatically, or until Auto
+    Pilot is stopped manually or its requirements stop being met
+    mid-run.

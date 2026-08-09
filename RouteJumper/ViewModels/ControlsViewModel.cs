@@ -16,6 +16,8 @@ namespace RouteJumper.ViewModels
     {
         private const string KeyBindingSettingPrefix = "ControlAction.";
         private const string RecordedMacrosSettingKey = "RecordedMacros";
+        private const string CooldownDelayMsSettingKey = "CooldownDelayMs";
+        private const int DefaultCooldownDelayMs = 5000;
 
         private static readonly IReadOnlyDictionary<ControlAction, (Key Key, ModifierKeys Modifiers)> DefaultBindings =
             new Dictionary<ControlAction, (Key, ModifierKeys)>
@@ -48,6 +50,7 @@ namespace RouteJumper.ViewModels
         private RecordedMacroViewModel? _editingMacro;
         private bool _isPlaying;
         private string? _playbackErrorMessage;
+        private int _cooldownDelayMs = DefaultCooldownDelayMs;
 
         /// <summary>
         /// <paramref name="getNextSystemName"/> resolves the Route tab's current "next system"
@@ -62,6 +65,9 @@ namespace RouteJumper.ViewModels
             _settings = settings;
             _scanner = scanner;
             _getNextSystemName = getNextSystemName;
+            _cooldownDelayMs = _settings.GetDouble(CooldownDelayMsSettingKey) is { } storedDelay
+                ? Math.Max(0, (int)storedDelay)
+                : DefaultCooldownDelayMs;
 
             KeyBindings = new ObservableCollection<KeyBindingViewModel>(LoadKeyBindings());
             Instances = new ObservableCollection<EliteInstanceViewModel>();
@@ -230,6 +236,27 @@ namespace RouteJumper.ViewModels
         {
             get => _playbackErrorMessage;
             private set => SetProperty(ref _playbackErrorMessage, value);
+        }
+
+        /// <summary>
+        /// Options (§6.1): how long Auto Pilot (Route tab, §4.2) waits after a row's Cooldown
+        /// status clears before plotting the next jump, on top of however long the cooldown
+        /// itself already took - a real jump needs a moment after cooldown for the UI to settle
+        /// before the Captain's macro starts clicking through panels. Not used for anything
+        /// besides that - has no effect on the Cooldown status/timing itself (§5.7), and no
+        /// effect on a manually-triggered Play. Clamped to non-negative.
+        /// </summary>
+        public int CooldownDelayMs
+        {
+            get => _cooldownDelayMs;
+            set
+            {
+                var clamped = Math.Max(0, value);
+                if (SetProperty(ref _cooldownDelayMs, clamped))
+                {
+                    _settings.SetDouble(CooldownDelayMsSettingKey, clamped);
+                }
+            }
         }
 
         private async Task RefreshAsync()
@@ -432,6 +459,20 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
+            StartPlayback(macro, instance);
+        }
+
+        /// <summary>
+        /// Plays a specific macro against a specific instance, bypassing SelectedMacro/
+        /// SelectedInstance entirely - used by AutoPilotController (Route tab's Auto Pilot,
+        /// §4.2) to plot the Captain's macro, so an autopilot-triggered play is exactly as
+        /// visible (IsPlaying), stoppable (StopCommand), and error-reported
+        /// (PlaybackErrorMessage) as a manual one, rather than a separate, invisible channel.
+        /// </summary>
+        public void PlayMacro(RecordedMacroViewModel macro, EliteInstanceViewModel instance) => StartPlayback(macro, instance);
+
+        private void StartPlayback(RecordedMacroViewModel macro, EliteInstanceViewModel instance)
+        {
             _playbackCts?.Cancel();
             var cts = new CancellationTokenSource();
             _playbackCts = cts;

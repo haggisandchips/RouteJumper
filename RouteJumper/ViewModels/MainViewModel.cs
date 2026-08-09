@@ -10,13 +10,14 @@ namespace RouteJumper.ViewModels
     /// Top-level ViewModel for the main window: hosts the three tab ViewModels, and wires the
     /// shared row-event trigger between them (Roles' Captain journal watcher raises row events;
     /// Route's sequencer consumes them), plus RouteViewModel.RouteSaved ->
-    /// RolesViewModel.RefreshRouteForCurrentCaptain, and a read-only closure over
-    /// RouteViewModel.Rows so ControlsViewModel can resolve a macro's "next system" paste
-    /// placeholder without needing a real reference to RouteViewModel - neither tab ViewModel
-    /// references another directly; this class is the only place that does. Also owns the
-    /// single AppSettingsStore both tabs persist to/restore from, and the single AppConfigStore
-    /// both Roles' and Controls' own independent EliteInstanceScanner instances read the
-    /// journal folder from.
+    /// RolesViewModel.RefreshRouteForCurrentCaptain, a read-only closure over RouteViewModel.Rows
+    /// so ControlsViewModel can resolve a macro's "next system" paste placeholder, and closures
+    /// over RolesViewModel/ControlsViewModel so AutoPilotController can drive Auto Pilot (Route
+    /// tab §4.2) by playing the Captain's selected macro (Roles tab §5.5) through
+    /// ControlsViewModel.PlayMacro - none of the tab ViewModels reference each other directly;
+    /// this class is the only place that does. Also owns the single AppSettingsStore both tabs
+    /// persist to/restore from, and the single AppConfigStore both Roles' and Controls' own
+    /// independent EliteInstanceScanner instances read the journal folder from.
     /// </summary>
     public class MainViewModel : ObservableObject
     {
@@ -43,8 +44,38 @@ namespace RouteJumper.ViewModels
                 () => RouteViewModel.Rows.FirstOrDefault(r => r.Icon == RowIcon.InProgress)?.SystemText);
 
             RouteViewModel.RouteSaved += (_, _) => RolesViewModel.RefreshRouteForCurrentCaptain();
-            RolesViewModel.AutoPilotEligibilityChanged += (_, _) => RouteViewModel.RaiseAutoPilotEligibilityChanged();
+            RolesViewModel.AutoPilotEligibilityChanged += (_, _) =>
+            {
+                RouteViewModel.RaiseAutoPilotEligibilityChanged();
+
+                // Requirements dropping out from under a run already in progress (Captain
+                // unassigned, their instance closed, a selected macro deleted, ...) stops it
+                // outright, not just disables re-engaging it next time.
+                if (RouteViewModel.IsAutoPilotRunning && !RolesViewModel.CanEngageAutoPilot)
+                {
+                    RouteViewModel.StopAutoPilot();
+                }
+            };
             ControlsViewModel.MacroDeleted += (_, macro) => RolesViewModel.OnMacroDeleted(macro);
+
+            var autoPilotController = new AutoPilotController(
+                RouteViewModel.Rows,
+                () => RolesViewModel.CaptainMacro,
+                () => RolesViewModel.CaptainInstance,
+                () => ControlsViewModel.CooldownDelayMs,
+                (macro, instance) => ControlsViewModel.PlayMacro(macro, instance),
+                RouteViewModel.StopAutoPilot);
+            RouteViewModel.AutoPilotRunningChanged += (_, running) =>
+            {
+                if (running)
+                {
+                    autoPilotController.Start();
+                }
+                else
+                {
+                    autoPilotController.Stop();
+                }
+            };
 
             // Must run after the RouteSaved wiring above - see RouteViewModel.RestoreFromSettings.
             RouteViewModel.RestoreFromSettings();
