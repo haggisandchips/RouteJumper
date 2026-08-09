@@ -14,7 +14,6 @@
         <converters:IconStatusToPackIconKindConverter x:Key="IconStatusToPackIconKindConverter" />
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
         <converters:AutoPilotLabelConverter x:Key="AutoPilotLabelConverter" />
-        <converters:NegatePaddingConverter x:Key="NegatePaddingConverter" />
 
         <!-- Same appearance/selection behavior as the toolkit's own cell style - just without
              the "current cell" border a click leaves behind. That border comes from the base
@@ -39,14 +38,6 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Same as above, but also stretches its content presenter to the cell's full size -
-             the Status column's own CellTemplate needs this so its progress bar can actually
-             reach the cell's true right/bottom edges (see RouteDataGrid.Columns below); every
-             other column is happy with the base style's own (narrower, content-sized) default. -->
-        <Style x:Key="RouteStatusCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource RouteDataGridCellStyle}">
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="VerticalContentAlignment" Value="Stretch" />
-        </Style>
     </UserControl.Resources>
 
     <Grid Margin="12">
@@ -209,15 +200,13 @@
                          (Plotted/Jumping/Cooldown) has left - full the instant that status
                          starts, draining to empty as it approaches its own known end (see
                          RouteRowViewModel.Progress). Hidden entirely for a status with no known
-                         end (blank "waiting" or Complete). This column's own CellStyle
-                         (RouteStatusCellStyle) stretches its content presenter to the cell's full
-                         size - without that, the whole template sizes to its content instead and
-                         no margin trick alone can reach the true cell edges. The bar's own Margin
-                         then cancels out just the cell's Right/Bottom Padding (via
-                         NegatePaddingConverter) so it reaches those two true edges, while its
-                         left edge is deliberately left inset by the same Padding.Left the text
-                         above it already sits at, so the two line up. -->
-                    <DataGridTemplateColumn Header="Status" Width="140" CellStyle="{StaticResource RouteStatusCellStyle}">
+                         end (blank "waiting" or Complete). Deliberately no attempt to force this
+                         to reach the cell's exact pixel edge (a prior attempt bound the template's
+                         own Width/Height to the DataGridCell's ActualWidth/ActualHeight, which is
+                         circular - a cell's size is normally derived FROM its content, not the
+                         other way around - and broke the whole tab's layout); it simply stretches
+                         to fill whatever width the cell's own default padding leaves it. -->
+                    <DataGridTemplateColumn Header="Status" Width="140">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid>
@@ -227,7 +216,7 @@
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Grid.Row="0"
-                                               Text="{Binding Status}"
+                                               Text="{Binding StatusDisplay}"
                                                VerticalAlignment="Center" />
 
                                     <ProgressBar Grid.Row="1"
@@ -238,7 +227,7 @@
                                                  Background="Transparent"
                                                  BorderThickness="0"
                                                  Height="4"
-                                                 Margin="{Binding Padding, RelativeSource={RelativeSource AncestorType=DataGridCell}, Converter={StaticResource NegatePaddingConverter}, ConverterParameter='Right,Bottom'}" />
+                                                 HorizontalAlignment="Stretch" />
                                 </Grid>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>

@@ -141,11 +141,19 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:EliteInstanceViewModel}">
-                            <materialDesign:Card Style="{StaticResource SelectableCardStyle}">
-                                <StackPanel Cursor="Hand"
-                                            ToolTip="Click to select as the record/play target"
-                                            behaviors:ClickCommandBehavior.Command="{Binding DataContext.SelectInstanceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            behaviors:ClickCommandBehavior.CommandParameter="{Binding}">
+                            <!-- Cursor/ToolTip/click behavior live on the Card itself, not just the
+                                 StackPanel it wraps around its content - PreviewMouseLeftButtonUp
+                                 tunnels down through the Card on its way to whatever was actually
+                                 clicked, so the whole card (including its own padding, and any
+                                 gap between lines of text the inner StackPanel/Grid don't
+                                 otherwise cover) is clickable, not just the bits of information
+                                 themselves. -->
+                            <materialDesign:Card Style="{StaticResource SelectableCardStyle}"
+                                                  Cursor="Hand"
+                                                  ToolTip="Click to select as the record/play target"
+                                                  behaviors:ClickCommandBehavior.Command="{Binding DataContext.SelectInstanceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                  behaviors:ClickCommandBehavior.CommandParameter="{Binding}">
+                                <StackPanel>
                                     <TextBlock Text="{Binding CommanderName}"
                                                FontSize="18"
                                                FontWeight="Bold"

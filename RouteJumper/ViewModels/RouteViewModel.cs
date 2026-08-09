@@ -21,6 +21,7 @@ namespace RouteJumper.ViewModels
         private readonly Func<bool> _canEngageAutoPilot;
 
         private string _routeText = string.Empty;
+        private string? _lastSavedRouteText;
         private bool _isSaved;
         private bool _isAutoPilotRunning;
         private bool _autoCopyToClipboardEnabled;
@@ -243,13 +244,32 @@ namespace RouteJumper.ViewModels
 
             IsAutoPilotRunning = false;
             IsSaved = true;
+            _lastSavedRouteText = RouteText;
             _settings.SetString(RouteTextSettingKey, RouteText);
             RouteSaved?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Undoes whatever's been typed since Edit was last entered: if a route has been saved
+        /// before, restores the text box to that last-saved text and returns to Table state -
+        /// Rows itself was never touched by Edit (only Save rebuilds it), so this leaves the
+        /// table, including any in-progress icon/status/journal-tracked progress, exactly as it
+        /// was. If nothing has ever been saved yet (a fresh, never-saved launch), there's no
+        /// table to go back to, so this just clears the box instead, staying in Edit state -
+        /// SaveCommand's own CanExecute (non-whitespace text required) keeps it disabled either
+        /// way until something new is typed.
+        /// </summary>
         private void Cancel()
         {
-            RouteText = string.Empty;
+            if (_lastSavedRouteText is { } lastSaved)
+            {
+                RouteText = lastSaved;
+                IsSaved = true;
+            }
+            else
+            {
+                RouteText = string.Empty;
+            }
         }
 
         private void Edit()

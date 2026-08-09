@@ -78,7 +78,14 @@ one is visible at a time.
   - **Save** is enabled only when the text box contains at least one
     non-whitespace character. Splits the text into rows (§4.3) and switches
     to Table state. Does not clear the text box.
-  - **Cancel** is always enabled; clears all text from the box.
+  - **Cancel** is always enabled. If a route has been saved before,
+    restores the text box to that last-saved text and returns to Table
+    state — undoing whatever's been typed since Edit was last entered,
+    without ever rebuilding `Rows` (only Save does that), so the table
+    — including any in-progress icon/status/journal-tracked progress —
+    is left exactly as it was. If nothing has ever been saved yet (a
+    fresh, never-saved launch), there's no table to return to, so this
+    just clears the box instead and stays in Edit state.
 
 ### 4.2 Table state (after Save)
 - A read-only table (`DataGrid`) fills the available space, with columns:
@@ -177,6 +184,13 @@ its current `Status` text:
   early; the carrier's jump is effectively instantaneous at
   `DepartureTime` in practice, making this a close approximation of the
   real, later-confirmed arrival time.
+- Alongside the progress bar, the same countdown is shown as text: the
+  `Status` cell reads `Plotted (0:11:32)` — the status word, a space, then
+  the remaining time in parentheses as `H:MM:SS` (hours unpadded — a
+  single digit once under ten, not `00` — minutes and seconds always two
+  digits), ticking down live on the same timer that drives the progress
+  bar. Omitted (bare status word only) under the same conditions the
+  progress bar itself is hidden.
 
 ### 4.5 Persistence
 See §7.
@@ -849,14 +863,18 @@ rather than internal app state like the table below.
    headings on the left edge; Route is selected by default.
 2. Route tab starts in Edit state: an empty, full-size text box with
    disabled Save, enabled Cancel, and keyboard focus already on the box.
-3. Typing text enables Save; clicking Cancel clears the text box.
+3. Typing text enables Save; on a fresh, never-saved launch, clicking
+   Cancel clears the text box (there's nothing saved yet to return to).
 4. Saving N non-blank lines produces a table with exactly N rows, numbered
    1..N, `System` matching the input verbatim (trimmed), `Status` empty,
    icon column empty except row 1 (in-progress).
 5. Clicking Edit returns to the text box unchanged, with focus restored;
    re-clicking Save always produces a fresh table, re-derived from the
    currently-assigned Captain's journal if one is assigned, else defaulting
-   row 1 to in-progress.
+   row 1 to in-progress. Clicking Cancel instead (with a route already
+   saved) discards any changes made since Edit was clicked, returns to
+   Table state, and leaves the table exactly as it was - including
+   whatever icon/status progress it already had.
 6. Clicking Auto Pilot flips its own label between "Auto Pilot" and
    "Stop" and disables/enables Edit accordingly; while engaged, it drives
    the route via the Captain's macro (§4.7) rather than sitting idle.
@@ -1028,9 +1046,11 @@ rather than internal app state like the table below.
     Captain's own plot-at-Cooldown-clear trigger, and not at all with no
     Engineer assigned.
 40. A row showing Plotted, Jumping, or Cooldown shows a progress bar
-    behind its Status text that starts full and visually drains to empty
-    by the real-world instant that status is due to end; a row with a
-    blank or Complete status shows no progress bar.
+    below its Status text that starts full and visually drains to empty
+    by the real-world instant that status is due to end, and the Status
+    text itself shows the same countdown as "Status (H:MM:SS)" (hours
+    unpadded, minutes/seconds always two digits), ticking down live; a
+    row with a blank or Complete status shows neither.
 41. Resizing a Route table column and relaunching the app restores that
     column's width exactly as left, per column, with no manual
     reconfiguration required.

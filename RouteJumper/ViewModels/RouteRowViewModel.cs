@@ -16,6 +16,7 @@ namespace RouteJumper.ViewModels
         private DateTime? _phaseEndUtc;
         private DateTime? _phaseStartUtc;
         private double _progress;
+        private string _timeRemainingDisplay = string.Empty;
 
         public RowIcon Icon
         {
@@ -37,11 +38,21 @@ namespace RouteJumper.ViewModels
             set => SetProperty(ref _systemText, value);
         }
 
-        /// <summary>Current action status ("Status" column), e.g. "Plotted", "Jumping", "Cooldown".</summary>
+        /// <summary>
+        /// Current action status ("Status" column), e.g. "Plotted", "Jumping", "Cooldown" - the
+        /// raw word alone, used as-is by IconStatusToPackIconKindConverter. See StatusDisplay for
+        /// the text actually shown in the Status cell, which appends the countdown.
+        /// </summary>
         public string Status
         {
             get => _status;
-            set => SetProperty(ref _status, value);
+            set
+            {
+                if (SetProperty(ref _status, value))
+                {
+                    OnPropertyChanged(nameof(StatusDisplay));
+                }
+            }
         }
 
         /// <summary>
@@ -74,6 +85,7 @@ namespace RouteJumper.ViewModels
                 {
                     _phaseStartUtc = value.HasValue ? DateTime.UtcNow : null;
                     OnPropertyChanged(nameof(HasProgress));
+                    OnPropertyChanged(nameof(StatusDisplay));
                     RefreshProgress();
                 }
             }
@@ -95,12 +107,29 @@ namespace RouteJumper.ViewModels
             private set => SetProperty(ref _progress, value);
         }
 
-        /// <summary>Recomputes Progress against the current wall clock - a no-op (Progress -> 0) once PhaseEndUtc is cleared, or if the phase's own window is degenerate (start == end).</summary>
+        /// <summary>"H:MM:SS" time remaining until PhaseEndUtc (hours uncapped/unpadded, minutes and seconds always 2 digits) - empty while HasProgress is false. See StatusDisplay.</summary>
+        public string TimeRemainingDisplay
+        {
+            get => _timeRemainingDisplay;
+            private set
+            {
+                if (SetProperty(ref _timeRemainingDisplay, value))
+                {
+                    OnPropertyChanged(nameof(StatusDisplay));
+                }
+            }
+        }
+
+        /// <summary>What the Status cell's text actually shows (§4.4): Status alone while there's no countdown, or "Status (H:MM:SS)" while there is.</summary>
+        public string StatusDisplay => HasProgress ? $"{Status} ({TimeRemainingDisplay})" : Status;
+
+        /// <summary>Recomputes Progress/TimeRemainingDisplay against the current wall clock - a no-op (Progress -> 0, TimeRemainingDisplay -> empty) once PhaseEndUtc is cleared, or if the phase's own window is degenerate (start == end).</summary>
         public void RefreshProgress()
         {
             if (_phaseEndUtc is not { } end || _phaseStartUtc is not { } start)
             {
                 Progress = 0;
+                TimeRemainingDisplay = string.Empty;
                 return;
             }
 
@@ -108,11 +137,25 @@ namespace RouteJumper.ViewModels
             if (totalTicks <= 0)
             {
                 Progress = 0;
+                TimeRemainingDisplay = string.Empty;
                 return;
             }
 
-            var remainingTicks = (end - DateTime.UtcNow).Ticks;
+            var now = DateTime.UtcNow;
+            var remainingTicks = (end - now).Ticks;
             Progress = Math.Clamp(remainingTicks / (double)totalTicks, 0, 1);
+
+            var remaining = end - now;
+            if (remaining < TimeSpan.Zero)
+            {
+                remaining = TimeSpan.Zero;
+            }
+
+            // (int)TotalHours, not Hours - the latter wraps at 24, and a Plotted phase can
+            // legitimately be well over an hour out. Minutes/Seconds (the TimeSpan's own
+            // component values, always 0-59) are what "hours can be single digit" implies should
+            // still be zero-padded.
+            TimeRemainingDisplay = $"{(int)remaining.TotalHours}:{remaining.Minutes:D2}:{remaining.Seconds:D2}";
         }
     }
 }
