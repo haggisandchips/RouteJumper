@@ -167,12 +167,18 @@ Pilot (and manual playback) is built from.
   key/chord.
 - **Running Instances**: its own independent scan of running game
   instances, used purely as the record/playback target.
-- **Record** / **Stop** / **Play**: press Record against a selected
-  instance to capture real keyboard/mouse input as a new named macro;
-  Play replays any recorded macro against any selected instance. Click
-  a macro's pencil icon to open the full-size editor (name + script
-  text + a syntax-reference panel), where you can also **Step** through
-  a script one instruction at a time.
+- **New Script** (the file-plus icon, grouped with Record/Stop/Play) /
+  **Record** / **Stop** / **Play**: New Script creates a new, empty
+  macro and opens it straight in the editor, for writing (or pasting
+  in) a script by hand instead of recording one — no running instance
+  required (see [Sample scripts](#sample-scripts) below for three ready
+  to use this way). Record instead captures real keyboard/mouse input
+  against a selected instance as a new named macro; Play replays any
+  recorded macro against any selected instance. Click a macro's pencil
+  icon to open the full-size editor (name + script text + a
+  syntax-reference panel), where you can also **Step** through a script
+  one instruction
+  at a time.
 
 ---
 
@@ -213,19 +219,15 @@ step.
 Three ready-to-use scripts are included below to get you started —
 covering the Captain's jump-plotting routine and both ways an Engineer
 can refuel the carrier (buying Tritium from a station market, or
-transferring it from the carrier's own hold). **RouteJumper has no
-"import script file" button** — macros are only ever created by
-recording, so to use one of these:
+transferring it from the carrier's own hold). To use one of these:
 
-1. On the **Controls** tab, select any running instance and click
-   **Record**, then immediately click **Stop** — this creates a new,
-   empty-ish macro entry to edit (its captured content doesn't matter,
-   it's about to be replaced).
-2. Click that macro's **pencil** icon to open the editor.
-3. Give it a clear **name** (e.g. "Plot Next System"), then select all
-   the text in the script box and paste one of the scripts below over
-   it.
-4. On the **Roles** tab, pick it under **Captain plots via** or
+1. On the **Controls** tab, click the **New Script** icon (the
+   file-plus icon next to Record/Stop/Play, in the Running Instances
+   section) — this creates a new, empty macro and opens it straight in
+   the editor.
+2. Give it a clear **name** (e.g. "Plot Next System"), then paste one of
+   the scripts below into the script box.
+3. On the **Roles** tab, pick it under **Captain plots via** or
    **Engineer refuels via** as appropriate.
 
 All three assume the in-game **Right Panel** key binding is set to open

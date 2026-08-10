@@ -187,6 +187,49 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void NewMacroCommand_CreatesEmptyMacroAndOpensEditor()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var before = vm.Macros.Count;
+
+            vm.NewMacroCommand.Execute(null);
+
+            var created = Assert.Single(vm.Macros.Skip(before));
+            Assert.Equal(string.Empty, created.ScriptText);
+            Assert.Equal(string.Empty, created.SourceCommanderName);
+            Assert.Equal(0, created.SourceProcessId);
+            Assert.Same(created, vm.EditingMacro);
+            Assert.Same(created, vm.SelectedMacro);
+            Assert.True(vm.IsEditingMacro);
+        }
+
+        [Fact]
+        public void NewMacroCommand_DoesNotRequireASelectedInstance()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            Assert.True(vm.NewMacroCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public void NewMacroCommand_CreatedMacroCanBeEditedAndPersists()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            vm.NewMacroCommand.Execute(null);
+            vm.EditingMacro!.Name = "Hand-written";
+            vm.EditingMacro!.ScriptText = "UP\nDOWN";
+
+            var restored = Create(dir);
+            var restoredMacro = Assert.Single(restored.Macros);
+            Assert.Equal("Hand-written", restoredMacro.Name);
+            Assert.Equal("UP\nDOWN", restoredMacro.ScriptText);
+        }
+
+        [Fact]
         public void EditMacroCommand_SelectsAndOpensEditor()
         {
             using var dir = new TempDirectory();

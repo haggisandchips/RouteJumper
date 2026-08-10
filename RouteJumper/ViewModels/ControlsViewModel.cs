@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Input;
+using System.Windows.Threading;
 using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Services;
@@ -117,6 +119,7 @@ namespace RouteJumper.ViewModels
             StartCaptureCommand = new RelayCommand<KeyBindingViewModel>(StartCapture);
             SelectInstanceCommand = new RelayCommand<EliteInstanceViewModel>(instance => SelectedInstance = instance);
             RecordCommand = new RelayCommand(StartRecording, CanStartRecording);
+            NewMacroCommand = new RelayCommand(CreateNewMacro, CanCreateNewMacro);
             StopCommand = new RelayCommand(StopActive, () => IsRecording || IsPlaying || IsStepping);
             SelectMacroCommand = new RelayCommand<RecordedMacroViewModel>(macro => SelectedMacro = macro);
             PlayCommand = new RelayCommand(Play, CanPlay);
@@ -150,6 +153,9 @@ namespace RouteJumper.ViewModels
         public RelayCommand<EliteInstanceViewModel> SelectInstanceCommand { get; }
 
         public RelayCommand RecordCommand { get; }
+
+        /// <summary>Creates a new, empty macro and opens it in the editor - for writing a script by hand instead of recording one (e.g. pasting one in from elsewhere).</summary>
+        public RelayCommand NewMacroCommand { get; }
 
         /// <summary>Stops whichever of recording/playback is currently active - a single button covers both, since only one can ever be happening at a time.</summary>
         public RelayCommand StopCommand { get; }
@@ -243,6 +249,7 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _isRecording, value))
                 {
                     RecordCommand.RaiseCanExecuteChanged();
+                    NewMacroCommand.RaiseCanExecuteChanged();
                     PlayCommand.RaiseCanExecuteChanged();
                     StopCommand.RaiseCanExecuteChanged();
                     StepCommand.RaiseCanExecuteChanged();
@@ -265,6 +272,7 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _isPlaying, value))
                 {
                     RecordCommand.RaiseCanExecuteChanged();
+                    NewMacroCommand.RaiseCanExecuteChanged();
                     StopCommand.RaiseCanExecuteChanged();
                     PlayCommand.RaiseCanExecuteChanged();
                     StepCommand.RaiseCanExecuteChanged();
@@ -285,6 +293,7 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _isStepping, value))
                 {
                     RecordCommand.RaiseCanExecuteChanged();
+                    NewMacroCommand.RaiseCanExecuteChanged();
                     PlayCommand.RaiseCanExecuteChanged();
                     StopCommand.RaiseCanExecuteChanged();
                     StepCommand.RaiseCanExecuteChanged();
@@ -512,6 +521,56 @@ namespace RouteJumper.ViewModels
             _activeRecorder = new InputRecorder(_recordingTargetWindow, ResolveRecordToken);
             _activeRecorder.Start();
             IsRecording = true;
+        }
+
+        /// <summary>
+        /// Unlike Record, creating a blank macro by hand doesn't touch any instance/window at
+        /// all, so it isn't gated on SelectedInstance or on the macro editor already being open
+        /// for something else (opening this one just switches EditingMacro to it) - only on
+        /// nothing else currently injecting/capturing input, the same as Record itself.
+        /// </summary>
+        private bool CanCreateNewMacro() => !IsRecording && !IsPlaying && !IsStepping;
+
+        /// <summary>
+        /// Creates a new macro with empty script text and opens it straight in the editor - for
+        /// writing (or pasting in) a script by hand instead of recording one. Goes through the
+        /// same WatchForMacroEdits/SaveMacros path StopRecording uses, so it persists and picks
+        /// up edits identically to a recorded macro from this point on.
+        /// </summary>
+        private void CreateNewMacro()
+        {
+            var macro = new RecordedMacroViewModel(new RecordedMacro
+            {
+                Id = Guid.NewGuid(),
+                Name = $"New Script {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                ScriptText = string.Empty,
+                SourceProcessId = 0,
+                SourceCommanderName = string.Empty,
+                RecordedAtUtc = DateTime.UtcNow
+            });
+
+            WatchForMacroEdits(macro);
+            Macros.Add(macro);
+            SaveMacros();
+
+            // Opening the editor immediately would collapse the compact list's ScrollViewer
+            // (IsEditingMacro's Visibility binding) in the very same synchronous operation that
+            // just added this row to it - before WPF ever gives the new row's ItemsControl
+            // container a real (non-collapsed) layout/render pass. MaterialDesignThemes' icon
+            // buttons don't recover from being first realized at zero size, leaving the
+            // pencil/Delete icons blank until the whole visual tree is rebuilt (e.g. an app
+            // restart). Deferring to DispatcherPriority.Loaded lets the row actually render,
+            // still visible in the list, before switching into the editor. Application.Current
+            // is null outside a running WPF app (e.g. unit tests) - fall back to opening
+            // immediately there, since there's no real dispatcher/layout pass to wait for.
+            if (Application.Current is null)
+            {
+                OpenEditor(macro);
+            }
+            else
+            {
+                Application.Current.Dispatcher.BeginInvoke(() => OpenEditor(macro), DispatcherPriority.Loaded);
+            }
         }
 
         /// <summary>Translates a captured key to a script token - the bound action's name if it matches one of the current key bindings, otherwise a literal "KEY &lt;storage&gt;".</summary>

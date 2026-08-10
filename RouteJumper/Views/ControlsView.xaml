@@ -214,34 +214,43 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-                <Button Command="{Binding RefreshCommand}" Padding="8,4" Margin="0,0,8,0" AutomationProperties.Name="Refresh">
+            <DockPanel LastChildFill="False" Margin="0,8,0,0">
+                <Button DockPanel.Dock="Left" Command="{Binding RefreshCommand}" Padding="8,4" AutomationProperties.Name="Refresh">
                     <StackPanel Orientation="Horizontal">
                         <materialDesign:PackIcon Kind="Refresh" VerticalAlignment="Center" Margin="0,0,6,0" />
                         <TextBlock Text="Refresh" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Command="{Binding RecordCommand}"
-                        Style="{StaticResource MaterialDesignIconButton}"
-                        Margin="0,0,4,0"
-                        ToolTip="Record against the selected instance"
-                        AutomationProperties.Name="Record">
-                    <materialDesign:PackIcon Kind="Record" Foreground="Red" Width="22" Height="22" />
-                </Button>
-                <Button Command="{Binding StopCommand}"
-                        Style="{StaticResource MaterialDesignIconButton}"
-                        Margin="0,0,12,0"
-                        ToolTip="Stop recording or playback"
-                        AutomationProperties.Name="Stop">
-                    <materialDesign:PackIcon Kind="Stop" Width="22" Height="22" />
-                </Button>
-                <Button Command="{Binding PlayCommand}"
-                        Style="{StaticResource MaterialDesignIconButton}"
-                        ToolTip="Play the selected macro against the selected instance"
-                        AutomationProperties.Name="Play">
-                    <materialDesign:PackIcon Kind="Play" Width="22" Height="22" />
-                </Button>
-            </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Command="{Binding NewMacroCommand}"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Margin="0,0,12,0"
+                            ToolTip="Create a new, empty macro to write (or paste) a script into by hand, without recording"
+                            AutomationProperties.Name="New Script">
+                        <materialDesign:PackIcon Kind="FilePlusOutline" Width="22" Height="22" />
+                    </Button>
+                    <Button Command="{Binding RecordCommand}"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Margin="0,0,4,0"
+                            ToolTip="Record against the selected instance"
+                            AutomationProperties.Name="Record">
+                        <materialDesign:PackIcon Kind="Record" Foreground="Red" Width="22" Height="22" />
+                    </Button>
+                    <Button Command="{Binding StopCommand}"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Margin="0,0,12,0"
+                            ToolTip="Stop recording or playback"
+                            AutomationProperties.Name="Stop">
+                        <materialDesign:PackIcon Kind="Stop" Width="22" Height="22" />
+                    </Button>
+                    <Button Command="{Binding PlayCommand}"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            ToolTip="Play the selected macro against the selected instance"
+                            AutomationProperties.Name="Play">
+                        <materialDesign:PackIcon Kind="Play" Width="22" Height="22" />
+                    </Button>
+                </StackPanel>
+            </DockPanel>
         </StackPanel>
 
         <!-- ===================== Recorded Macros (SPEC §6.3/6.4) ===================== -->
@@ -289,7 +298,11 @@
                                                        FontWeight="Bold"
                                                        Foreground="Black"
                                                        TextTrimming="CharacterEllipsis" />
+                                            <!-- Blank (and hidden, via StringToVisibilityConverter)
+                                                 for a hand-written macro (New Script) - it was
+                                                 never recorded against anything. -->
                                             <TextBlock Text="{Binding SourceCommanderName, StringFormat='Recorded against {0}'}"
+                                                       Visibility="{Binding SourceCommanderName, Converter={StaticResource StringToVisibilityConverter}}"
                                                        HorizontalAlignment="Left"
                                                        Margin="0"
                                                        Padding="0"
@@ -401,6 +414,7 @@
                                  Margin="0,0,0,4" />
                         <TextBlock DockPanel.Dock="Top"
                                    Text="{Binding EditingMacro.SourceCommanderName, StringFormat='Recorded against {0}'}"
+                                   Visibility="{Binding EditingMacro.SourceCommanderName, Converter={StaticResource StringToVisibilityConverter}}"
                                    Opacity="0.6"
                                    FontSize="11"
                                    Margin="0,0,0,8" />

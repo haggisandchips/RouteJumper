@@ -19,6 +19,9 @@ once the first release is tagged. Until then, everything lives under
 - `RouteJumper.Tests`, a unit test suite covering the route-progress
   engine, macro script parsing, journal parsing, settings persistence,
   and the ViewModel layer.
+- **New Script** button (Controls tab): creates a new, empty macro and
+  opens it straight in the editor, for writing or pasting in a script
+  by hand instead of recording one.
 
 ### Changed
 
@@ -26,6 +29,14 @@ once the first release is tagged. Until then, everything lives under
 - Recorded Macros list: the whole row is now clickable to select a
   macro, not just its name text (the Edit/Delete icons are still
   excluded).
+
+### Fixed
+
+- A macro created via **New Script** had blank pencil/Delete icons on
+  its row until the app was restarted — its row was rendered for the
+  first time while collapsed (opening the editor immediately hid the
+  list), which MaterialDesignThemes' icon buttons don't recover from.
+  The editor now opens a moment after the row has actually rendered.
 
 ---
 

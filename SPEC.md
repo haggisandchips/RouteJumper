@@ -609,9 +609,18 @@ than one instance, or once more appear, the user clicks a card to select
 it (highlighted); clicking a different card moves the selection, it does
 not add to it.
 
-Media-style **Record**, **Stop**, and **Play** buttons sit alongside
-Refresh. A single Stop button covers both recording and playback, since
-only one of the two is ever active at a time:
+This section's own button row holds **Refresh** at its left, opposite
+**New Script** (§6.5) and the media-style **Record**, **Stop**, and
+**Play** buttons grouped at its right — New Script rendered icon-only,
+for visual consistency with Record/Stop/Play beside it. A single Stop
+button covers both recording and playback, since only one of the two is
+ever active at a time:
+- **New Script** (§6.5) creates a new, empty macro and opens it directly
+  in the editor, for writing or pasting in a script by hand instead of
+  recording one. Enabled under the same nothing-else-currently-
+  recording/playing/stepping condition as Record below, but — unlike
+  Record — needs no selected instance and works even while the editor
+  is already open for a different macro.
 - **Record** is enabled only while an instance is selected, nothing is
   already recording or playing, and the macro editor (§6.5) isn't open.
 - **Play** is enabled only while both an instance and a macro (§6.5) are
@@ -742,8 +751,9 @@ CALL refuel
 
 ### 6.5 Recorded Macros
 
-A section listing every macro recorded so far (newest last). By default
-it shows a compact list, one row per macro:
+A section listing every macro recorded (or hand-written via **New
+Script** — see §6.3) so far (newest last). By default it shows a
+compact list, one row per macro:
 - The macro's **name**, with the rest of the row's own background also
   clickable (anywhere except the pencil/Delete icons below) — clicking
   anywhere in that clickable area selects that macro as the Play target
@@ -756,7 +766,18 @@ it shows a compact list, one row per macro:
 
 The source commander a macro was originally recorded against is shown as
 a small caption under its name — display only; it does not restrict which
-instance can play the macro (§6.3).
+instance can play the macro (§6.3). Omitted entirely (no blank line left
+behind) for a macro created via **New Script** rather than recorded,
+since it has no source commander to show.
+
+The **New Script** button (§6.3's own button row, not this section)
+creates a new, empty macro (blank script text, no source commander) and
+immediately opens it in the editor below — for writing a script by
+hand, or pasting one in from elsewhere, without ever recording anything.
+The new macro is persisted and behaves identically to a recorded one
+from this point on — Play, Step, rename, delete, and role-macro
+selection (§5.5) all work the same regardless of how a macro's script
+text originally got there.
 
 Clicking the pencil replaces the list with a full-size **editor** for
 that one macro, since a script is naturally a tall, narrow list of short
@@ -1130,3 +1151,13 @@ rather than internal app state like the table below.
     Auto Pilot-triggered run always resolves them live regardless of what
     these fields hold. Play and Step are both disabled while either field
     is blank. Neither field persists across a restart.
+44. Clicking **New Script** creates a new macro with empty script text
+    and no source commander, adds it to the Recorded Macros list, and
+    opens it directly in the editor — with no selected instance and no
+    prior recording required. It's enabled/disabled by the same
+    nothing-else-recording/playing/stepping condition as Record, but
+    unlike Record does not require a selected instance and remains
+    enabled while the editor is already open for another macro. The
+    macro it creates persists across a restart and can be played,
+    stepped, renamed, or selected for a role's macro exactly like a
+    recorded one.
