@@ -255,7 +255,20 @@
                     <ItemsControl ItemsSource="{Binding Macros}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:RecordedMacroViewModel}">
-                                <Border Style="{StaticResource SelectableMacroRowStyle}">
+                                <!-- Cursor/ToolTip/click behavior live on the Border itself, not
+                                     just the StackPanel it wraps around the name/caption - same
+                                     pattern as the instance cards above (ControlsView's Running
+                                     Instances section): PreviewMouseLeftButtonUp tunnels down
+                                     through the Border on its way to whatever was actually
+                                     clicked, so the whole blue selected/hover region is clickable,
+                                     not just the bits of text themselves - except the Edit/Delete
+                                     buttons, which ClickCommandBehavior itself excludes. -->
+                                <Border Style="{StaticResource SelectableMacroRowStyle}"
+                                        Cursor="Hand"
+                                        ToolTip="Select as the Play target"
+                                        AutomationProperties.Name="{Binding Name}"
+                                        behaviors:ClickCommandBehavior.Command="{Binding DataContext.SelectMacroCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        behaviors:ClickCommandBehavior.CommandParameter="{Binding}">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -263,18 +276,12 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
-                                        <!-- A plain clickable StackPanel, not a Button - same
-                                             pattern as the instance cards above. MaterialDesign's
+                                        <!-- A plain StackPanel, not a Button - MaterialDesign's
                                              button templates are built for single-line labels and
                                              both clip and add a stray focus decoration around
                                              multi-line content like this two-line name+caption. -->
                                         <StackPanel Grid.Column="0"
-                                                    Margin="10,6"
-                                                    Cursor="Hand"
-                                                    ToolTip="Select as the Play target"
-                                                    AutomationProperties.Name="{Binding Name}"
-                                                    behaviors:ClickCommandBehavior.Command="{Binding DataContext.SelectMacroCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    behaviors:ClickCommandBehavior.CommandParameter="{Binding}">
+                                                    Margin="10,6">
                                             <TextBlock Text="{Binding Name}"
                                                        HorizontalAlignment="Left"
                                                        Margin="0"

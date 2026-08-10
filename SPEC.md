@@ -744,9 +744,10 @@ CALL refuel
 
 A section listing every macro recorded so far (newest last). By default
 it shows a compact list, one row per macro:
-- The macro's **name** as a clickable button — clicking it selects that
-  macro as the Play target (§6.3), highlighting the row. It does not open
-  the macro for editing.
+- The macro's **name**, with the rest of the row's own background also
+  clickable (anywhere except the pencil/Delete icons below) — clicking
+  anywhere in that clickable area selects that macro as the Play target
+  (§6.3), highlighting the row. It does not open the macro for editing.
 - A small **pencil** icon that opens the full-size editor (below) for
   that macro.
 - A **Delete** icon, always available; deleting the macro that is
@@ -1020,12 +1021,13 @@ rather than internal app state like the table below.
 27. `CLICK`/`HOLD CLICK` coordinates may use the literal placeholder
     `{CENTRE}` in place of a number for either axis, resolved at play
     time against the target window's then-current client-area size.
-28. The Recorded Macros list shows each macro as a clickable name (selects
-    it as the Play target, highlighting it) plus a pencil icon (opens the
-    full-size editor) and a delete icon. Play is enabled only once both an
-    instance and a macro are selected, and can play any selected macro
-    against any selected instance, regardless of which instance it was
-    originally recorded against.
+28. The Recorded Macros list shows each macro as a name with the rest of
+    its row also clickable (selects it as the Play target, highlighting
+    it), except for a pencil icon (opens the full-size editor) and a
+    delete icon, which are excluded from that click area. Play is enabled
+    only once both an instance and a macro are selected, and can play any
+    selected macro against any selected instance, regardless of which
+    instance it was originally recorded against.
 29. Clicking a macro's pencil icon selects that macro (as Play's target)
     and opens an editor with an editable name, a large editable script
     text box, and a narrow side panel documenting the script grammar
