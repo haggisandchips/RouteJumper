@@ -83,8 +83,7 @@ namespace RouteJumper.Services
         {
             var parsed = MacroScriptParser.Parse(scriptText);
 
-            NativeMethods.ShowWindow(_targetWindow, SW_RESTORE);
-            NativeMethods.SetForegroundWindow(_targetWindow);
+            Win32Foreground.ForceForegroundWindow(_targetWindow);
             await Task.Delay(200, cancellationToken); // give the window a moment to actually gain focus
 
             // A separate linked token lets the focus watchdog abort playback on its own, without
@@ -286,8 +285,7 @@ namespace RouteJumper.Services
         /// </summary>
         public async Task RunSingleStepAsync(MacroInstruction step, CancellationToken cancellationToken)
         {
-            NativeMethods.ShowWindow(_targetWindow, SW_RESTORE);
-            NativeMethods.SetForegroundWindow(_targetWindow);
+            Win32Foreground.ForceForegroundWindow(_targetWindow);
             await Task.Delay(200, cancellationToken);
             await ExecuteLeafAsync(step, cancellationToken);
         }
@@ -567,16 +565,8 @@ namespace RouteJumper.Services
             SendKeyEvents(new[] { ctrlVk }, vVk, keyUp: true);
         }
 
-        private const int SW_RESTORE = 9;
-
         private static class NativeMethods
         {
-            [DllImport("user32.dll")]
-            public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-            [DllImport("user32.dll")]
-            public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
             [DllImport("user32.dll")]
             public static extern IntPtr GetForegroundWindow();
 

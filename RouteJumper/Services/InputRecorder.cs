@@ -36,7 +36,6 @@ namespace RouteJumper.Services
     {
         private const int HoldThresholdMs = 400;
         private const int WaitThresholdMs = 150;
-        private const int SW_RESTORE = 9;
 
         private const int WH_KEYBOARD_LL = 13;
         private const int WH_MOUSE_LL = 14;
@@ -92,8 +91,7 @@ namespace RouteJumper.Services
             // doc comment), so without this, recording would silently capture nothing at all
             // until the user manually alt-tabbed to the target themselves - the same reason
             // MacroPlayer.PlayAsync foregrounds its target before sending any input.
-            NativeMethods.ShowWindow(_targetWindow, SW_RESTORE);
-            NativeMethods.SetForegroundWindow(_targetWindow);
+            Win32Foreground.ForceForegroundWindow(_targetWindow);
 
             _stopwatch.Restart();
             _lastEventAtMs = 0;
@@ -338,14 +336,6 @@ namespace RouteJumper.Services
 
             [DllImport("user32.dll")]
             public static extern IntPtr GetForegroundWindow();
-
-            [DllImport("user32.dll")]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-            [DllImport("user32.dll")]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
             [DllImport("user32.dll")]
             [return: MarshalAs(UnmanagedType.Bool)]

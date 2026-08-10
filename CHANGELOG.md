@@ -17,6 +17,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - A Preferences dialog to choose the announcement voice (from every voice
   installed on the machine), test it, and set its volume - all persisted.
 
+### Fixed
+
+- Record/Play could fail to bring the target Elite Dangerous window to
+  the foreground when some other window currently had focus, due to
+  Windows' focus-stealing prevention silently ignoring the request.
+
 ## [1.1.0] - 2026-08-10
 
 ### Added
