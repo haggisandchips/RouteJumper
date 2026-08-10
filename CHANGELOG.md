@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-10
+
+### Added
+
+- Controls tab: while no macro has been recorded (or written via New
+  Script) yet, the Recorded Macros list shows a hint linking to the
+  README's sample scripts as a starting point.
+
 ## [1.0.0] - 2026-08-10
 
 ### Added
@@ -49,4 +57,5 @@ and this project follows [Semantic Versioning](https://semver.org/).
   scripting language, sample scripts, and the release procedure for
   distributing builds via GitHub.
 
+[1.1.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.1.0
 [1.0.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.0.0

@@ -43,6 +43,8 @@ namespace RouteJumper.ViewModels
         private const string DefaultNextSystemTestOverride = "Sol";
         private const string DefaultTritiumLoopsTestOverride = "1";
 
+        private const string SampleScriptsUrl = "https://github.com/haggisandchips/RouteJumper#sample-scripts";
+
         private readonly AppSettingsStore _settings;
         private readonly EliteInstanceScanner _scanner;
         private readonly Func<string?> _getNextSystemName;
@@ -128,6 +130,7 @@ namespace RouteJumper.ViewModels
             CloseMacroEditorCommand = new RelayCommand(() => EditingMacro = null);
             DeleteMacroCommand = new RelayCommand<RecordedMacroViewModel>(DeleteMacro);
             StepCommand = new RelayCommand(Step, CanStep);
+            OpenSampleScriptsCommand = new RelayCommand(() => BrowserLauncher.Open(SampleScriptsUrl));
 
             _ = RefreshAsync();
         }
@@ -177,6 +180,13 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Runs just the next leaf instruction of EditingMacro's script against SelectedInstance, refocusing it first - SPEC §6.5's editor "Step" facility.</summary>
         public RelayCommand StepCommand { get; }
+
+        /// <summary>
+        /// Opens the README's sample scripts section in the default browser - offered as a
+        /// starting point when Macros is empty (see ControlsView.xaml), since a script has to
+        /// come from somewhere before Record/New Script are of any use.
+        /// </summary>
+        public RelayCommand OpenSampleScriptsCommand { get; }
 
         public bool IsRefreshing
         {
