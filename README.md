@@ -16,6 +16,15 @@ Developments plc.
 
 ---
 
+## Technical Note
+
+This entire application began, and has remained, an academic exercise.
+
+Every line of code was written by AI — specifically Claude Code. I have
+not written or modified any part of the codebase myself.
+
+---
+
 ## Quick Start
 
 1. **Route tab** — paste your route (one system per line) and click
