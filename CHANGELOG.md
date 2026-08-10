@@ -3,11 +3,11 @@
 All notable changes to RouteJumper are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project intends to follow [Semantic Versioning](https://semver.org/)
-once the first release is tagged. Until then, everything lives under
-`[Unreleased]`.
+and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-08-10
 
 ### Added
 
@@ -49,9 +49,4 @@ once the first release is tagged. Until then, everything lives under
   scripting language, sample scripts, and the release procedure for
   distributing builds via GitHub.
 
----
-
-Nothing has been tagged/released yet — the first entry here will become
-`## [1.0.0] - YYYY-MM-DD` once a release is cut (see the README's
-[Packaging & distributing releases via GitHub](README.md#packaging--distributing-releases-via-github)
-section).
+[1.0.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.0.0
