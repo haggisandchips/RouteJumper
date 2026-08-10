@@ -14,7 +14,7 @@ namespace RouteJumper.Services
     /// the process's window position/monitor via Win32. The folder searched for journal files
     /// comes from <see cref="AppConfigStore.JournalDirectory"/>, re-read on every scan.
     /// </summary>
-    public class EliteInstanceScanner
+    public class EliteInstanceScanner : IEliteInstanceScanner
     {
         private const string ProcessName = "EliteDangerous64";
         private static readonly TimeSpan JournalMatchTolerance = TimeSpan.FromMinutes(5);

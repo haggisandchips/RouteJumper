@@ -17,7 +17,7 @@ namespace RouteJumper.ViewModels
         private const string CaptainMacroIdSettingKey = "CaptainMacroId";
         private const string EngineerMacroIdSettingKey = "EngineerMacroId";
 
-        private readonly EliteInstanceScanner _scanner;
+        private readonly IEliteInstanceScanner _scanner;
         private readonly ManualRowEventTrigger _routeEventTrigger;
         private readonly AppSettingsStore _settings;
         private readonly Func<ObservableCollection<RecordedMacroViewModel>> _getMacros;
@@ -39,7 +39,7 @@ namespace RouteJumper.ViewModels
         public RolesViewModel(
             ManualRowEventTrigger routeEventTrigger,
             AppSettingsStore settings,
-            EliteInstanceScanner scanner,
+            IEliteInstanceScanner scanner,
             Func<ObservableCollection<RecordedMacroViewModel>> getMacros)
         {
             _routeEventTrigger = routeEventTrigger;

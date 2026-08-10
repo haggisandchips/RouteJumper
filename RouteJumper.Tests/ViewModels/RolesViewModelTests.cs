@@ -9,19 +9,31 @@ using Xunit;
 namespace RouteJumper.Tests.ViewModels
 {
     /// <summary>
-    /// RolesViewModel's constructor kicks off RefreshAsync() (a real EliteInstanceScanner.ScanAsync
-    /// call) - with no real EliteDangerous64.exe processes running in the test environment, this
-    /// always resolves to zero instances, so tests that need role assignment construct an instance
-    /// via EliteInstanceViewModel directly and add it to vm.Instances themselves rather than
-    /// relying on a real scan finding anything.
+    /// RolesViewModel's constructor kicks off RefreshAsync() against whatever IEliteInstanceScanner
+    /// it's given. Tests that need role assignment build the fabricated instance(s) first and hand
+    /// them to a FakeEliteInstanceScanner (via Create's `instances` parameter) *before* constructing
+    /// the ViewModel, so its very first scan - and any later rescan it triggers itself, e.g.
+    /// ToggleCaptain's post-assignment refresh (SPEC §5.4) - deterministically returns those same
+    /// objects instead of racing a real (and, in this environment, always-empty) process scan on a
+    /// background thread. Tests that need to change what a *later* rescan sees (simulating a
+    /// process restart) capture the FakeEliteInstanceScanner itself via Create's tuple return and
+    /// mutate its Results before awaiting vm.RefreshAsync() again.
     /// </summary>
     public class RolesViewModelTests
     {
-        private static RolesViewModel Create(TempDirectory dir, ManualRowEventTrigger? trigger = null) => new(
-            trigger ?? new ManualRowEventTrigger(),
-            new AppSettingsStore(dir.Path),
-            new EliteInstanceScanner(new AppConfigStore(dir.Path)),
-            () => new ObservableCollection<RecordedMacroViewModel>());
+        private static (RolesViewModel Vm, FakeEliteInstanceScanner Scanner) Create(
+            TempDirectory dir,
+            IReadOnlyList<EliteInstanceViewModel>? instances = null,
+            ManualRowEventTrigger? trigger = null)
+        {
+            var scanner = new FakeEliteInstanceScanner { Results = instances ?? Array.Empty<EliteInstanceViewModel>() };
+            var vm = new RolesViewModel(
+                trigger ?? new ManualRowEventTrigger(),
+                new AppSettingsStore(dir.Path),
+                scanner,
+                () => new ObservableCollection<RecordedMacroViewModel>());
+            return (vm, scanner);
+        }
 
         private static EliteInstanceViewModel Instance(int processId, string fid = "F1", int? cargoCapacity = null, int? currentCargo = null) => new(
             processId: processId,
@@ -46,10 +58,15 @@ namespace RouteJumper.Tests.ViewModels
         [Fact]
         public async Task RefreshAsync_StatusTextReflectsWhetherAnyInstancesWereFound()
         {
-            // The dev/CI machine running this suite may or may not have EliteDangerous64.exe
-            // running - assert the StatusText/Instances invariant rather than assuming either way.
+            // Exercises the real EliteInstanceScanner (not the fake) - the dev/CI machine running
+            // this suite may or may not have EliteDangerous64.exe running, so assert the
+            // StatusText/Instances invariant rather than assuming either way.
             using var dir = new TempDirectory();
-            var vm = Create(dir);
+            var vm = new RolesViewModel(
+                new ManualRowEventTrigger(),
+                new AppSettingsStore(dir.Path),
+                new EliteInstanceScanner(new AppConfigStore(dir.Path)),
+                () => new ObservableCollection<RecordedMacroViewModel>());
             await vm.RefreshAsync();
 
             if (vm.Instances.Count == 0)
@@ -66,9 +83,8 @@ namespace RouteJumper.Tests.ViewModels
         public void ToggleEngineerCommand_ZeroCargoCapacity_CannotAssign()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1, cargoCapacity: 0, currentCargo: 0);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
 
             Assert.False(vm.ToggleEngineerCommand.CanExecute(instance));
         }
@@ -77,9 +93,8 @@ namespace RouteJumper.Tests.ViewModels
         public void ToggleEngineerCommand_UnknownCargoCapacity_CannotAssign()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1, cargoCapacity: null);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
 
             Assert.False(vm.ToggleEngineerCommand.CanExecute(instance));
         }
@@ -88,9 +103,8 @@ namespace RouteJumper.Tests.ViewModels
         public void ToggleEngineerCommand_PositiveAvailableCapacity_CanAssignAndUnassign()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1, cargoCapacity: 100, currentCargo: 0);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
 
             Assert.True(vm.ToggleEngineerCommand.CanExecute(instance));
             vm.ToggleEngineerCommand.Execute(instance);
@@ -105,11 +119,9 @@ namespace RouteJumper.Tests.ViewModels
         public void ToggleEngineer_AssigningToNewInstance_UnassignsPreviousHolder()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var first = Instance(1, cargoCapacity: 100, currentCargo: 0);
             var second = Instance(2, cargoCapacity: 100, currentCargo: 0);
-            vm.Instances.Add(first);
-            vm.Instances.Add(second);
+            var (vm, _) = Create(dir, new[] { first, second });
 
             vm.ToggleEngineerCommand.Execute(first);
             vm.ToggleEngineerCommand.Execute(second);
@@ -122,11 +134,9 @@ namespace RouteJumper.Tests.ViewModels
         public void ToggleCaptain_AssigningToNewInstance_UnassignsPreviousHolder()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var first = Instance(1);
             var second = Instance(2);
-            vm.Instances.Add(first);
-            vm.Instances.Add(second);
+            var (vm, _) = Create(dir, new[] { first, second });
 
             vm.ToggleCaptainCommand.Execute(first);
             vm.ToggleCaptainCommand.Execute(second);
@@ -140,9 +150,8 @@ namespace RouteJumper.Tests.ViewModels
         {
             using var dir = new TempDirectory();
             var trigger = new ManualRowEventTrigger();
-            var vm = Create(dir, trigger);
             var instance = Instance(1);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance }, trigger);
 
             RowEvent? received = null;
             trigger.RowTriggered += (_, e) => received ??= e;
@@ -157,9 +166,8 @@ namespace RouteJumper.Tests.ViewModels
         public void ToggleCaptain_CanBeUnassigned()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
             vm.ToggleCaptainCommand.Execute(instance);
 
             vm.ToggleCaptainCommand.Execute(instance);
@@ -171,9 +179,8 @@ namespace RouteJumper.Tests.ViewModels
         public void CaptainInstance_ReflectsWhicheverInstanceIsCaptain()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
 
             Assert.Null(vm.CaptainInstance);
             vm.ToggleCaptainCommand.Execute(instance);
@@ -184,9 +191,8 @@ namespace RouteJumper.Tests.ViewModels
         public void EngineerInstance_ReflectsWhicheverInstanceIsEngineer()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1, cargoCapacity: 100, currentCargo: 0);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
 
             Assert.Null(vm.EngineerInstance);
             vm.ToggleEngineerCommand.Execute(instance);
@@ -197,9 +203,8 @@ namespace RouteJumper.Tests.ViewModels
         public void CanEngageAutoPilot_RequiresCaptainWithMacro()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1);
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
 
             Assert.False(vm.CanEngageAutoPilot);
 
@@ -214,11 +219,9 @@ namespace RouteJumper.Tests.ViewModels
         public void CanEngageAutoPilot_EngineerAssignedWithoutMacro_BlocksEvenWithCaptainReady()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var captain = Instance(1, fid: "FCaptain");
             var engineer = Instance(2, fid: "FEngineer", cargoCapacity: 100, currentCargo: 0);
-            vm.Instances.Add(captain);
-            vm.Instances.Add(engineer);
+            var (vm, _) = Create(dir, new[] { captain, engineer });
             vm.ToggleCaptainCommand.Execute(captain);
             vm.CaptainMacro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
 
@@ -234,9 +237,8 @@ namespace RouteJumper.Tests.ViewModels
         public void CanEngageAutoPilot_UnassignedEngineer_ImposesNoMacroRequirement()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var captain = Instance(1);
-            vm.Instances.Add(captain);
+            var (vm, _) = Create(dir, new[] { captain });
             vm.ToggleCaptainCommand.Execute(captain);
             vm.CaptainMacro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
 
@@ -247,7 +249,7 @@ namespace RouteJumper.Tests.ViewModels
         public void AutoPilotEligibilityChanged_RaisedWhenMacroSelectionChanges()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
+            var (vm, _) = Create(dir);
             var raised = 0;
             vm.AutoPilotEligibilityChanged += (_, _) => raised++;
 
@@ -260,7 +262,7 @@ namespace RouteJumper.Tests.ViewModels
         public void OnMacroDeleted_ClearsMatchingCaptainSelection()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
+            var (vm, _) = Create(dir);
             var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
             vm.CaptainMacro = macro;
 
@@ -273,7 +275,7 @@ namespace RouteJumper.Tests.ViewModels
         public void OnMacroDeleted_ClearsMatchingEngineerSelection()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
+            var (vm, _) = Create(dir);
             var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "E", ScriptText = "SELECT" });
             vm.EngineerMacro = macro;
 
@@ -286,7 +288,7 @@ namespace RouteJumper.Tests.ViewModels
         public void OnMacroDeleted_UnrelatedMacro_LeavesSelectionsUntouched()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
+            var (vm, _) = Create(dir);
             var selected = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
             var other = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "Other", ScriptText = "DOWN" });
             vm.CaptainMacro = selected;
@@ -300,7 +302,7 @@ namespace RouteJumper.Tests.ViewModels
         public void ClearCaptainAndEngineerMacroCommands_ClearSelections()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
+            var (vm, _) = Create(dir);
             vm.CaptainMacro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
             vm.EngineerMacro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "E", ScriptText = "SELECT" });
 
@@ -315,33 +317,30 @@ namespace RouteJumper.Tests.ViewModels
         public async Task RoleAssignment_PersistsAndIsRestoredByFidOnNextRefresh()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1, fid: "F999");
-            vm.Instances.Add(instance);
+            var (vm, scanner) = Create(dir, new[] { instance });
             vm.ToggleCaptainCommand.Execute(instance);
 
-            // Simulate the instance disappearing (process closed) then reappearing with a new
-            // ProcessId but the same FID - RestoreRolesFromSettings should re-match it by FID.
-            vm.Instances.Clear();
-            var restartedInstance = Instance(2, fid: "F999");
-            vm.Instances.Add(restartedInstance);
-
-            // RestoreRolesFromSettings only runs from inside RefreshAsync - call it directly
-            // against the current Instances collection via reflection-free means: re-run
-            // RefreshAsync would re-scan (returns empty in this test environment) and clear
-            // Instances, so instead assert the settings value that drives restoration was
-            // actually persisted, which is what RestoreRolesFromSettings reads on every refresh.
             var settings = new AppSettingsStore(dir.Path);
             Assert.Equal("F999", settings.GetString("CaptainFid"));
+
+            // Simulate the instance disappearing (process closed) then reappearing with a new
+            // ProcessId but the same FID - the next refresh should re-match it by FID and restore
+            // the Captain role onto it, even though nothing re-assigned it explicitly.
+            var restartedInstance = Instance(2, fid: "F999");
+            scanner.Results = new[] { restartedInstance };
+            await vm.RefreshAsync();
+
+            Assert.True(restartedInstance.IsCaptain);
+            Assert.Same(restartedInstance, vm.CaptainInstance);
         }
 
         [Fact]
         public void ToggleCaptain_UnassignsAndClearsPersistedFid()
         {
             using var dir = new TempDirectory();
-            var vm = Create(dir);
             var instance = Instance(1, fid: "F999");
-            vm.Instances.Add(instance);
+            var (vm, _) = Create(dir, new[] { instance });
             vm.ToggleCaptainCommand.Execute(instance);
 
             vm.ToggleCaptainCommand.Execute(instance); // unassign
