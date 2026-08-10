@@ -294,17 +294,21 @@ the whole route reaches Complete or Auto Pilot is stopped:
 - Once that row completes and journal tracking (§5.7) advances the route
   to the next row, the same rule repeats for it, and so on until no row
   is left in-progress.
-- Independently of the Captain's plot above: the moment a row's `Status`
-  *becomes* `Cooldown` (§5.7) — including if it's already showing
-  `Cooldown` the instant Auto Pilot is engaged, the same as the Captain's
-  own case — Auto Pilot waits the same configured Auto Pilot delay and
-  then, only if Engineer is currently assigned, plays the Engineer's
-  selected macro against the Engineer's assigned instance. This fires
-  once per row's Cooldown period (not repeatedly while it continues
-  cooling down) and runs alongside the Captain's plot-at-Cooldown-clear
-  trigger, not instead of it. With no Engineer assigned, nothing plays
-  here — Auto Pilot's own requirements (§4.2) already mean an assigned
-  Engineer always has a macro selected too.
+- Independently of the Captain's plot above: the Engineer's refuel fires
+  at the same real-world moment it always has - the configured Auto
+  Pilot delay after the row *after* this one starts `Cooldown` (i.e.
+  near the end of *this* row's own `Jumping` phase, not before it) - but
+  that moment is now computed as soon as this row becomes `Jumping`
+  rather than waited for live: `Jumping`'s own `PhaseEndUtc` (§4.4) is
+  already the carrier's estimated arrival instant (`DepartureTime` plus
+  1 minute), the same value the progress bar itself counts down to, and
+  the real `Cooldown` that instant hands off to is what the delay is
+  measured from - see §4.8 for why this matters. Only if Engineer is
+  currently assigned does it then play the Engineer's selected macro
+  against the Engineer's assigned instance; this fires once per row (not
+  repeatedly while it remains `Jumping`). With no Engineer assigned,
+  nothing plays here — Auto Pilot's own requirements (§4.2) already mean
+  an assigned Engineer always has a macro selected too.
 - Both the Captain's plot and the Engineer's refuel play through the same
   single mechanism as a manual Play (§6.5) — visible via `IsPlaying`,
   stoppable via **Stop**, and reported through the same closeable warning
@@ -335,18 +339,30 @@ the whole route reaches Complete or Auto Pilot is stopped:
   Captain's macro is due to play, then "Plotting beginning in 5 seconds"
   5 seconds before; "Refueling beginning shortly"/"Refueling beginning in
   5 seconds" the same way for the Engineer's.
-- Both due times are only knowable once a row's `Cooldown` starts (the
-  Engineer's trigger is a fixed delay from that moment; the Captain's is
-  a fixed delay from `Cooldown`'s own precomputed clear time), so both
-  announcements are scheduled together right then, once per row's
-  Cooldown period - never for a jump that fires immediately with no
-  Cooldown having been waited on, since that leaves no lead time to
-  announce anything against.
-- Either announcement (or both) is silently skipped if that much lead
-  time has already passed by the time it's scheduled - e.g. a
-  short-configured Auto Pilot delay (§6.1) - rather than announcing
-  something already imminent or already done as if it were still 30/5
-  seconds out.
+- The Captain's due time is only knowable once a row's `Cooldown` starts
+  (a fixed delay from `Cooldown`'s own precomputed clear time), so that
+  announcement is scheduled right then. The Engineer's due time is the
+  same real-world instant it's always been - the configured Auto Pilot
+  delay after the row *after* this one starts `Cooldown` - but it's
+  scheduled as soon as *this* row becomes `Jumping` instead of waiting
+  for that `Cooldown` to actually be observed starting live: `Jumping`'s
+  own `PhaseEndUtc` (§4.4) is already the carrier's estimated arrival
+  instant (`DepartureTime` plus 1 minute - the same value the progress
+  bar counts down to), which is the instant that hands off to the next
+  row's `Cooldown`. Computing it there instead of waiting for the live
+  event gives several real minutes of lead time (`Jumping` itself starts
+  a fixed 3 minutes before `DepartureTime`) rather than only the short,
+  UI-settle-only Auto Pilot delay - nowhere near enough for either
+  warning below. Neither announcement is ever spoken for a jump that
+  fires immediately with no `Cooldown` having been waited on, since that
+  leaves no lead time to announce anything against.
+- The 30-second announcement is silently skipped if that much lead time
+  isn't actually available by the time it's scheduled - since announcing
+  it moments early would just be misleading wording. The 5-second one is
+  more forgiving: with less than 5 seconds actually left (but the trigger
+  itself still pending), it's spoken immediately instead of skipped, so
+  a short-but-real gap still gets *some* last-moment heads-up rather than
+  silently none at all.
 - The Engineer's announcements are only actually spoken if an Engineer is
   still assigned with a macro selected by the time each is due - checked
   fresh at that moment, not just when first scheduled.
@@ -1244,12 +1260,18 @@ rather than internal app state like the table below.
 46. While Auto Pilot is running, once a row's `Cooldown` starts, "Plotting
     beginning shortly" is spoken 30 seconds before the Captain's macro is
     due to plot the next jump, then "Plotting beginning in 5 seconds" 5
-    seconds before; the same wording with "Refueling" is spoken ahead of
-    the Engineer's refuel macro if Engineer is assigned. Muting suppresses
-    both; neither is spoken for a jump that fires immediately with no
-    Cooldown having been waited on, and either announcement is silently
-    skipped if its own lead time has already elapsed by the time it's
-    scheduled (e.g. a short Auto Pilot delay).
+    seconds before. The same wording with "Refueling" is spoken ahead of
+    the Engineer's refuel macro if Engineer is assigned - still due at
+    the same real-world instant as the macro itself always fired at (the
+    configured Auto Pilot delay after the *next* row's Cooldown starts),
+    but scheduled as soon as *this* row becomes `Jumping` instead of
+    waiting for that Cooldown to actually be observed starting live.
+    Muting suppresses both; neither is spoken for a jump that fires
+    immediately with no Cooldown having been waited on. The 30-second
+    one is silently skipped if that much lead time isn't actually
+    available by the time it's scheduled; the
+    5-second one is spoken immediately instead of skipped whenever less
+    than 5 seconds remain but the trigger itself hasn't happened yet.
 47. The Preferences dialog lists every voice installed on the machine in
     its Voice dropdown, without a "Microsoft " prefix and without a
     duplicate "... Desktop" entry for the same voice; selecting one takes

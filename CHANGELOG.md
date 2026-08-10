@@ -17,11 +17,26 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - A Preferences dialog to choose the announcement voice (from every voice
   installed on the machine), test it, and set its volume - all persisted.
 
+### Changed
+
+- The Engineer's refuel still fires at the same real-world instant as
+  before (the configured Auto Pilot delay after the next row's Cooldown
+  starts), but that instant is now computed as soon as the current row
+  becomes Jumping - using its DepartureTime-derived estimated-arrival
+  PhaseEndUtc - instead of only once Cooldown is actually observed
+  starting live. Gives the "Refueling beginning shortly"/"...in 5
+  seconds" announcements several real minutes of lead time to work with
+  instead of only the short Auto Pilot delay itself.
+
 ### Fixed
 
 - Record/Play could fail to bring the target Elite Dangerous window to
   the foreground when some other window currently had focus, due to
   Windows' focus-stealing prevention silently ignoring the request.
+- The Engineer's "Refueling beginning in 5 seconds" announcement almost
+  never actually spoke under the default Auto Pilot delay - its due time
+  landed right at the instant Cooldown starts, always losing a race
+  against real elapsed time.
 
 ## [1.1.0] - 2026-08-10
 

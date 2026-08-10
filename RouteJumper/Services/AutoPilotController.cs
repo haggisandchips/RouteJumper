@@ -15,14 +15,21 @@ namespace RouteJumper.Services
     /// itself just triggered it moments ago and journal tracking hasn't caught up yet, or a jump
     /// was already in flight before Auto Pilot was even engaged (app just (re)started mid-plot,
     /// or a manual play) - is left alone entirely; playing the macro again would plot a second,
-    /// redundant jump. The same delay is also
-    /// applied the other way around a row's Cooldown: the moment Cooldown *starts* on a row, if
-    /// an Engineer is currently assigned (with a macro selected - CanEngageAutoPilot already
-    /// guarantees that whenever Engineer is assigned at all), this waits the same delay and then
-    /// plays the Engineer's selected macro against the Engineer's assigned instance, so refueling
-    /// happens automatically alongside the Captain's own plot/jump/cooldown cycle rather than
-    /// requiring manual intervention. Repeats for every row in turn until the route completes (no
-    /// row is left in-progress) or Auto Pilot is stopped.
+    /// redundant jump. Repeats for every row in turn until the route completes (no row is left
+    /// in-progress) or Auto Pilot is stopped.
+    ///
+    /// The Engineer's refuel still fires at exactly the same real-world moment as before -
+    /// AutoPilotDelayMs after the *next* row's Cooldown starts (i.e. near the end of *this* row's
+    /// own Jumping phase, not before it) - only *when that moment gets computed* has changed.
+    /// Rather than waiting to literally observe Cooldown starting live (which leaves only
+    /// AutoPilotDelayMs itself as lead time - nowhere near enough for the 30-second warning
+    /// below), it's computed as soon as this row becomes Jumping, using
+    /// RouteRowViewModel.PhaseEndUtc at that point - already exactly DepartureTime + 1 minute,
+    /// the same "estimated arrival" instant the progress bar itself counts down to (see
+    /// CarrierRouteJournalWatcher) - which the carrier's own arrival will hand off Cooldown to on
+    /// the very next row at. That's known the moment Jumping starts (itself always 3 minutes
+    /// before DepartureTime), giving several real minutes of lead time to schedule against
+    /// instead of none.
     ///
     /// Lives outside Sequencing/ deliberately - CLAUDE.md's non-negotiable rule only constrains
     /// RouteSequencer's own row-mutation logic. This class never mutates a row itself, only
@@ -32,20 +39,12 @@ namespace RouteJumper.Services
     ///
     /// Both the Captain's plot and the Engineer's refuel go through the same single _playMacro
     /// channel (ControlsViewModel.PlayMacro), which only ever runs one playback at a time -
-    /// starting a new one cancels whichever is still running, the same as a manual Play does. In
-    /// practice the two triggers are separated by the whole Cooldown window (Engineer fires at
-    /// its start, Captain at its end) so they don't normally overlap, but a slow-running Engineer
-    /// macro could still be cancelled by the Captain's plot firing before it finishes.
+    /// starting a new one cancels whichever is still running, the same as a manual Play does.
     ///
     /// Also announces each trigger via <see cref="_speak"/> (SpeechAnnouncer.Speak) ahead of
     /// time - "Plotting beginning shortly"/"Plotting beginning in 5 seconds" before the Captain's
-    /// macro plays, and the same wording with "Refueling" before the Engineer's. Both targets are
-    /// only ever knowable once Cooldown starts (the Engineer's own trigger is a fixed delay from
-    /// that moment; the Captain's is a fixed delay from Cooldown's own precomputed clear time -
-    /// RouteRowViewModel.PhaseEndUtc, the same instant the progress bar counts down to), so both
-    /// are scheduled together right there, once per row's Cooldown period - never for the
-    /// "fires immediately, no Cooldown was waited on" case, since that leaves no lead time to
-    /// announce anything against.
+    /// macro plays, and the same wording with "Refueling" before the Engineer's - see
+    /// AnnounceBeforeTrigger.
     /// </summary>
     public sealed class AutoPilotController
     {
@@ -63,9 +62,10 @@ namespace RouteJumper.Services
         private readonly Action<string> _speak;
 
         private CancellationTokenSource? _cts;
-        private RouteRowViewModel? _lastTriggeredRow;
+        private RouteRowViewModel? _captainTriggeredForRow;
         private RouteRowViewModel? _pendingCooldownRow;
-        private RouteRowViewModel? _engineerTriggeredForRow;
+        private RouteRowViewModel? _refuelTriggeredForRow;
+        private RouteRowViewModel? _plottingAnnouncedForRow;
         private bool _isRunning;
         private bool _evaluationScheduled;
 
@@ -100,9 +100,10 @@ namespace RouteJumper.Services
             }
 
             _isRunning = true;
-            _lastTriggeredRow = null;
+            _captainTriggeredForRow = null;
             _pendingCooldownRow = null;
-            _engineerTriggeredForRow = null;
+            _refuelTriggeredForRow = null;
+            _plottingAnnouncedForRow = null;
             _cts = new CancellationTokenSource();
 
             foreach (var row in _rows)
@@ -131,7 +132,8 @@ namespace RouteJumper.Services
             _cts?.Cancel();
             _cts = null;
             _pendingCooldownRow = null;
-            _engineerTriggeredForRow = null;
+            _refuelTriggeredForRow = null;
+            _plottingAnnouncedForRow = null;
             _evaluationScheduled = false;
         }
 
@@ -207,57 +209,77 @@ namespace RouteJumper.Services
                 return;
             }
 
-            if (ReferenceEquals(currentRow, _lastTriggeredRow))
-            {
-                return;
-            }
-
             if (currentRow.Status == "Cooldown")
             {
                 _pendingCooldownRow = currentRow;
 
-                // Fire the Engineer's refuel exactly once per row's Cooldown period - further
-                // evaluations while it's still active (e.g. some other row's Icon/Status changing
-                // elsewhere) must not restart the wait or replay the macro. This is also the only
-                // moment either trigger's eventual firing time is knowable, so it's also where
-                // both triggers' advance announcements get scheduled - see AnnounceBeforeTrigger.
-                if (!ReferenceEquals(_engineerTriggeredForRow, currentRow))
+                // The Engineer's refuel is no longer triggered from here - see the class doc
+                // comment and the "Plotted" branch below, which schedules it (once) against this
+                // same row's own eventual DepartureTime instead, once it's actually known. This
+                // branch now only schedules the Plotting announcement - Cooldown's own clear
+                // time (its only knowable moment) - exactly once per row's Cooldown period.
+                if (!ReferenceEquals(_plottingAnnouncedForRow, currentRow))
                 {
-                    _engineerTriggeredForRow = currentRow;
-                    var delay = TimeSpan.FromMilliseconds(Math.Max(0, _getAutoPilotDelayMs()));
-                    var nowUtc = DateTime.UtcNow;
-
-                    AnnounceBeforeTrigger(
-                        "Refueling",
-                        nowUtc + delay,
-                        () => _getEngineerMacro() != null && _getEngineerInstance() is { WindowHandle: not 0 },
-                        _cts!.Token);
+                    _plottingAnnouncedForRow = currentRow;
 
                     if (currentRow.PhaseEndUtc is { } cooldownClearsAtUtc)
                     {
-                        AnnounceBeforeTrigger("Plotting", cooldownClearsAtUtc + delay, isRelevant: null, _cts.Token);
+                        var delay = TimeSpan.FromMilliseconds(Math.Max(0, _getAutoPilotDelayMs()));
+                        AnnounceBeforeTrigger("Plotting", cooldownClearsAtUtc + delay, isRelevant: null, _cts!.Token);
                     }
-
-                    _ = TriggerEngineerRefuelAsync(_cts.Token);
                 }
 
                 return;
             }
 
-            if (!string.IsNullOrEmpty(currentRow.Status))
+            if (currentRow.Status == "Jumping")
             {
-                // Already Plotted or Jumping - a jump for this row has already been requested,
-                // whether that happened before Auto Pilot was even engaged (e.g. the app was
-                // (re)started, or the jump was plotted manually, mid-journey with a plot already
-                // in flight) or Auto Pilot itself triggered it moments ago and journal tracking
-                // just hasn't advanced the row past it yet. Either way, playing the Captain's
-                // macro again here would plot a second, redundant jump - there's nothing to do
-                // but wait for journal tracking to naturally move this row on. Still remember it
-                // as handled, so an unrelated PropertyChanged elsewhere doesn't re-examine it.
+                // The one moment this row's own estimated arrival instant is knowable ahead of
+                // time (PhaseEndUtc here is already DepartureTime + 1 minute - see the class doc
+                // comment) - schedule the Engineer's refuel (and its own advance announcements)
+                // against it exactly once per row, the same real-world target
+                // ("AutoPilotDelayMs after Cooldown starts") as before, just computed minutes
+                // early instead of at the moment Cooldown itself is actually observed starting.
+                if (!ReferenceEquals(_refuelTriggeredForRow, currentRow) && currentRow.PhaseEndUtc is { } estimatedCooldownStartUtc)
+                {
+                    _refuelTriggeredForRow = currentRow;
+                    var delay = TimeSpan.FromMilliseconds(Math.Max(0, _getAutoPilotDelayMs()));
+                    var refuelTriggerAtUtc = estimatedCooldownStartUtc + delay;
+
+                    AnnounceBeforeTrigger(
+                        "Refueling",
+                        refuelTriggerAtUtc,
+                        () => _getEngineerMacro() != null && _getEngineerInstance() is { WindowHandle: not 0 },
+                        _cts!.Token);
+
+                    _ = TriggerEngineerRefuelAsync(refuelTriggerAtUtc, _cts.Token);
+                }
+
                 _pendingCooldownRow = null;
-                _lastTriggeredRow = currentRow;
                 return;
             }
+
+            if (!string.IsNullOrEmpty(currentRow.Status))
+            {
+                // Plotted - a jump has been requested but hasn't started counting down to
+                // arrival yet (see the "Jumping" branch above for when refuel gets scheduled).
+                // Nothing to do here but wait for journal tracking to naturally move this row on
+                // to Jumping.
+                _pendingCooldownRow = null;
+                return;
+            }
+
+            // Blank status - the row needs the Captain's jump plotted. Guarded by its own
+            // per-row flag (not the same as the guards above, and deliberately never reset for
+            // this row afterward) so a CarrierJumpCancelled reverting Status back to blank later
+            // doesn't cause a second, redundant plot for the same row - SPEC §4.7's "Auto Pilot
+            // only ever plays the Captain's macro once per row it newly becomes aware of".
+            if (ReferenceEquals(_captainTriggeredForRow, currentRow))
+            {
+                return;
+            }
+
+            _captainTriggeredForRow = currentRow;
 
             // Only apply the extra delay if this row was the one we were just waiting on
             // Cooldown for - a row that never showed Cooldown at all (e.g. Auto Pilot engaged
@@ -265,7 +287,6 @@ namespace RouteJumper.Services
             // override) fires immediately instead.
             var applyDelay = ReferenceEquals(_pendingCooldownRow, currentRow);
             _pendingCooldownRow = null;
-            _lastTriggeredRow = currentRow;
 
             _ = TriggerCaptainPlotAsync(applyDelay, _cts!.Token);
         }
@@ -291,18 +312,23 @@ namespace RouteJumper.Services
         }
 
         /// <summary>
-        /// Mirrors TriggerCaptainPlotAsync, but for the Engineer's refuel macro - always waits
-        /// the same AutoPilotDelayMs first (there's no "fires immediately" case here, unlike the
-        /// Captain's plot, since this is only ever called right as Cooldown starts), then plays
-        /// it if an Engineer is currently assigned with a macro selected. A no-op (after the
-        /// wait) if not - CanEngageAutoPilot already requires a selected Engineer macro whenever
-        /// Engineer is assigned at all, but Engineer being unassigned entirely is always valid.
+        /// Mirrors TriggerCaptainPlotAsync, but for the Engineer's refuel macro - waits until
+        /// <paramref name="triggerAtUtc"/> (see the "Plotted" branch in EvaluateAndMaybeTrigger;
+        /// fires immediately instead if that instant has already passed by the time this runs),
+        /// then plays it if an Engineer is currently assigned with a macro selected. A no-op
+        /// (after the wait) if not - CanEngageAutoPilot already requires a selected Engineer
+        /// macro whenever Engineer is assigned at all, but Engineer being unassigned entirely is
+        /// always valid.
         /// </summary>
-        private async Task TriggerEngineerRefuelAsync(CancellationToken cancellationToken)
+        private async Task TriggerEngineerRefuelAsync(DateTime triggerAtUtc, CancellationToken cancellationToken)
         {
             try
             {
-                await DelayAsync(cancellationToken);
+                var delay = triggerAtUtc - DateTime.UtcNow;
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
 
                 if (_getEngineerMacro() is { } macro && _getEngineerInstance() is { WindowHandle: not 0 } instance)
                 {
@@ -318,31 +344,56 @@ namespace RouteJumper.Services
         /// <summary>
         /// Schedules the two spoken lead-time announcements for a trigger due at
         /// <paramref name="triggerAtUtc"/> - "{activity} beginning shortly" 30 seconds before it,
-        /// then "{activity} beginning in 5 seconds" 5 seconds before. Either (or both) is simply
-        /// skipped if that much lead time has already passed by the time this is called (e.g. a
-        /// short configured Auto Pilot delay), rather than announcing something already imminent
-        /// or already done as if it were still 30/5 seconds out. <paramref name="isRelevant"/>,
-        /// if given, is re-checked right before speaking - e.g. the Engineer's refuel trigger is
-        /// only worth announcing if an Engineer is (still) actually assigned with a macro
-        /// selected by the time it would fire.
+        /// then "{activity} beginning in 5 seconds" 5 seconds before. The 30-second one is simply
+        /// skipped if that much lead time isn't actually available (e.g. the Engineer's refuel,
+        /// which normally only has the configured Auto Pilot delay - a few seconds by default -
+        /// between Cooldown starting and the trigger itself, nowhere near 30 seconds) - announcing
+        /// it moments early would just be misleading wording. The 5-second one instead speaks
+        /// right away whenever there's less than 5 seconds left but the trigger hasn't actually
+        /// happened yet, rather than being skipped the same way - a short-but-real gap should
+        /// still get *some* last-moment heads-up rather than silently none at all, which is what
+        /// the Engineer's refuel would otherwise almost always get under the default 5000ms Auto
+        /// Pilot delay (its own 5-second mark landing right at "now", losing the race against
+        /// this method's own tiny bit of processing time on every single run).
+        /// <paramref name="isRelevant"/>, if given, is re-checked right before speaking - e.g.
+        /// the Engineer's refuel trigger is only worth announcing if an Engineer is (still)
+        /// actually assigned with a macro selected by the time it would fire.
         /// </summary>
         private void AnnounceBeforeTrigger(string activity, DateTime triggerAtUtc, Func<bool>? isRelevant, CancellationToken cancellationToken)
         {
-            _ = AnnounceAtAsync(activity, "beginning shortly", triggerAtUtc - ShortlyLeadTime, isRelevant, cancellationToken);
-            _ = AnnounceAtAsync(activity, "beginning in 5 seconds", triggerAtUtc - ImminentLeadTime, isRelevant, cancellationToken);
+            _ = AnnounceAtAsync(activity, "beginning shortly", triggerAtUtc - ShortlyLeadTime, clampToImmediate: false, isRelevant, cancellationToken);
+            _ = AnnounceAtAsync(activity, "beginning in 5 seconds", triggerAtUtc - ImminentLeadTime, clampToImmediate: true, isRelevant, cancellationToken);
         }
 
-        private async Task AnnounceAtAsync(string activity, string suffix, DateTime whenUtc, Func<bool>? isRelevant, CancellationToken cancellationToken)
+        /// <summary>
+        /// Pure timing decision behind AnnounceAtAsync, pulled out so the exact edge case that
+        /// let this go silently wrong once already (the Engineer's 5-second mark landing right
+        /// at "now" under the default Auto Pilot delay, losing the race against real elapsed time
+        /// on every single run) is covered by a fast, deterministic unit test instead of relying
+        /// on a live Task.Delay. Null means "skip entirely".
+        /// </summary>
+        internal static TimeSpan? ComputeAnnounceDelay(DateTime whenUtc, DateTime nowUtc, bool clampToImmediate)
         {
-            var delay = whenUtc - DateTime.UtcNow;
-            if (delay <= TimeSpan.Zero)
+            var delay = whenUtc - nowUtc;
+            if (delay > TimeSpan.Zero)
+            {
+                return delay;
+            }
+
+            return clampToImmediate ? TimeSpan.Zero : null;
+        }
+
+        private async Task AnnounceAtAsync(string activity, string suffix, DateTime whenUtc, bool clampToImmediate, Func<bool>? isRelevant, CancellationToken cancellationToken)
+        {
+            var delay = ComputeAnnounceDelay(whenUtc, DateTime.UtcNow, clampToImmediate);
+            if (delay is null)
             {
                 return;
             }
 
             try
             {
-                await Task.Delay(delay, cancellationToken);
+                await Task.Delay(delay.Value, cancellationToken);
                 if (isRelevant?.Invoke() ?? true)
                 {
                     _speak($"{activity} {suffix}");
