@@ -20,7 +20,7 @@ namespace RouteJumper.ViewModels
         private const string AutoPilotDelayMsSettingKey = "AutoPilotDelayMs";
         private const int DefaultAutoPilotDelayMs = 5000;
         private const string AutoWaitMsSettingKey = "AutoWaitMs";
-        private const int DefaultAutoWaitMs = 250;
+        private const int DefaultAutoWaitMs = 300;
 
         private static readonly IReadOnlyDictionary<ControlAction, (Key Key, ModifierKeys Modifiers)> DefaultBindings =
             new Dictionary<ControlAction, (Key, ModifierKeys)>

@@ -536,7 +536,7 @@ Two settings, laid out side by side:
   before a macro starts clicking through panels, whichever end of
   Cooldown it's settling after. Has no effect on Cooldown's own timing
   (§5.7), and no effect on a manually-triggered Play (§6.5).
-- **Auto wait (ms)**, defaulting to `250`. Applied automatically after
+- **Auto wait (ms)**, defaulting to `300`. Applied automatically after
   every leaf instruction a script executes — whether played (§6.5),
   stepped one at a time via the macro editor's Step button (§6.5), or
   triggered by Auto Pilot (§4.7) — so a script can rely on this for
@@ -858,7 +858,7 @@ rather than internal app state like the table below.
 | Route table column widths | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
-| Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/250ms defaults until first changed |
+| Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 
@@ -1062,7 +1062,7 @@ rather than internal app state like the table below.
     macro does not lose the selection.
 35. The Controls tab shows an Options section above Key Bindings with an
     "Auto Pilot delay (ms)" setting, defaulting to 5000, and an
-    "Auto wait (ms)" setting, defaulting to 250, laid out side by
+    "Auto wait (ms)" setting, defaulting to 300, laid out side by
     side; both persist across restarts.
 36. Engaging Auto Pilot plays the Captain's selected macro against the
     Captain's assigned instance for whichever row is currently
