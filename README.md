@@ -100,7 +100,7 @@ is about to be sent to the game.
 
 ## Getting the app
 
-Grab the latest installer (`EDFCAutoPilotSetup.exe`) from the project's
+Grab the latest installer (`EDFCAutoPilot-win-Setup.exe`) from the project's
 **[GitHub Releases](https://github.com/haggisandchips/RouteJumper/releases)**
 page and run it. From then on RouteJumper checks for and silently installs
 newer releases itself on launch (via [Velopack](https://velopack.io/)) — no
@@ -584,7 +584,7 @@ vpk pack `
   -i RouteJumper/Resources/AppIcon.ico
 ```
 
-Produces `EDFCAutoPilotSetup.exe` (the installer), a full `.nupkg`, and a
+Produces `EDFCAutoPilot-win-Setup.exe` (the installer), a full `.nupkg`, and a
 `RELEASES` manifest under `Releases/` — plus a delta package against the
 previous version, if `Releases/` still has that previous version's
 output sitting in it from the last time this was run (keep that folder
@@ -611,7 +611,7 @@ token](https://github.com/settings/personal-access-tokens/new) with
 token` reuses the `gh` CLI's own, if already logged in). Omit
 `--publish` to upload as a draft release for a final check before it
 goes live. First-time installers still need to download
-`EDFCAutoPilotSetup.exe` from the Releases page directly — `UpdateService`
+`EDFCAutoPilot-win-Setup.exe` from the Releases page directly — `UpdateService`
 only ever updates an *already-installed* copy, and no-ops entirely for
 an unpackaged `dotnet run` build.
 

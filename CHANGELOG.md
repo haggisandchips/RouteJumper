@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- README referred to the packaged installer as `EDFCAutoPilotSetup.exe`;
+  Velopack actually names it `EDFCAutoPilot-win-Setup.exe` (confirmed
+  against the real v1.2.0 release assets).
+
 ## [1.2.0] - 2026-08-10
 
 ### Added
