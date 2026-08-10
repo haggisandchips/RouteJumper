@@ -16,10 +16,23 @@
     <PackageReference Include="MaterialDesignColors" Version="5.3.2" />
     <PackageReference Include="MaterialDesignThemes" Version="5.3.2" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Resource Include="Resources\AppIcon.ico" />
+  </ItemGroup>
+
+  <!--
+    App.xaml is normally compiled as ApplicationDefinition, which makes the WPF SDK
+    targets auto-generate a Main() entry point. Velopack needs to run before any
+    Application/window is created, so App.xaml.cs supplies its own Main() instead -
+    that requires App.xaml to be compiled as a plain Page (still gets InitializeComponent,
+    just no generated Main).
+  -->
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
   </ItemGroup>
 
   <ItemGroup>

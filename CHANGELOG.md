@@ -11,32 +11,43 @@ once the first release is tagged. Until then, everything lives under
 
 ### Added
 
-- MIT `LICENSE`.
-- `CHANGELOG.md` (this file).
-- Full `README.md` covering setup, the three tabs, the macro scripting
-  language, three ready-to-use sample scripts, and the release
-  procedure for distributing builds via GitHub.
+- **Route tab**: paste a route (one system per line), save it to a
+  table, and track its progress automatically against a Captain's real
+  Elite Dangerous journal — plots, jumps, arrivals, and cooldowns are
+  all reflected live, with a per-row countdown and progress bar. A
+  manual "Set next system" override corrects automatic detection when
+  needed. "Auto Copy To Clipboard" copies the next system the instant
+  the carrier arrives.
+- **Roles tab**: detects every running `EliteDangerous64.exe` instance,
+  matches each to its journal file, and shows commander, cargo, current
+  location, and fleet carrier status (including fuel level) live.
+  Captain and Engineer roles can be assigned to any running instance,
+  each with its own selected macro for Auto Pilot to play.
+- **Controls tab**: rebindable key bindings, a small human-readable
+  macro scripting language (taps, holds, clicks, waits, repeats,
+  sub-macros, and clipboard-paste/tritium-loop placeholders), and
+  recording, editing, and stepwise/full playback of macros against any
+  running instance.
+- **Auto Pilot**: drives a saved route to completion by playing the
+  Captain's macro to plot each jump and, if an Engineer is assigned,
+  the Engineer's macro to refuel every cooldown — stopping itself once
+  the route completes or its requirements stop being met.
+- Persistence of route text, window bounds, column widths, Captain/
+  Engineer role assignment (by commander FID), role macro selection,
+  and Controls tab options/key bindings/macros, all via a local SQLite
+  database, plus a hand-editable `routejumper.conf` for the journal
+  folder location.
+- Silent self-updating via [Velopack](https://velopack.io/): on launch,
+  a background check downloads any newer GitHub release and applies it
+  on the app's next normal exit, never interrupting an active route or
+  Auto Pilot run. No-op for an unpackaged/dev build.
+- Material Design styling throughout.
 - `RouteJumper.Tests`, a unit test suite covering the route-progress
   engine, macro script parsing, journal parsing, settings persistence,
   and the ViewModel layer.
-- **New Script** button (Controls tab): creates a new, empty macro and
-  opens it straight in the editor, for writing or pasting in a script
-  by hand instead of recording one.
-
-### Changed
-
-- Default "Auto wait" delay raised from 250ms to 300ms.
-- Recorded Macros list: the whole row is now clickable to select a
-  macro, not just its name text (the Edit/Delete icons are still
-  excluded).
-
-### Fixed
-
-- A macro created via **New Script** had blank pencil/Delete icons on
-  its row until the app was restarted — its row was rendered for the
-  first time while collapsed (opening the editor immediately hid the
-  list), which MaterialDesignThemes' icon buttons don't recover from.
-  The editor now opens a moment after the row has actually rendered.
+- MIT `LICENSE` and a full `README.md` covering setup, usage, the macro
+  scripting language, sample scripts, and the release procedure for
+  distributing builds via GitHub.
 
 ---
 

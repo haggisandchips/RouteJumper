@@ -67,9 +67,11 @@ Developments plc.
 
 ## Getting the app
 
-Grab the latest build from the project's
+Grab the latest installer (`RouteJumperSetup.exe`) from the project's
 **[GitHub Releases](https://github.com/haggisandchips/RouteJumper/releases)**
-page, unzip it anywhere, and run `RouteJumper.exe`. See
+page and run it. From then on RouteJumper checks for and silently installs
+newer releases itself on launch (via [Velopack](https://velopack.io/)) — no
+need to revisit the Releases page for future updates. See
 [Packaging & distributing releases via GitHub](#packaging--distributing-releases-via-github)
 below for how releases are produced.
 
@@ -462,77 +464,95 @@ RouteJumper.Tests/               xUnit unit test suite, mirroring the layout abo
 
 ## Packaging & distributing releases via GitHub
 
-RouteJumper doesn't yet have an automated release pipeline — this
-section documents the standard, manual procedure for cutting a release
-today, as a reference for setting up automation (e.g. a GitHub Actions
-workflow) later.
+RouteJumper self-updates via [Velopack](https://velopack.io/) (see
+`RouteJumper/Services/UpdateService.cs`): every launch checks GitHub
+Releases for a newer version and, if found, downloads and applies it on
+the *next* exit rather than interrupting the current session. This means
+a release isn't just a built exe — it has to be packaged with Velopack's
+own `vpk` tool so the installed copy and the update feed are both in the
+format `UpdateManager` expects. RouteJumper doesn't yet have an automated
+release pipeline — this section documents the standard, manual procedure
+for cutting a release today, as a reference for setting up automation
+(e.g. a GitHub Actions workflow) later.
 
-### 1. Decide on a version and tag
+### 1. Install the `vpk` CLI (one-time)
 
-Use [Semantic Versioning](https://semver.org/) tags, e.g. `v1.0.0`:
+```
+dotnet tool install -g vpk
+```
+
+### 2. Decide on a version and tag
+
+Use [Semantic Versioning](https://semver.org/) tags, e.g. `v1.0.0` (pass
+the bare `1.0.0`, no `v` prefix, as the pack version in step 4):
 
 ```
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-### 2. Publish a self-contained build
+### 3. Publish a self-contained build
 
 WPF apps don't support trimming reliably, so publish **self-contained**
-(bundles the .NET runtime — no separate runtime install needed) rather
-than trimmed:
+(bundles the .NET runtime — no separate runtime install needed):
 
 ```
 dotnet publish RouteJumper/RouteJumper.csproj `
   -c Release `
   -r win-x64 `
   --self-contained true `
-  -p:PublishSingleFile=true `
-  -p:IncludeNativeLibrariesForSelfExtract=true `
   -o publish/win-x64
 ```
 
-This produces a single `RouteJumper.exe` (plus a handful of native
-support files) under `publish/win-x64/` that runs on a clean Windows
-machine with no prerequisites.
+Unlike a plain zipped release, don't add `-p:PublishSingleFile=true`
+here — Velopack needs the individual output files (not one bundled exe)
+so it can diff them against the previous release and generate a small
+delta package.
 
-If a smaller download matters more than a zero-dependency install,
-publish **framework-dependent** instead (users must separately install
-the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)):
-
-```
-dotnet publish RouteJumper/RouteJumper.csproj -c Release -r win-x64 --self-contained false -o publish/win-x64-fx
-```
-
-### 3. Zip the output
+### 4. Pack it with Velopack
 
 ```
-Compress-Archive -Path publish/win-x64/* -DestinationPath RouteJumper-v1.0.0-win-x64.zip
+vpk pack `
+  -u RouteJumper `
+  -v 1.0.0 `
+  -p publish/win-x64 `
+  -e RouteJumper.exe `
+  -i RouteJumper/Resources/AppIcon.ico
 ```
 
-### 4. Create the GitHub Release
+Produces `RouteJumperSetup.exe` (the installer), a full `.nupkg`, and a
+`RELEASES` manifest under `Releases/` — plus a delta package against the
+previous version, if `Releases/` still has that previous version's
+output sitting in it from the last time this was run (keep that folder
+around between releases so delta generation has something to diff
+against; a missing previous version just means a full-size update
+instead of a small delta one, not a failure).
 
-Via the [`gh` CLI](https://cli.github.com/):
+### 5. Upload the release to GitHub
 
 ```
-gh release create v1.0.0 RouteJumper-v1.0.0-win-x64.zip `
-  --title "RouteJumper v1.0.0" `
-  --generate-notes
+vpk upload github `
+  --repoUrl https://github.com/haggisandchips/RouteJumper `
+  --token $env:GITHUB_TOKEN `
+  --tag v1.0.0 `
+  --publish
 ```
 
-...or via the GitHub web UI: **Releases → Draft a new release**, pick
-the pushed tag, attach the zip as a release asset, and publish. Users
-then download the zip from the Releases page, extract it, and run
-`RouteJumper.exe` — no installer required.
+`--token` needs a GitHub personal access token with `repo` scope (`$env:
+GITHUB_TOKEN = gh auth token` reuses the `gh` CLI's own, if already
+logged in). Omit `--publish` to upload as a draft release for a final
+check before it goes live. First-time installers still need to download
+`RouteJumperSetup.exe` from the Releases page directly — `UpdateService`
+only ever updates an *already-installed* copy, and no-ops entirely for
+an unpackaged `dotnet run` build.
 
-### 5. (Later) Automate it with GitHub Actions
+### 6. (Later) Automate it with GitHub Actions
 
 Once this is worth automating, a workflow triggered on tag push (e.g.
-`on: push: tags: ['v*']`) can run the same `dotnet publish` +
-`Compress-Archive` + `gh release create` steps on a
-`windows-latest` runner, so pushing a tag is the only manual step. Worth
-adding once releases become routine rather than one-off — not set up
-yet.
+`on: push: tags: ['v*']`) can run the same `dotnet publish` + `vpk pack`
++ `vpk upload github` steps on a `windows-latest` runner, so pushing a
+tag is the only manual step. Worth adding once releases become routine
+rather than one-off — not set up yet.
 
 When cutting a release, move the relevant entries from
 [`CHANGELOG.md`](CHANGELOG.md)'s `[Unreleased]` section into a new
