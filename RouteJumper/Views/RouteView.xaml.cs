@@ -8,11 +8,16 @@ namespace RouteJumper.Views
     public partial class RouteView : UserControl
     {
         // Fixed column order (see the DataGrid.Columns declared in RouteView.xaml): blank icon,
-        // #, System, Status.
+        // #, System, Status. Status (the trailing column) is deliberately excluded from both
+        // Restore/Save below - it stays a Star column always, filling whatever the other three
+        // don't use, so its progress bar has real remaining width to stretch into (§3.1's "no
+        // fixed-pixel layouts"). Capturing its ActualWidth on close and forcing that back as a
+        // literal DataGridLength on next launch - what this used to do - freezes it at whatever
+        // pixel width it happened to be showing at that moment, permanently defeating its own
+        // fill behavior from then on regardless of the window's actual size.
         private const string IconColumnWidthKey = "RouteColumnWidth.Icon";
         private const string NumberColumnWidthKey = "RouteColumnWidth.Number";
         private const string SystemColumnWidthKey = "RouteColumnWidth.System";
-        private const string StatusColumnWidthKey = "RouteColumnWidth.Status";
 
         private readonly AppSettingsStore _settings = new();
         private Window? _window;
@@ -64,7 +69,6 @@ namespace RouteJumper.Views
             RestoreColumnWidth(0, IconColumnWidthKey);
             RestoreColumnWidth(1, NumberColumnWidthKey);
             RestoreColumnWidth(2, SystemColumnWidthKey);
-            RestoreColumnWidth(3, StatusColumnWidthKey);
         }
 
         private void RestoreColumnWidth(int columnIndex, string key)
@@ -80,7 +84,6 @@ namespace RouteJumper.Views
             SaveColumnWidth(0, IconColumnWidthKey);
             SaveColumnWidth(1, NumberColumnWidthKey);
             SaveColumnWidth(2, SystemColumnWidthKey);
-            SaveColumnWidth(3, StatusColumnWidthKey);
         }
 
         /// <summary>DisplayValue, not Value - resolves to the actual current pixel width regardless of whether the column's Width is Auto/Star/Pixel.</summary>

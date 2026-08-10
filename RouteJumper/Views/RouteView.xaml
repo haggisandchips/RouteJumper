@@ -26,13 +26,6 @@
         <Style x:Key="RouteDataGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource MaterialDesignDataGridCell}">
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="BorderThickness" Value="0" />
-            <!-- The toolkit's own cell style leaves HorizontalContentAlignment at its default
-                 (Left), which never mattered for a TextBlock/PackIcon (they render at their own
-                 natural size regardless of how much extra space they're given either way) but
-                 silently starves the Status column's ProgressBar of anything to stretch into -
-                 without this, its cell's content (see the DataTemplate below) is only ever as
-                 wide as its own widest child (the status text), not the actual column width. -->
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Style.Triggers>
                 <Trigger Property="IsFocused" Value="True">
                     <Setter Property="BorderThickness" Value="0" />
@@ -182,14 +175,37 @@
                     <!-- A DataGridTemplateColumn, not a plain DataGridTextColumn, since the
                          clipboard icon needs to appear after the System text. A bare TextBlock +
                          PackIcon carries no implicit control style to leak into the row (unlike
-                         a Button would), so alignment stays consistent with the other columns. -->
-                    <DataGridTemplateColumn Header="System" Width="Auto" MinWidth="120">
+                         a Button would), so alignment stays consistent with the other columns.
+                         Width is a weighted star, not Auto: an Auto column never shrinks below
+                         its content's natural width, so a long real system name (e.g. "Col 285
+                         Sector NL-J b23-1") forced the whole grid wider than the window on
+                         resize, which is what actually caused both symptoms reported - the
+                         horizontal scrollbar itself, and the Status column (and so its progress
+                         bar) collapsing to its bare MinWidth instead of sharing the remaining
+                         space, since the DataGrid's star-width distribution only behaves
+                         correctly among Star columns, not alongside an Auto sibling demanding
+                         more room than is available. TextTrimming covers the one thing Auto used
+                         to guarantee for free - the full name is still one hover away via
+                         ToolTip. -->
+                    <DataGridTemplateColumn Header="System" Width="2*" MinWidth="120">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{Binding SystemText}"
+                                <!-- A Grid, not a StackPanel: a horizontal StackPanel always
+                                     measures its children at infinite available width, so
+                                     TextTrimming below would never actually have anything to
+                                     trim against - only a constrained column (Width="*") forces
+                                     the TextBlock down to the cell's real width. -->
+                                <Grid ToolTip="{Binding SystemText}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding SystemText}"
+                                               TextTrimming="CharacterEllipsis"
                                                VerticalAlignment="Center" />
-                                    <materialDesign:PackIcon Kind="ClipboardCheckOutline"
+                                    <materialDesign:PackIcon Grid.Column="1"
+                                                              Kind="ClipboardCheckOutline"
                                                               Width="14"
                                                               Height="14"
                                                               Margin="6,0,0,0"
@@ -198,7 +214,7 @@
                                                               Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
                                                               Visibility="{Binding IsCopiedToClipboard, Converter={StaticResource BoolToVisibilityConverter}}"
                                                               ToolTip="Currently on the clipboard" />
-                                </StackPanel>
+                                </Grid>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
@@ -213,18 +229,33 @@
                          RowIconToVisibilityConverter already uses) for a status with no known end
                          (blank "waiting" or Complete), so a row without a progress bar still
                          renders at the exact same height as one with it, rather than shrinking by
-                         the bar's own space. Reaches the actual column width (not just however
-                         wide its own status text happens to be) via RouteDataGridCellStyle's
-                         HorizontalContentAlignment="Stretch" above - the toolkit's own cell style
-                         defaults to Left, which never mattered for a plain TextBlock/PackIcon
-                         column but silently capped this template's own Grid (and so the
-                         ProgressBar's Stretch inside it) to its widest child's natural size.
-                         Binding the template's own Width/Height directly to the DataGridCell's
-                         ActualWidth/ActualHeight instead is circular - a cell's size is normally
-                         derived FROM its content, not the other way around - and broke the whole
-                         tab's layout in an earlier attempt; fixing the *cell's* own content
-                         alignment instead avoids that entirely. -->
-                    <DataGridTemplateColumn Header="Status" Width="*" MinWidth="140">
+                         the bar's own space.
+
+                         Reaching the actual column width took two separate fixes, neither of
+                         which was alignment:
+                         (1) RouteView.xaml.cs deliberately never persists/restores this column's
+                         width (unlike the other three, §4.2/§7) - it used to, which captured
+                         whatever pixel width the column happened to be showing on close and
+                         forced that back as a literal fixed width on every later launch,
+                         permanently overriding this column's own Star sizing the first time the
+                         window was ever closed, regardless of its size after that.
+                         (2) The System column's width used to be Auto, which never shrinks below
+                         its content's natural width - a long real system name could force the
+                         whole grid wider than the window (the reported resize-triggers-a-
+                         scrollbar symptom), and a DataGrid's Star distribution only behaves
+                         correctly among Star columns, not alongside an Auto sibling demanding
+                         more room than is available - so this column collapsed to its bare
+                         MinWidth instead of taking its share of the remainder. Giving System a
+                         weighted Star width instead (see above) fixed that.
+                         A HorizontalContentAlignment="Stretch" setter on the cell style was an
+                         earlier, ultimately irrelevant attempt - MaterialDesignDataGridCell's own
+                         ControlTemplate hosts its ContentPresenter with no such binding at all, so
+                         it was silently inert regardless. Binding the template's own Width/Height
+                         directly to the DataGridCell's ActualWidth/ActualHeight was a separate
+                         dead end - that's circular (a cell's size is normally derived FROM its
+                         content, not the other way around) and broke the whole tab's layout when
+                         tried. -->
+                    <DataGridTemplateColumn Header="Status" Width="3*" MinWidth="140">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid HorizontalAlignment="Stretch">

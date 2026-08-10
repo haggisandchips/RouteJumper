@@ -7,11 +7,26 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-10
+
 ### Fixed
 
 - README referred to the packaged installer as `EDFCAutoPilotSetup.exe`;
   Velopack actually names it `EDFCAutoPilot-win-Setup.exe` (confirmed
   against the real v1.2.0 release assets).
+- The Route tab's Status column (and so its progress bar) still didn't
+  reach the far right of the table, and resizing the window while on
+  that tab could produce a horizontal scrollbar. Two compounding causes:
+  the `System` column's `Auto` width never shrinks below its content's
+  natural width, so a long real system name could force the whole table
+  wider than the window; and the Status column's width was being
+  persisted and restored as a fixed pixel value like any other column,
+  permanently overriding its intended fill-the-remainder sizing the
+  first time it was ever resized (or the window was). `System` is now a
+  weighted Star column instead of `Auto` (truncating with an ellipsis,
+  full name on hover, if the window gets too narrow), and `Status` is no
+  longer persisted at all - it always fills whatever width the other
+  three columns leave unused.
 
 ## [1.2.0] - 2026-08-10
 
@@ -117,6 +132,7 @@ and this project follows [Semantic Versioning](https://semver.org/).
   scripting language, sample scripts, and the release procedure for
   distributing builds via GitHub.
 
+[1.2.1]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.2.1
 [1.2.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.2.0
 [1.1.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.1.0
 [1.0.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.0.0

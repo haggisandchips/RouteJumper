@@ -132,9 +132,14 @@ one is visible at a time.
   | 3 | `System` | The row's system text, plus a clipboard icon when this row's text is currently on the clipboard (§4.6) |
   | 4 | `Status` | Current status text — see §4.4 |
 
-- Column widths are user-resizable (drag a header's edge) and persisted
-  per column (§7) — restored on the next launch in place of the default
-  widths above, until first resized.
+- Column widths are user-resizable (drag a header's edge). The icon, `#`,
+  and `System` columns are persisted per column (§7) — restored on the
+  next launch in place of the default widths above, until first resized.
+  `Status`, the trailing column, always fills whatever width the other
+  three leave unused rather than being persisted as a fixed size — its
+  progress bar (§4.4) needs real remaining width to stretch into on every
+  launch, at whatever size the window happens to be, not a pixel width
+  frozen from a previous session.
 - Clicking anywhere in a row copies that row's system name to the clipboard
   and plays a confirmation sound (see §4.6 for the clipboard-source icon
   this also sets).
@@ -972,7 +977,7 @@ rather than internal app state like the table below.
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
-| Route table column widths | Window closing | App startup, per column — falling back to that column's default width until first resized |
+| Route table column widths (icon, `#`, `System` only — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
@@ -1236,9 +1241,11 @@ rather than internal app state like the table below.
     unpadded, minutes/seconds always two digits), ticking down live; a
     row with a blank or Complete status shows neither, and renders at
     the same height as a row that does.
-41. Resizing a Route table column and relaunching the app restores that
-    column's width exactly as left, per column, with no manual
-    reconfiguration required.
+41. Resizing the Route table's icon, `#`, or `System` column and
+    relaunching the app restores that column's width exactly as left, per
+    column, with no manual reconfiguration required. `Status` always
+    fills the remaining width instead, on every launch regardless of
+    window size, rather than being restored at a fixed size.
 42. During a manual Play or an Auto Pilot-triggered run, the configured
     Auto wait is applied automatically after every instruction the script
     executes, unless the next one is itself a `WAIT` - the same setting
