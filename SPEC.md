@@ -348,10 +348,10 @@ the whole route reaches Complete or Auto Pilot is stopped:
 - Ahead of each of the two triggers §4.7 describes - the Captain's plot
   and the Engineer's refuel - RouteJumper speaks a lead-time announcement
   through the OS's speech engine (voice/volume from the Preferences
-  dialog, §3.5): "Plotting beginning in 30 seconds" 30 seconds before the
-  Captain's macro is due to play, then "Plotting beginning in 5 seconds"
-  5 seconds before; "Refueling beginning in 30 seconds"/"Refueling
-  beginning in 5 seconds" the same way for the Engineer's.
+  dialog, §3.5): "Plotting in 30 seconds" 30 seconds before the
+  Captain's macro is due to play, then "Plotting in 5 seconds" 5 seconds
+  before; "Refueling in 30 seconds"/"Refueling in 5 seconds" the same
+  way for the Engineer's.
 - The Captain's announcement is scheduled the moment a row's `Cooldown`
   starts, against a fixed delay from `Cooldown`'s own precomputed clear
   time. The Engineer's is scheduled the moment the row becomes `Jumping`,
@@ -1267,9 +1267,9 @@ rather than internal app state like the table below.
     normal). An always-visible mute button sits beside the menu; clicking
     it toggles its icon between a plain and a crossed-out speaker.
 46. While Auto Pilot is running, once a row's `Cooldown` starts, "Plotting
-    beginning in 30 seconds" is spoken 30 seconds before the Captain's
-    macro is due to plot the next jump, then "Plotting beginning in 5
-    seconds" 5 seconds before. The same wording with "Refueling" is
+    in 30 seconds" is spoken 30 seconds before the Captain's macro is due
+    to plot the next jump, then "Plotting in 5 seconds" 5 seconds before.
+    The same wording with "Refueling" is
     spoken ahead of the Engineer's refuel macro if Engineer is assigned,
     scheduled the moment the row becomes `Jumping` (the configured Auto
     Pilot delay after `Jumping`'s own estimated-arrival `PhaseEndUtc`).

@@ -8,6 +8,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RouteJumper</RootNamespace>
     <AssemblyName>RouteJumper</AssemblyName>
+    <!-- Display identity only - AssemblyName above (the exe filename) stays "RouteJumper" so
+         Velopack's self-update (keyed on the exe path) keeps working for already-installed
+         copies. Product/AssemblyTitle feed the exe's own Win32 version resource, which is what
+         Explorer's file Properties, Task Manager, and Velopack's own Start Menu shortcut naming
+         read - the window's Title (MainWindow.xaml), which is what the taskbar button itself
+         shows, is already "ED:FC Auto Pilot" independently of this. -->
+    <Product>ED:FC Auto Pilot</Product>
+    <AssemblyTitle>ED:FC Auto Pilot</AssemblyTitle>
+    <Description>Elite Dangerous fleet carrier Auto Pilot</Description>
     <ProjectGuid>{8F1B2C3D-4A5E-4F6B-9C7D-1E2F3A4B5C6D}</ProjectGuid>
     <ApplicationIcon>Resources\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>

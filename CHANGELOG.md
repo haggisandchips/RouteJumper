@@ -10,8 +10,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Spoken lead-time announcements before Auto Pilot plots a jump or
-  refuels ("Plotting"/"Refueling beginning in 30 seconds"/"...in 5
-  seconds"), via the OS speech engine.
+  refuels ("Plotting"/"Refueling in 30 seconds"/"...in 5 seconds"), via
+  the OS speech engine.
 - A File menu (Preferences…, Exit) and an always-visible mute button on
   the main window.
 - A Preferences dialog to choose the announcement voice (from every voice
@@ -28,17 +28,25 @@ and this project follows [Semantic Versioning](https://semver.org/).
   starts), but that instant is now computed as soon as the current row
   becomes Jumping - using its DepartureTime-derived estimated-arrival
   PhaseEndUtc - instead of only once Cooldown is actually observed
-  starting live. Gives the "Refueling beginning in 30 seconds"/"...in 5
-  seconds" announcements several real minutes of lead time to work with
-  instead of only the short Auto Pilot delay itself.
+  starting live. Gives the "Refueling in 30 seconds"/"...in 5 seconds"
+  announcements several real minutes of lead time to work with instead
+  of only the short Auto Pilot delay itself.
+- The app's own display name (Explorer's file Properties, Task Manager,
+  and Velopack's Start Menu shortcut) is now "ED:FC Auto Pilot",
+  matching the main window's own title/taskbar text - the underlying
+  exe filename and Velopack app ID are unchanged, so this doesn't affect
+  self-updating for already-installed copies.
+- Shortened the spoken announcements by dropping "beginning" - e.g.
+  "Plotting in 30 seconds" instead of "Plotting beginning in 30
+  seconds".
 
 ### Fixed
 
 - Record/Play could fail to bring the target Elite Dangerous window to
   the foreground when some other window currently had focus, due to
   Windows' focus-stealing prevention silently ignoring the request.
-- The Engineer's "Refueling beginning in 5 seconds" announcement almost
-  never actually spoke under the default Auto Pilot delay - its due time
+- The Engineer's "Refueling in 5 seconds" announcement almost never
+  actually spoke under the default Auto Pilot delay - its due time
   landed right at the instant Cooldown starts, always losing a race
   against real elapsed time.
 
