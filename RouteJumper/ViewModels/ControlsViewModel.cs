@@ -888,7 +888,7 @@ namespace RouteJumper.ViewModels
         /// overstate how many loops are still needed (continuing to mine/deposit long after the
         /// depot and hold were, in reality, already full) instead of just declining to guess.
         /// </summary>
-        private static int ComputeTritiumLoops(EliteInstanceViewModel? instance)
+        internal static int ComputeTritiumLoops(EliteInstanceViewModel? instance)
         {
             var capacity = instance?.CargoCapacity ?? 0;
             if (capacity <= 0 || instance!.CarrierFuelLevel is not { } carrierFuel)

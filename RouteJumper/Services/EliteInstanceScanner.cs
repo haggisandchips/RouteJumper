@@ -88,7 +88,7 @@ namespace RouteJumper.Services
             return result;
         }
 
-        private static string? MatchJournal(
+        internal static string? MatchJournal(
             Process process,
             List<(string Path, DateTime TimestampUtc)> candidates,
             HashSet<string> assigned)
@@ -197,8 +197,8 @@ namespace RouteJumper.Services
             "CargoTransfer", "CarrierDepositFuel", "MarketBuy", "MarketSell"
         };
 
-        /// <summary>Result of a single full pass over a journal file.</summary>
-        private readonly struct JournalSummary
+        /// <summary>Result of a single full pass over a journal file. Internal (not private) so RouteJumper.Tests can exercise ReadJournalSummary directly.</summary>
+        internal readonly struct JournalSummary
         {
             public string? CommanderName { get; init; }
             public string? Fid { get; init; }
@@ -251,7 +251,7 @@ namespace RouteJumper.Services
             public int? CarrierFuelLevel { get; init; }
         }
 
-        private static JournalSummary ReadJournalSummary(string path)
+        internal static JournalSummary ReadJournalSummary(string path)
         {
             string? commanderName = null;
             string? fid = null;

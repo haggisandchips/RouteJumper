@@ -22,11 +22,15 @@ namespace RouteJumper.Services
     {
         private readonly string _connectionString;
 
-        public AppSettingsStore()
+        public AppSettingsStore() : this(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "RouteJumper"))
         {
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "RouteJumper");
+        }
+
+        /// <summary>Test-only seam: lets RouteJumper.Tests point the store at a temp directory instead of the real per-user AppData location.</summary>
+        internal AppSettingsStore(string directory)
+        {
             Directory.CreateDirectory(directory);
 
             _connectionString = $"Data Source={Path.Combine(directory, "routejumper.db")}";

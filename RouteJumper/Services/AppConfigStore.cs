@@ -21,11 +21,15 @@ namespace RouteJumper.Services
 
         private readonly string _configPath;
 
-        public AppConfigStore()
+        public AppConfigStore() : this(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "RouteJumper"))
         {
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "RouteJumper");
+        }
+
+        /// <summary>Test-only seam: lets RouteJumper.Tests point the store at a temp directory instead of the real per-user AppData location.</summary>
+        internal AppConfigStore(string directory)
+        {
             Directory.CreateDirectory(directory);
 
             _configPath = Path.Combine(directory, "routejumper.conf");

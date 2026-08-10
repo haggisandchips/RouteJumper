@@ -22,4 +22,8 @@
     <Resource Include="Resources\AppIcon.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="RouteJumper.Tests" />
+  </ItemGroup>
+
 </Project>
