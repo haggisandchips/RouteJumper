@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Interop;
 using RouteJumper.Services;
 using RouteJumper.ViewModels;
+using RouteJumper.Views;
 
 namespace RouteJumper
 {
@@ -157,6 +158,21 @@ namespace RouteJumper
             }
 
             return false;
+        }
+
+        /// <summary>Closing the main window is enough to end the app (default ShutdownMode.OnMainWindowClose) - OnClosing already persists window bounds first.</summary>
+        private void OnExitClick(object sender, RoutedEventArgs e) => Close();
+
+        /// <summary>
+        /// Opens the modal Preferences dialog, bound directly to the shared SpeechAnnouncer - a
+        /// modal dialog is inherently a view-layer concern (same carve-out as the
+        /// window-placement/clipboard-monitoring code elsewhere in this file), so it's opened
+        /// here rather than via a ViewModel command.
+        /// </summary>
+        private void OnPreferencesClick(object sender, RoutedEventArgs e)
+        {
+            var mainViewModel = (MainViewModel)DataContext;
+            new PreferencesWindow(mainViewModel.SpeechAnnouncer) { Owner = this }.ShowDialog();
         }
 
         private void OnClosing(object? sender, CancelEventArgs e)

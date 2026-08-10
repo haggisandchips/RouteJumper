@@ -21,19 +21,55 @@
 
     <Window.Resources>
         <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+        <converters:MuteIconConverter x:Key="MuteIconConverter" />
     </Window.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <!-- File menu + mute button, both always visible regardless of which tab is active.
+             Shaded and underlined so it reads as its own toolbar strip rather than blending into
+             the tab area below it. -->
+        <Border Grid.Row="0"
+                Background="#14000000"
+                BorderBrush="#33000000"
+                BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Menu Grid.Column="0" Background="Transparent">
+                    <MenuItem Header="_File">
+                        <MenuItem Header="_Preferences…" Click="OnPreferencesClick" />
+                        <Separator />
+                        <MenuItem Header="E_xit" Click="OnExitClick" />
+                    </MenuItem>
+                </Menu>
+
+                <!-- Silences Auto Pilot's spoken plot/refuel announcements (SpeechAnnouncer.Speak) -
+                     does not affect the Preferences dialog's own Test button, which always plays. -->
+                <Button Grid.Column="1"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        Command="{Binding SpeechAnnouncer.ToggleMuteCommand}"
+                        ToolTip="Mute/unmute spoken announcements"
+                        AutomationProperties.Name="Mute announcements"
+                        Margin="0,0,4,0">
+                    <materialDesign:PackIcon Kind="{Binding SpeechAnnouncer.Muted, Converter={StaticResource MuteIconConverter}}" />
+                </Button>
+            </Grid>
+        </Border>
 
         <!-- Shown regardless of which tab is active, since losing the target window's focus
              mid-playback (Controls tab, §6.3) can happen while the user is looking at any of
              them. Solid fill (not just an outline) with white text, so it reads as a clear
              warning at a glance rather than something easy to miss. -->
-        <Border Grid.Row="0"
+        <Border Grid.Row="1"
                 Visibility="{Binding ControlsViewModel.PlaybackErrorMessage, Converter={StaticResource StringToVisibilityConverter}}"
                 Background="{DynamicResource MaterialDesign.Brush.ValidationError}"
                 Padding="10,6"
@@ -67,7 +103,7 @@
             </Grid>
         </Border>
 
-        <TabControl Grid.Row="1" Margin="8" TabStripPlacement="Left">
+        <TabControl Grid.Row="2" Margin="8" TabStripPlacement="Left">
             <TabItem Header="Route">
                 <views:RouteView DataContext="{Binding RouteViewModel}" />
             </TabItem>

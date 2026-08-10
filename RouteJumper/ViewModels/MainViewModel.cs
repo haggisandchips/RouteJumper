@@ -30,6 +30,8 @@ namespace RouteJumper.ViewModels
             var config = new AppConfigStore();
             var routeEventTrigger = new ManualRowEventTrigger();
 
+            SpeechAnnouncer = new SpeechAnnouncer(settings, new SapiSpeechEngine());
+
             // The RolesViewModel/ControlsViewModel property dereferences below are guaranteed
             // safe despite still being unassigned at this exact statement - these closures are
             // only ever invoked later, once the whole constructor (and both assignments) has
@@ -71,7 +73,8 @@ namespace RouteJumper.ViewModels
                 () => RolesViewModel.EngineerInstance,
                 () => ControlsViewModel.AutoPilotDelayMs,
                 (macro, instance) => ControlsViewModel.PlayMacro(macro, instance),
-                RouteViewModel.StopAutoPilot);
+                RouteViewModel.StopAutoPilot,
+                SpeechAnnouncer.Speak);
             RouteViewModel.AutoPilotRunningChanged += (_, running) =>
             {
                 if (running)
@@ -93,5 +96,8 @@ namespace RouteJumper.ViewModels
         public RolesViewModel RolesViewModel { get; }
 
         public ControlsViewModel ControlsViewModel { get; }
+
+        /// <summary>Owns spoken-announcement voice/volume/mute state - bound directly by MainWindow's mute button and the Preferences dialog.</summary>
+        public SpeechAnnouncer SpeechAnnouncer { get; }
     }
 }

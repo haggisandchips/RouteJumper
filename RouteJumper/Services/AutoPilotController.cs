@@ -36,9 +36,22 @@ namespace RouteJumper.Services
     /// practice the two triggers are separated by the whole Cooldown window (Engineer fires at
     /// its start, Captain at its end) so they don't normally overlap, but a slow-running Engineer
     /// macro could still be cancelled by the Captain's plot firing before it finishes.
+    ///
+    /// Also announces each trigger via <see cref="_speak"/> (SpeechAnnouncer.Speak) ahead of
+    /// time - "Plotting beginning shortly"/"Plotting beginning in 5 seconds" before the Captain's
+    /// macro plays, and the same wording with "Refueling" before the Engineer's. Both targets are
+    /// only ever knowable once Cooldown starts (the Engineer's own trigger is a fixed delay from
+    /// that moment; the Captain's is a fixed delay from Cooldown's own precomputed clear time -
+    /// RouteRowViewModel.PhaseEndUtc, the same instant the progress bar counts down to), so both
+    /// are scheduled together right there, once per row's Cooldown period - never for the
+    /// "fires immediately, no Cooldown was waited on" case, since that leaves no lead time to
+    /// announce anything against.
     /// </summary>
     public sealed class AutoPilotController
     {
+        private static readonly TimeSpan ShortlyLeadTime = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan ImminentLeadTime = TimeSpan.FromSeconds(5);
+
         private readonly ObservableCollection<RouteRowViewModel> _rows;
         private readonly Func<RecordedMacroViewModel?> _getCaptainMacro;
         private readonly Func<EliteInstanceViewModel?> _getCaptainInstance;
@@ -47,6 +60,7 @@ namespace RouteJumper.Services
         private readonly Func<int> _getAutoPilotDelayMs;
         private readonly Action<RecordedMacroViewModel, EliteInstanceViewModel> _playMacro;
         private readonly Action _onRouteComplete;
+        private readonly Action<string> _speak;
 
         private CancellationTokenSource? _cts;
         private RouteRowViewModel? _lastTriggeredRow;
@@ -63,7 +77,8 @@ namespace RouteJumper.Services
             Func<EliteInstanceViewModel?> getEngineerInstance,
             Func<int> getAutoPilotDelayMs,
             Action<RecordedMacroViewModel, EliteInstanceViewModel> playMacro,
-            Action onRouteComplete)
+            Action onRouteComplete,
+            Action<string> speak)
         {
             _rows = rows;
             _getCaptainMacro = getCaptainMacro;
@@ -73,6 +88,7 @@ namespace RouteJumper.Services
             _getAutoPilotDelayMs = getAutoPilotDelayMs;
             _playMacro = playMacro;
             _onRouteComplete = onRouteComplete;
+            _speak = speak;
         }
 
         /// <summary>Begins watching the route - evaluates immediately (covers "Auto Pilot was just clicked"), then again every time a row's Icon/Status changes.</summary>
@@ -202,11 +218,27 @@ namespace RouteJumper.Services
 
                 // Fire the Engineer's refuel exactly once per row's Cooldown period - further
                 // evaluations while it's still active (e.g. some other row's Icon/Status changing
-                // elsewhere) must not restart the wait or replay the macro.
+                // elsewhere) must not restart the wait or replay the macro. This is also the only
+                // moment either trigger's eventual firing time is knowable, so it's also where
+                // both triggers' advance announcements get scheduled - see AnnounceBeforeTrigger.
                 if (!ReferenceEquals(_engineerTriggeredForRow, currentRow))
                 {
                     _engineerTriggeredForRow = currentRow;
-                    _ = TriggerEngineerRefuelAsync(_cts!.Token);
+                    var delay = TimeSpan.FromMilliseconds(Math.Max(0, _getAutoPilotDelayMs()));
+                    var nowUtc = DateTime.UtcNow;
+
+                    AnnounceBeforeTrigger(
+                        "Refueling",
+                        nowUtc + delay,
+                        () => _getEngineerMacro() != null && _getEngineerInstance() is { WindowHandle: not 0 },
+                        _cts!.Token);
+
+                    if (currentRow.PhaseEndUtc is { } cooldownClearsAtUtc)
+                    {
+                        AnnounceBeforeTrigger("Plotting", cooldownClearsAtUtc + delay, isRelevant: null, _cts.Token);
+                    }
+
+                    _ = TriggerEngineerRefuelAsync(_cts.Token);
                 }
 
                 return;
@@ -280,6 +312,46 @@ namespace RouteJumper.Services
             catch (OperationCanceledException)
             {
                 // Auto Pilot was stopped while waiting - nothing to do.
+            }
+        }
+
+        /// <summary>
+        /// Schedules the two spoken lead-time announcements for a trigger due at
+        /// <paramref name="triggerAtUtc"/> - "{activity} beginning shortly" 30 seconds before it,
+        /// then "{activity} beginning in 5 seconds" 5 seconds before. Either (or both) is simply
+        /// skipped if that much lead time has already passed by the time this is called (e.g. a
+        /// short configured Auto Pilot delay), rather than announcing something already imminent
+        /// or already done as if it were still 30/5 seconds out. <paramref name="isRelevant"/>,
+        /// if given, is re-checked right before speaking - e.g. the Engineer's refuel trigger is
+        /// only worth announcing if an Engineer is (still) actually assigned with a macro
+        /// selected by the time it would fire.
+        /// </summary>
+        private void AnnounceBeforeTrigger(string activity, DateTime triggerAtUtc, Func<bool>? isRelevant, CancellationToken cancellationToken)
+        {
+            _ = AnnounceAtAsync(activity, "beginning shortly", triggerAtUtc - ShortlyLeadTime, isRelevant, cancellationToken);
+            _ = AnnounceAtAsync(activity, "beginning in 5 seconds", triggerAtUtc - ImminentLeadTime, isRelevant, cancellationToken);
+        }
+
+        private async Task AnnounceAtAsync(string activity, string suffix, DateTime whenUtc, Func<bool>? isRelevant, CancellationToken cancellationToken)
+        {
+            var delay = whenUtc - DateTime.UtcNow;
+            if (delay <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(delay, cancellationToken);
+                if (isRelevant?.Invoke() ?? true)
+                {
+                    _speak($"{activity} {suffix}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Auto Pilot was stopped (or this trigger was superseded) while waiting - nothing
+                // to announce.
             }
         }
 

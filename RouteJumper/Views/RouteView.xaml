@@ -176,7 +176,7 @@
                          clipboard icon needs to appear after the System text. A bare TextBlock +
                          PackIcon carries no implicit control style to leak into the row (unlike
                          a Button would), so alignment stays consistent with the other columns. -->
-                    <DataGridTemplateColumn Header="System" Width="*">
+                    <DataGridTemplateColumn Header="System" Width="Auto" MinWidth="120">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal">
@@ -211,7 +211,7 @@
                          is normally derived FROM its content, not the other way around - and broke
                          the whole tab's layout); it simply stretches to fill whatever width the
                          cell's own default padding leaves it. -->
-                    <DataGridTemplateColumn Header="Status" Width="140">
+                    <DataGridTemplateColumn Header="Status" Width="*" MinWidth="140">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid>

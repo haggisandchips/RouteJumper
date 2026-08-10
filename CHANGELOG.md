@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Spoken lead-time announcements before Auto Pilot plots a jump or
+  refuels ("Plotting"/"Refueling beginning shortly"/"...in 5 seconds"),
+  via the OS speech engine.
+- A File menu (Preferences…, Exit) and an always-visible mute button on
+  the main window.
+- A Preferences dialog to choose the announcement voice (from every voice
+  installed on the machine), test it, and set its volume - all persisted.
+
 ## [1.1.0] - 2026-08-10
 
 ### Added

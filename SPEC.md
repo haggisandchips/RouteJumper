@@ -27,6 +27,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 | Persistence of route text, window bounds, and Captain/Engineer role assignment | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
+| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit and a Preferences dialog (voice/volume/test), and an always-visible mute button | |
 | Material Design styling | |
 
 ---
@@ -58,6 +59,40 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 
 ### 3.3 Controls tab
 See §6.
+
+### 3.4 Menu bar and mute button
+- A `Menu` sits above the tab area, visible regardless of which tab is
+  active, with a single top-level **File** entry:
+  - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
+  - **Exit** closes the main window (which persists its bounds as normal,
+    §7, and ends the app).
+- Beside the menu, right-aligned and equally always-visible, a single
+  icon button mutes/unmutes the spoken announcements described in §4.8 -
+  its icon swaps between a plain speaker and a crossed-out one to reflect
+  the current state. Muting has no effect on the Preferences dialog's own
+  Test control (§3.5), which always plays - pressing it is itself an
+  explicit request to hear it.
+
+### 3.5 Preferences dialog
+- A modal dialog (File > Preferences…) for the spoken announcements' own
+  voice and volume - the mute toggle itself lives only on the main window
+  (§3.4), not duplicated here.
+- **Voice**: a dropdown of every voice installed on the machine (via the
+  OS speech engine), shown under a cleaned-up display name — the
+  "Microsoft " prefix Windows' stock voices all share is stripped, and a
+  "... Desktop" entry is dropped entirely wherever it's just a duplicate
+  of the same voice under its plain name (Windows installs both) — plus
+  a small clear button beside it that resets the selection back to
+  blank - blank means the engine's own default voice, and is the only
+  way back to that default once a specific voice has been chosen, since
+  the dropdown itself has no blank entry of its own to click back to.
+- **Test** (icon button): speaks a fixed sample phrase through the
+  currently-selected voice/volume - always audible, even while muted.
+- **Volume**: a slider, 0-100.
+- Every change to Voice/Volume is saved immediately (§7), the same
+  "edits save as they're made" convention the Controls tab's own Options
+  section already uses - **Close** is purely a "done for now" navigation
+  action, not a distinct save step.
 
 ---
 
@@ -291,6 +326,32 @@ the whole route reaches Complete or Auto Pilot is stopped:
   already played for requires manual intervention. This has no bearing
   on the Engineer's refuel trigger, which is keyed off Cooldown starting,
   not off a jump request.
+
+### 4.8 Spoken announcements
+- Ahead of each of the two triggers §4.7 describes - the Captain's plot
+  and the Engineer's refuel - RouteJumper speaks a lead-time announcement
+  through the OS's speech engine (voice/volume from the Preferences
+  dialog, §3.5): "Plotting beginning shortly" 30 seconds before the
+  Captain's macro is due to play, then "Plotting beginning in 5 seconds"
+  5 seconds before; "Refueling beginning shortly"/"Refueling beginning in
+  5 seconds" the same way for the Engineer's.
+- Both due times are only knowable once a row's `Cooldown` starts (the
+  Engineer's trigger is a fixed delay from that moment; the Captain's is
+  a fixed delay from `Cooldown`'s own precomputed clear time), so both
+  announcements are scheduled together right then, once per row's
+  Cooldown period - never for a jump that fires immediately with no
+  Cooldown having been waited on, since that leaves no lead time to
+  announce anything against.
+- Either announcement (or both) is silently skipped if that much lead
+  time has already passed by the time it's scheduled - e.g. a
+  short-configured Auto Pilot delay (§6.1) - rather than announcing
+  something already imminent or already done as if it were still 30/5
+  seconds out.
+- The Engineer's announcements are only actually spoken if an Engineer is
+  still assigned with a macro selected by the time each is due - checked
+  fresh at that moment, not just when first scheduled.
+- Muting (§3.4) silently suppresses every announcement described here;
+  it has no effect on the Preferences dialog's own Test control (§3.5).
 
 ---
 
@@ -892,6 +953,7 @@ rather than internal app state like the table below.
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
+| Announcement voice, volume, muted (§3.4, §3.5) | Every change | App startup, falling back to the engine's own default voice, 100 volume, and unmuted until first changed |
 
 - Role assignment is restored by FID (not `ProcessId`, which doesn't
   survive a process restart) — this covers both "app just launched" and
@@ -918,13 +980,17 @@ rather than internal app state like the table below.
 
 - **Framework:** WPF, .NET 8 (`net8.0-windows`), MVVM throughout — no
   business logic in code-behind. The window-placement, focus-management,
-  and clipboard-monitoring code in `MainWindow.xaml.cs`/`RouteView.xaml.cs`
-  is the sole, deliberate exception, since it needs direct access to a
-  real HWND/message pump that a ViewModel has no access to.
+  clipboard-monitoring, and Preferences-dialog-opening code in
+  `MainWindow.xaml.cs`/`RouteView.xaml.cs` is the sole, deliberate
+  exception, since it needs direct access to a real HWND/message pump (or,
+  for the Preferences dialog, is itself an inherently view-layer concern)
+  that a ViewModel has no access to.
 - **Responsiveness:** the UI stays interactive throughout a Roles tab
   refresh (a background-thread scan).
 - **No external dependencies** beyond the .NET/WPF base class libraries,
-  `MaterialDesignThemes`/`MaterialDesignColors`, and `Microsoft.Data.Sqlite`.
+  `MaterialDesignThemes`/`MaterialDesignColors`, `Microsoft.Data.Sqlite`,
+  and `System.Speech` (the OS speech engine used for §4.8's spoken
+  announcements).
 
 ---
 
@@ -1170,3 +1236,29 @@ rather than internal app state like the table below.
     macro it creates persists across a restart and can be played,
     stepped, renamed, or selected for a role's macro exactly like a
     recorded one.
+45. A **File** menu is visible above the tabs regardless of which tab is
+    active; **Preferences…** opens the modal Preferences dialog (§3.5),
+    and **Exit** closes the app (persisting window bounds first, as
+    normal). An always-visible mute button sits beside the menu; clicking
+    it toggles its icon between a plain and a crossed-out speaker.
+46. While Auto Pilot is running, once a row's `Cooldown` starts, "Plotting
+    beginning shortly" is spoken 30 seconds before the Captain's macro is
+    due to plot the next jump, then "Plotting beginning in 5 seconds" 5
+    seconds before; the same wording with "Refueling" is spoken ahead of
+    the Engineer's refuel macro if Engineer is assigned. Muting suppresses
+    both; neither is spoken for a jump that fires immediately with no
+    Cooldown having been waited on, and either announcement is silently
+    skipped if its own lead time has already elapsed by the time it's
+    scheduled (e.g. a short Auto Pilot delay).
+47. The Preferences dialog lists every voice installed on the machine in
+    its Voice dropdown, without a "Microsoft " prefix and without a
+    duplicate "... Desktop" entry for the same voice; selecting one takes
+    effect and persists immediately, and its clear button resets the
+    selection back to the
+    engine's own default. Its Test button speaks a sample phrase through
+    the current voice/volume regardless of whether the main window's mute
+    button is currently muted. Its Volume slider (0-100) persists
+    immediately.
+48. Voice, volume, and muted all survive an app restart with no manual
+    reconfiguration required, each falling back to its own default (the
+    engine's default voice, 100, unmuted) until first changed.
