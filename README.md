@@ -16,8 +16,36 @@ Developments plc.
 
 ---
 
+## Quick Start
+
+1. **Route tab** — paste your route (one system per line) and click
+   **Save**.
+2. **Controls tab** — create the macros Auto Pilot will play: a
+   jump-plotting script for the Captain, and (optionally) a refuelling
+   script for the Engineer. Use the [sample scripts](#sample-scripts)
+   below as a starting point if you like. Before using any script, make
+   sure **Key Bindings** here match Elite Dangerous's own keyboard
+   controls for UI navigation — the defaults (arrow keys, Space, Del,
+   End, Backspace, `4`) match the game's own keyboard-and-mouse
+   defaults, so this only needs attention if you've remapped them.
+3. **Roles tab** — assign **Captain** to the fleet carrier owner's
+   running Elite Dangerous instance, and, only if you want automatic
+   refuelling, assign **Engineer** to any commander's instance that's
+   aboard the carrier. Then pick each role's macro under **Captain
+   plots via** / **Engineer refuels via** (an Engineer macro is only
+   required once Engineer is assigned).
+4. **Route tab** — click **Auto Pilot**.
+
+RouteJumper announces upcoming actions out loud ("Plotting beginning in
+30 seconds", "Refueling beginning in 5 seconds") before it plots or
+refuels — once you hear one, keep your hands off the mouse/keyboard,
+since real input is about to be sent to the game.
+
+---
+
 ## Contents
 
+- [Quick Start](#quick-start)
 - [What it does](#what-it-does)
 - [Requirements](#requirements)
 - [Getting the app](#getting-the-app)
@@ -133,9 +161,13 @@ row number, system name, and status for each row, and switches to a
 
 A row's status cycles automatically as the journal reports real
 progress: *(blank)* → `Plotted` → `Jumping` → *(arrived, row completes,
-next row becomes current)* → `Cooldown` → *(blank again)*. A small
-countdown ("`Plotted (0:11:32)`") and progress bar show how long is left
-in the current phase.
+next row becomes current)* → `Cooldown` → *(blank again)*. While Auto
+Pilot is engaged, a row also passes through `Plotting` between blank and
+`Plotted` — the moment its macro starts playing, until the game
+confirms the jump was actually requested. A small countdown
+("`Plotted (0:11:32)`") and progress bar show how long is left in the
+current phase; `Plotting` shows an indeterminate spinner instead, since
+there's no way to know in advance how long it'll take.
 
 ### Roles tab
 
@@ -452,15 +484,16 @@ defaults on a fresh launch).
 RouteJumper.sln
 RouteJumper/                    The application
   App.xaml(.cs)
-  MainWindow.xaml(.cs)          Window shell, startup placement, clipboard-change hook
+  MainWindow.xaml(.cs)          Window shell, File menu, startup placement, clipboard-change hook
   Common/                       ICommand implementations, ObservableObject base, clipboard helper
   Models/                       Small data types (ControlAction, RowIcon, RecordedMacro, ...)
   ViewModels/                   One ViewModel per tab, plus per-row/per-item ViewModels
   Sequencing/                   The route-progress engine
   Services/                     Journal parsing/watching, macro parser/player, settings/config
-                                 stores, process/window scanning, key-binding formatting
+                                 stores, process/window scanning, key-binding formatting,
+                                 speech synthesis
   Converters/                   WPF IValueConverters
-  Views/                        XAML for each tab
+  Views/                        XAML for each tab, plus the Preferences dialog
   Resources/                    App icon
 RouteJumper.Tests/               xUnit unit test suite, mirroring the layout above
 ```
@@ -602,6 +635,8 @@ an unpackaged `dotnet run` build.
 - **Auto Pilot button stays disabled** — it requires a Captain assigned
   with a macro selected for them (Roles tab), and, only if an Engineer
   is *also* assigned, a macro selected for them too.
+- **No spoken announcements** — check the mute button beside the File
+  menu isn't engaged, and that Volume is above 0 in File > Preferences.
 
 ---
 

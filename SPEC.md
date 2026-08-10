@@ -309,21 +309,19 @@ the whole route reaches Complete or Auto Pilot is stopped:
 - Once that row completes and journal tracking (§5.7) advances the route
   to the next row, the same rule repeats for it, and so on until no row
   is left in-progress.
-- Independently of the Captain's plot above: the Engineer's refuel fires
-  at the same real-world moment it always has - the configured Auto
-  Pilot delay after the row *after* this one starts `Cooldown` (i.e.
-  near the end of *this* row's own `Jumping` phase, not before it) - but
-  that moment is now computed as soon as this row becomes `Jumping`
-  rather than waited for live: `Jumping`'s own `PhaseEndUtc` (§4.4) is
-  already the carrier's estimated arrival instant (`DepartureTime` plus
-  1 minute), the same value the progress bar itself counts down to, and
-  the real `Cooldown` that instant hands off to is what the delay is
-  measured from - see §4.8 for why this matters. Only if Engineer is
-  currently assigned does it then play the Engineer's selected macro
-  against the Engineer's assigned instance; this fires once per row (not
-  repeatedly while it remains `Jumping`). With no Engineer assigned,
-  nothing plays here — Auto Pilot's own requirements (§4.2) already mean
-  an assigned Engineer always has a macro selected too.
+- Independently of the Captain's plot above: the instant a row becomes
+  `Jumping`, Auto Pilot reads its `PhaseEndUtc` (§4.4) - the carrier's
+  estimated arrival instant (`DepartureTime` plus 1 minute, the same
+  value the progress bar counts down to, and the real-world instant the
+  row *after* this one will start `Cooldown` at). Once the configured
+  Auto Pilot delay has passed beyond that instant - near the end of
+  *this* row's own `Jumping` phase, not before it - and only if Engineer
+  is currently assigned, Auto Pilot plays the Engineer's selected macro
+  against the Engineer's assigned instance (see §4.8 for the spoken
+  announcements this schedules). This fires once per row (not repeatedly
+  while it remains `Jumping`). With no Engineer assigned, nothing plays
+  here — Auto Pilot's own requirements (§4.2) already mean an assigned
+  Engineer always has a macro selected too.
 - Both the Captain's plot and the Engineer's refuel play through the same
   single mechanism as a manual Play (§6.5) — visible via `IsPlaying`,
   stoppable via **Stop**, and reported through the same closeable warning
@@ -343,8 +341,8 @@ the whole route reaches Complete or Auto Pilot is stopped:
   row - Auto Pilot only ever plays the Captain's macro once per row it
   newly becomes aware of; recovering from a cancelled jump on the row it
   already played for requires manual intervention. This has no bearing
-  on the Engineer's refuel trigger, which is keyed off Cooldown starting,
-  not off a jump request.
+  on the Engineer's refuel trigger, which is keyed off the row becoming
+  `Jumping`, not off a jump request.
 
 ### 4.8 Spoken announcements
 - Ahead of each of the two triggers §4.7 describes - the Captain's plot
@@ -354,23 +352,19 @@ the whole route reaches Complete or Auto Pilot is stopped:
   Captain's macro is due to play, then "Plotting beginning in 5 seconds"
   5 seconds before; "Refueling beginning in 30 seconds"/"Refueling
   beginning in 5 seconds" the same way for the Engineer's.
-- The Captain's due time is only knowable once a row's `Cooldown` starts
-  (a fixed delay from `Cooldown`'s own precomputed clear time), so that
-  announcement is scheduled right then. The Engineer's due time is the
-  same real-world instant it's always been - the configured Auto Pilot
-  delay after the row *after* this one starts `Cooldown` - but it's
-  scheduled as soon as *this* row becomes `Jumping` instead of waiting
-  for that `Cooldown` to actually be observed starting live: `Jumping`'s
-  own `PhaseEndUtc` (§4.4) is already the carrier's estimated arrival
-  instant (`DepartureTime` plus 1 minute - the same value the progress
-  bar counts down to), which is the instant that hands off to the next
-  row's `Cooldown`. Computing it there instead of waiting for the live
-  event gives several real minutes of lead time (`Jumping` itself starts
-  a fixed 3 minutes before `DepartureTime`) rather than only the short,
-  UI-settle-only Auto Pilot delay - nowhere near enough for either
-  warning below. Neither announcement is ever spoken for a jump that
-  fires immediately with no `Cooldown` having been waited on, since that
-  leaves no lead time to announce anything against.
+- The Captain's announcement is scheduled the moment a row's `Cooldown`
+  starts, against a fixed delay from `Cooldown`'s own precomputed clear
+  time. The Engineer's is scheduled the moment the row becomes `Jumping`,
+  against `Jumping`'s own `PhaseEndUtc` (§4.4) - the carrier's estimated
+  arrival instant (`DepartureTime` plus 1 minute, the same value the
+  progress bar counts down to, and the instant the row after it will
+  start `Cooldown` at) plus the configured Auto Pilot delay. Since
+  `Jumping` itself starts a fixed 3 minutes before `DepartureTime`, this
+  gives several real minutes of lead time for the two warnings below,
+  rather than only the short, UI-settle-only Auto Pilot delay - nowhere
+  near enough for either. Neither announcement is ever spoken for a jump
+  that fires immediately with no `Cooldown` having been waited on, since
+  that leaves no lead time to announce anything against.
 - The 30-second announcement is silently skipped if that much lead time
   isn't actually available by the time it's scheduled - since announcing
   it moments early would just be misleading wording. The 5-second one is
@@ -648,10 +642,10 @@ the right cargo/fuel state:
   {TRITIUM_LOOPS}` resolves to for a manual Play or Step started from
   this tab, skipping the CMDR rescan §6.4 otherwise describes entirely.
 
-Neither field is ever consulted for an Auto Pilot-triggered run (§4.7) —
-that always resolves both placeholders live, the same as before these
-fields existed. **Play** and **Step** (§6.3, §6.5) are disabled while
-either field is blank, the same as any of their other requirements.
+Neither field is ever consulted for an Auto Pilot-triggered run (§4.7),
+which always resolves both placeholders live. **Play** and **Step**
+(§6.3, §6.5) are disabled while either field is blank, the same as any
+of their other requirements.
 Session-only, like "Auto Copy To Clipboard" (§4.6) — never persisted.
 
 ### 6.2 Key Bindings
@@ -820,12 +814,12 @@ CALL refuel
   risk dividing by an unknown capacity or, worse, silently treating an
   unknown fuel level as an empty depot — which would overstate the loops
   needed rather than under-run. A script with no `{TRITIUM_LOOPS}` in it
-  at all skips this rescan entirely and plays immediately, same as before
-  this placeholder existed — the rescan is a real, sometimes
-  multi-second delay (every running instance's process/journal), and
-  paying it unconditionally on every single Auto Pilot trigger risked the
-  target window's actual in-game state drifting from what the script
-  assumes by the time it finally starts sending input.
+  at all skips this rescan entirely and plays immediately — the rescan
+  is a real, sometimes multi-second delay (every running instance's
+  process/journal), and paying it unconditionally on every single Auto
+  Pilot trigger risks the target window's actual in-game state drifting
+  from what the script assumes by the time it finally starts sending
+  input.
 
   For a **manual Play or Step** started from this tab, the CMDR rescan
   above never happens at all — the placeholder resolves directly to the
@@ -1248,8 +1242,8 @@ rather than internal app state like the table below.
 42. During a manual Play or an Auto Pilot-triggered run, the configured
     Auto wait is applied automatically after every instruction the script
     executes, unless the next one is itself a `WAIT` - the same setting
-    and rule the macro editor's Step button already applies (criterion
-    37), now applied uniformly regardless of how the script was started.
+    and rule the macro editor's Step button applies (criterion 37),
+    uniformly regardless of how the script was started.
 43. The Options section shows "Test {NEXT_SYSTEM}" (defaulting to `Sol`)
     and "Test {TRITIUM_LOOPS}" (defaulting to `1`) fields; a manual Play
     or Step started from this tab resolves those placeholders directly
@@ -1275,18 +1269,16 @@ rather than internal app state like the table below.
 46. While Auto Pilot is running, once a row's `Cooldown` starts, "Plotting
     beginning in 30 seconds" is spoken 30 seconds before the Captain's
     macro is due to plot the next jump, then "Plotting beginning in 5
-    seconds" 5 seconds before. The same wording with "Refueling" is spoken ahead of
-    the Engineer's refuel macro if Engineer is assigned - still due at
-    the same real-world instant as the macro itself always fired at (the
-    configured Auto Pilot delay after the *next* row's Cooldown starts),
-    but scheduled as soon as *this* row becomes `Jumping` instead of
-    waiting for that Cooldown to actually be observed starting live.
+    seconds" 5 seconds before. The same wording with "Refueling" is
+    spoken ahead of the Engineer's refuel macro if Engineer is assigned,
+    scheduled the moment the row becomes `Jumping` (the configured Auto
+    Pilot delay after `Jumping`'s own estimated-arrival `PhaseEndUtc`).
     Muting suppresses both; neither is spoken for a jump that fires
     immediately with no Cooldown having been waited on. The 30-second
     one is silently skipped if that much lead time isn't actually
-    available by the time it's scheduled; the
-    5-second one is spoken immediately instead of skipped whenever less
-    than 5 seconds remain but the trigger itself hasn't happened yet.
+    available by the time it's scheduled; the 5-second one is spoken
+    immediately instead of skipped whenever less than 5 seconds remain
+    but the trigger itself hasn't happened yet.
 47. The Preferences dialog lists every voice installed on the machine in
     its Voice dropdown, without a "Microsoft " prefix and without a
     duplicate "... Desktop" entry for the same voice; selecting one takes
