@@ -1,86 +1,565 @@
-# Route Jumper
+# RouteJumper — ED:FC Auto Pilot
 
-A WPF (MVVM) application, targeting .NET 8, with a two-tab main window.
+RouteJumper is a Windows desktop utility for **Elite Dangerous** fleet
+carrier owners. Paste a route (one star system per line), assign a
+Captain's running game instance to it, and RouteJumper watches that
+commander's journal file in real time to track the carrier's progress —
+plotting, jumping, arriving, cooling down — row by row, automatically. An
+optional **Auto Pilot** mode goes a step further: it drives the whole
+route to completion itself, playing back a recorded macro to plot each
+jump (and, with an Engineer assigned, another to refuel the carrier)
+without you touching the keyboard.
 
-## Opening the project
+This is a fan-made tool and is not affiliated with or endorsed by
+Frontier Developments plc. Elite Dangerous is a trademark of Frontier
+Developments plc.
 
-1. Unzip this folder anywhere.
-2. Open `RouteJumper.sln` in Visual Studio 2022 (or later).
-   - Requires the **.NET desktop development** workload.
-   - If VS asks to retarget/restore, let it — it will pull in the SDK for
-     `net8.0-windows` (install the .NET 8 SDK first if you don't have it).
-3. Press **F5** to run.
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Requirements](#requirements)
+- [Getting the app](#getting-the-app)
+- [Building from source](#building-from-source)
+- [Running the tests](#running-the-tests)
+- [The three tabs](#the-three-tabs)
+  - [Route tab](#route-tab)
+  - [Roles tab](#roles-tab)
+  - [Controls tab](#controls-tab)
+- [Macro scripting language](#macro-scripting-language)
+- [Sample scripts](#sample-scripts)
+- [Data & configuration locations](#data--configuration-locations)
+- [Project layout](#project-layout)
+- [Packaging & distributing releases via GitHub](#packaging--distributing-releases-via-github)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Changelog](CHANGELOG.md)
+
+---
 
 ## What it does
 
-- **Route tab**: starts as a full-size, multi-line text box with **Save** and
-  **Cancel** buttons underneath.
-  - **Cancel** clears the text box.
-  - **Save** parses the text (one line = one row) and replaces the text box
-    with a table (`Icon | # | System | Status`), showing **Start** and
-    **Stop** buttons underneath.
-- Clicking **Start**:
-  1. Puts a green triangle (▶) in the icon column of row 1.
-  2. Every 0.5 seconds, advances one step through the sequence for the
-     current row: `Plotting` → `Plotted` → `Jumping` → *(triangle becomes a
-     tick ✔, triangle appears on the next row if any, and status becomes
-     `Cooldown` — all three at once, in a single step)* → status cleared.
-  3. Repeats for every remaining row, then stops automatically.
-- **Stop** halts the sequence at any point; **Start** resumes a fresh run
-  from row 1 (only enabled again once the previous run has stopped).
-- **Control tab**: placeholder, header only, as requested.
+- **Tracks a pasted route** against a Captain's real Elite Dangerous
+  journal — no manual bookkeeping. Handles plots, cancellations, and
+  cooldowns.
+- **Drives the route automatically (Auto Pilot)** by playing a recorded
+  macro against the Captain's game window to plot each jump, and (if an
+  Engineer is assigned) another macro to refuel the carrier every
+  cooldown.
+- **Records and replays keyboard/mouse macros** against any running
+  Elite Dangerous instance — a small scripting language (see below) lets
+  you hand-edit what gets recorded, or write scripts from scratch.
+- **Detects every running Elite Dangerous instance** on the machine and
+  matches each one to its journal file, showing commander, cargo,
+  location, and fleet carrier status live.
+- **Copies the next system to the clipboard automatically** as the
+  carrier arrives, so it's ready to paste into the game.
 
-## Why it's structured this way
+## Requirements
 
-The brief asked for the sequence to be built so that **each action can be
-triggered by an event**, since multiple things might eventually decide when
-an action should fire. That drove the design in `Sequencing/`:
+- **Windows 10/11**, x64.
+- **[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)**
+  (or the .NET 8 SDK, if building from source) — RouteJumper is a WPF
+  app (`net8.0-windows`) and does not run on macOS/Linux.
+- **Elite Dangerous**, with journal logging enabled (on by default) and
+  a fleet carrier.
 
-- `ISequenceTrigger` — anything that can raise a "move to the next action"
-  event. It knows nothing about rows, status text, or icons.
-- `TimerSequenceTrigger` — the trigger actually used today: a 2-second
-  `DispatcherTimer`.
-- `ManualSequenceTrigger` — an example of a second trigger type (fires on
-  demand via `Fire()`, e.g. from a button or an external event) to show the
-  sequencer isn't tied to timing at all.
-- `RouteSequencer` — builds the full ordered list of actions for the table
-  up front (icon changes + status changes, row by row, matching the spec
-  exactly) and executes exactly one action every time *any* attached
-  trigger fires. You can call `AttachTrigger(...)` as many times as you
-  like — e.g. wire up both a timer and a manual trigger — with no changes
-  to the ViewModel or view.
+## Getting the app
 
-This keeps the "what happens" (the action plan) completely separate from
-"when it happens" (the trigger), so new triggers can be added later without
-touching the sequence logic itself.
+Grab the latest build from the project's
+**[GitHub Releases](https://github.com/haggisandchips/RouteJumper/releases)**
+page, unzip it anywhere, and run `RouteJumper.exe`. See
+[Packaging & distributing releases via GitHub](#packaging--distributing-releases-via-github)
+below for how releases are produced.
+
+## Building from source
+
+1. Install the **.NET 8 SDK** and, if using Visual Studio, the **.NET
+   desktop development** workload (Visual Studio 2022 or later).
+2. Clone the repository and open `RouteJumper.sln`.
+3. Press **F5** to run, or from a terminal:
+
+   ```
+   dotnet build RouteJumper.sln
+   dotnet run --project RouteJumper/RouteJumper.csproj
+   ```
+
+## Running the tests
+
+The solution includes a full unit test suite (`RouteJumper.Tests`,
+xUnit) covering the route-progress engine, macro script parsing, journal
+parsing, settings persistence, and the ViewModel layer:
+
+```
+dotnet test RouteJumper.Tests/RouteJumper.Tests.csproj
+```
+
+---
+
+## The three tabs
+
+### Route tab
+
+The main working screen. It starts in an **Edit** state — a plain
+multi-line text box — where you paste a route, one system per line.
+Clicking **Save** turns it into a read-only table with a status icon,
+row number, system name, and status for each row, and switches to a
+**Table** state with **Edit** and **Auto Pilot** buttons.
+
+- Clicking a row copies its system name to the clipboard (with a
+  confirmation sound and a small clipboard icon on the row).
+- Right-clicking a row offers **"Set next system"** — a manual override
+  that marks every row before it Complete, makes it the current row, and
+  resets everything after it. This is your escape hatch whenever
+  automatic detection gets it wrong or the carrier goes off-route.
+- **"Auto Copy To Clipboard"** (a toggle above the table) copies the
+  *next* system to the clipboard the instant the carrier is observed
+  arriving — handy for quickly pasting into the game's galaxy map.
+- **Auto Pilot** (enabled once a Captain is assigned with a macro
+  selected for them — see the Roles tab) drives the whole route to
+  completion: it plays the Captain's macro to plot each jump, waits out
+  each cooldown, and (with an Engineer assigned) plays the Engineer's
+  macro to refuel in between. It stops itself once every row is
+  Complete, or immediately if you click it again, or if the underlying
+  Captain/Engineer/macro requirements stop being met mid-run.
+
+A row's status cycles automatically as the journal reports real
+progress: *(blank)* → `Plotted` → `Jumping` → *(arrived, row completes,
+next row becomes current)* → `Cooldown` → *(blank again)*. A small
+countdown ("`Plotted (0:11:32)`") and progress bar show how long is left
+in the current phase.
+
+### Roles tab
+
+Lists every running `EliteDangerous64.exe` process as a card (commander
+name, cargo, current location, fleet carrier name/location/fuel, window
+position/monitor), refreshed on launch and on demand via **Refresh**.
+
+- Assign **Captain** to the instance whose journal RouteJumper should
+  track — this resets the route and replays that commander's journal
+  history to catch it up to the carrier's real current status in one
+  step.
+- Assign **Engineer** to the instance Auto Pilot should use to refuel
+  the carrier (only offered to an instance with free cargo capacity).
+- Pick which recorded macro (from the Controls tab) each role should
+  play once Auto Pilot is engaged, under **Captain plots via** /
+  **Engineer refuels via**.
+
+Both roles are persisted (by commander FID, which survives a game
+restart, not by process ID) and restored automatically next launch.
+
+### Controls tab
+
+Where key bindings and macros live — the automation vocabulary Auto
+Pilot (and manual playback) is built from.
+
+- **Options**: **Auto Pilot delay (ms)** (default `5000`) — the extra
+  settle time given to the game's UI around a jump's cooldown before
+  Auto Pilot's next macro plays — and **Auto wait (ms)** (default
+  `300`) — the pacing delay automatically inserted after every
+  instruction a script executes. A second row of test-only fields lets
+  you try a script from this tab without a live route or a running
+  instance in the right cargo/fuel state.
+- **Key Bindings**: the nine named actions (`UP`, `DOWN`, `LEFT`,
+  `RIGHT`, `SELECT`, `PREV_PANEL`, `NEXT_PANEL`, `EXIT`, `RIGHT_PANEL`)
+  a script refers to by name — click a binding to rebind it to any
+  key/chord.
+- **Running Instances**: its own independent scan of running game
+  instances, used purely as the record/playback target.
+- **Record** / **Stop** / **Play**: press Record against a selected
+  instance to capture real keyboard/mouse input as a new named macro;
+  Play replays any recorded macro against any selected instance. Click
+  a macro's pencil icon to open the full-size editor (name + script
+  text + a syntax-reference panel), where you can also **Step** through
+  a script one instruction at a time.
+
+---
+
+## Macro scripting language
+
+A macro is a small, line-oriented, hand-editable text script. Recording
+produces this text automatically, but you're free to write or edit it
+by hand — the parser is deliberately forgiving (a malformed line is
+just skipped, not rejected).
+
+| Syntax | Meaning |
+|---|---|
+| `UP`, `DOWN`, `LEFT`, `RIGHT`, `SELECT`, `PREV_PANEL`, `NEXT_PANEL`, `EXIT`, `RIGHT_PANEL` | Tap the key currently bound to that action (Controls tab) |
+| `KEY <chord>` | Tap an arbitrary key not tied to a named action, e.g. `KEY Control+A` |
+| `HOLD <token> <ms>` | Press-and-hold an action or `KEY ...` token for `<ms>` milliseconds |
+| `CLICK <x>,<y>` | Left-click at a position relative to the game window's client area |
+| `HOLD CLICK <x>,<y> <ms>` | Click-and-hold at a position for `<ms>` milliseconds |
+| `{CENTRE}` | Usable in place of an `x` or `y` coordinate — resolves to that axis' midpoint at play time |
+| `WAIT <ms>` | Pause before the next step |
+| `PASTE <text>` | Sets the clipboard to `<text>` and sends Ctrl+V |
+| `{NEXT_SYSTEM}` | Placeholder inside a `PASTE`, resolved at play time to the Route tab's current next system |
+| `REPEAT <n>` … `END` | Repeats its body `n` times (nestable) |
+| `{TRITIUM_LOOPS}` | Placeholder usable anywhere a number is expected (most often `REPEAT {TRITIUM_LOOPS}`) — resolved to how many full ship-loads of tritium are still needed to top off the carrier's fuel depot and the ship's own hold |
+| `MACRO <name>` … `END` | Defines a named, reusable sub-routine (top level only) |
+| `CALL <name>` | Invokes a macro defined with `MACRO` |
+| `# comment` | Ignored, like a blank line |
+| `A; B; C` | Multiple steps on one line, separated by `;`, purely for readability |
+
+Every leaf instruction is automatically followed by the configured
+**Auto wait** delay (skipped only if the next instruction is itself a
+`WAIT`), so a script doesn't need an explicit `WAIT` after every single
+step.
+
+---
+
+## Sample scripts
+
+Three ready-to-use scripts are included below to get you started —
+covering the Captain's jump-plotting routine and both ways an Engineer
+can refuel the carrier (buying Tritium from a station market, or
+transferring it from the carrier's own hold). **RouteJumper has no
+"import script file" button** — macros are only ever created by
+recording, so to use one of these:
+
+1. On the **Controls** tab, select any running instance and click
+   **Record**, then immediately click **Stop** — this creates a new,
+   empty-ish macro entry to edit (its captured content doesn't matter,
+   it's about to be replaced).
+2. Click that macro's **pencil** icon to open the editor.
+3. Give it a clear **name** (e.g. "Plot Next System"), then select all
+   the text in the script box and paste one of the scripts below over
+   it.
+4. On the **Roles** tab, pick it under **Captain plots via** or
+   **Engineer refuels via** as appropriate.
+
+All three assume the in-game **Right Panel** key binding is set to open
+the ship's right-hand panel from the **Home** tab (per their own
+`NOTE` comments) — make sure `RIGHT_PANEL` (Controls tab) matches your
+in-game binding before using them.
+
+### 1. Plot Next System (Captain)
+
+Plots a jump to the route's next system via the Galaxy Map. Only
+appropriate for the **Captain** role.
+
+```
+#######################################################################
+#                                                                     #
+# Plots the next system.                                              #
+# This script is only appropriate for the Captain role.               #
+#                                                                     #
+# NOTE: This script requires Right Panel to be set on the Home tab.   #
+#                                                                     #
+#######################################################################
+
+
+# Open Right Panel
+RIGHT_PANEL; WAIT 3000
+
+# Ensure top left
+REPEAT 3; UP; LEFT; END
+
+# Open Carrier Management
+DOWN; RIGHT; SELECT; WAIT 5000
+
+# Open Galaxy Map
+DOWN; SELECT; WAIT 500; SELECT; WAIT 5000
+
+# Select System
+UP; SELECT; PASTE {NEXT_SYSTEM}; WAIT 500; DOWN; SELECT; WAIT 5000
+
+# Plot Jump
+HOLD CLICK {CENTRE},{CENTRE} 1000; WAIT 5000
+
+# Exit
+REPEAT 12; DOWN; END; SELECT
+```
+
+### 2. Refuel Via Market (Engineer)
+
+Refuels the carrier by buying Tritium from a docked station's Commodity
+Market, then donating it (and anything already in the ship's hold) to
+the carrier's Tritium Depot — looped `{TRITIUM_LOOPS}` times. Assumes
+Tritium is the only commodity for sale at that market.
+
+```
+#######################################################################
+#                                                                     #
+# Refuels the carrier by purchasing Tritium from the Market.          #
+#                                                                     #
+# It assumes that Tritium is the only commodity for sale. If that is  #
+# not the case then adjust the script to select Tritium correctly.    #
+#                                                                     #
+#######################################################################
+
+
+MACRO DonateTritium
+    # Enter Titium Depot
+    DOWN; DOWN; SELECT; WAIT 1000
+
+    # Click Donate Tritium
+    SELECT
+
+    # Confirm deposit (does nothing if no tritium on ship)
+    UP; SELECT
+
+    # Exit Tritium Depot
+    DOWN; DOWN; SELECT; WAIT 1000
+
+    # Return Top Left
+    UP; UP
+END
+
+MACRO BuyTritium
+    # Enter Commodity Market
+    RIGHT; RIGHT; SELECT; WAIT 1000
+
+    # Buy Tritium
+    RIGHT; SELECT; WAIT 500; UP; UP; HOLD RIGHT 5000; WAIT 500; DOWN; SELECT; WAIT 1000
+
+    # Exit Commodity Market
+    LEFT; REPEAT 4; DOWN; END; SELECT; WAIT 1000
+END
+
+#
+# Start Routine
+#
+
+# Enter Carrier Services
+SELECT; WAIT 5000
+
+REPEAT {TRITIUM_LOOPS}
+    # Donate anything the ship is carrying
+    CALL DonateTritium
+
+    # Buy more ... this is the last step so jump is plotted with this tritium effectively
+    # missing and therefore not counted towards the tritium required by the jump.
+    CALL BuyTritium
+END
+
+# Exit
+EXIT
+```
+
+### 3. Refuel Via Transfer (Engineer, carrier owner only)
+
+Refuels the carrier by transferring Tritium straight out of the
+carrier's own cargo hold, rather than buying it — only appropriate when
+the Engineer's commander is the carrier's owner. Reliable only when
+Tritium is the *only* commodity in both the ship's and the carrier's
+holds (otherwise its position in the transfer screen isn't fixed).
+
+```
+#######################################################################
+#                                                                     #
+# Refuels the carrier by transfering Tritium from the carrier's hold. #
+# This script is only appropriate when Engineer is the carrier owner. #
+#                                                                     #
+# It is only reliable when Tritium is the only commodity in both the  #
+# ship's hold and the carrier's hold. If not the location of Tritium  #
+# in the transfer screen is indeterminate and changes depending on    #
+# the ship's hold contents.                                           #
+#                                                                     #
+# NOTE: This script requires Right Panel to be set on the Home tab.   #
+#                                                                     #
+#######################################################################
+
+MACRO DonateTritium
+    # Enter Titium Depot
+    DOWN; DOWN; SELECT; WAIT 1000
+
+    # Click Donate Tritium
+    SELECT
+
+    # Confirm deposit (does nothing if no tritium on ship)
+    UP; SELECT
+
+    # Exit Tritium Depot
+    DOWN; DOWN; SELECT; WAIT 1000
+
+    # Return Top Left
+    UP; UP
+END
+
+MACRO TransferTritium
+    # Open Right Panel
+    RIGHT_PANEL; WAIT 3000
+
+    # Access Transfer (allowing for Inventory already containing something)
+    RIGHT; UP; UP; RIGHT; SELECT
+
+    # Select Tritium (REQUIRES TRITIUM TO BE THE ONLY ITEM IN THE HOLD)
+    # NOTE: If Tritium is NOT the only item it is indeterminate whether it will be at the top or elsewhere
+    UP
+
+    # Transfer Max Tritium
+    HOLD LEFT 5000; SELECT; SELECT
+
+    # Close Right Panel
+    EXIT; EXIT
+END
+
+#
+# Start Routine
+#
+
+# Enter Carrier Services
+SELECT; WAIT 5000
+
+# Open Right Panel and navigate to Inventory, then close panel
+RIGHT_PANEL; WAIT 3000; REPEAT 4; NEXT_PANEL; END; EXIT
+
+REPEAT {TRITIUM_LOOPS}
+    # Donate anything the ship is carrying
+    CALL DonateTritium
+
+    # Transfer ... this is the last step so jump is plotted with this tritium effectively
+    # missing and therefore not counted towards the tritium required by the jump.
+    CALL TransferTritium
+END
+
+# Open Right Panel and navigate to Home, then close panel
+RIGHT_PANEL; WAIT 2000; REPEAT 4; PREV_PANEL; END; EXIT
+
+# Exit
+EXIT
+```
+
+---
+
+## Data & configuration locations
+
+RouteJumper stores its own state in `%LocalAppData%\RouteJumper\`:
+
+| File | Contents |
+|---|---|
+| `routejumper.db` | SQLite key/value store — route text, window bounds/column widths, Captain/Engineer role + macro assignment, key bindings, recorded macros, Options |
+| `routejumper.conf` | Plain-text, hand-editable `Key=Value` config — currently just `JournalDirectory`, defaulting to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder. Edit this (while the app is closed or running — it's re-read on every Roles tab refresh) to point at a non-default journal location. |
+
+Not persisted, by design: per-row route progress/status (re-derived from
+the journal on every launch), the last-selected tab, and "Auto Copy To
+Clipboard"/the Controls tab's test-value fields (always reset to their
+defaults on a fresh launch).
 
 ## Project layout
 
 ```
 RouteJumper.sln
-RouteJumper/
+RouteJumper/                    The application
   App.xaml(.cs)
-  MainWindow.xaml(.cs)            Two-tab shell (Route / Control)
-  Common/
-    ObservableObject.cs           INotifyPropertyChanged base class
-    RelayCommand.cs                ICommand implementation
-  Models/
-    RowIcon.cs                     None / InProgress / Complete
-  ViewModels/
-    MainViewModel.cs
-    RouteViewModel.cs              Route tab logic (Save/Cancel/Start/Stop)
-    RouteRowViewModel.cs           One table row
-    ControlViewModel.cs            Empty placeholder
-  Sequencing/
-    ISequenceTrigger.cs
-    TimerSequenceTrigger.cs
-    ManualSequenceTrigger.cs
-    SequenceStep.cs
-    RouteSequencer.cs
-  Converters/
-    BoolToVisibilityConverter.cs
-    IconToGlyphConverter.cs
-  Views/
-    RouteView.xaml(.cs)
-    ControlView.xaml(.cs)
+  MainWindow.xaml(.cs)          Window shell, startup placement, clipboard-change hook
+  Common/                       ICommand implementations, ObservableObject base, clipboard helper
+  Models/                       Small data types (ControlAction, RowIcon, RecordedMacro, ...)
+  ViewModels/                   One ViewModel per tab, plus per-row/per-item ViewModels
+  Sequencing/                   The route-progress engine
+  Services/                     Journal parsing/watching, macro parser/player, settings/config
+                                 stores, process/window scanning, key-binding formatting
+  Converters/                   WPF IValueConverters
+  Views/                        XAML for each tab
+  Resources/                    App icon
+RouteJumper.Tests/               xUnit unit test suite, mirroring the layout above
 ```
+
+---
+
+## Packaging & distributing releases via GitHub
+
+RouteJumper doesn't yet have an automated release pipeline — this
+section documents the standard, manual procedure for cutting a release
+today, as a reference for setting up automation (e.g. a GitHub Actions
+workflow) later.
+
+### 1. Decide on a version and tag
+
+Use [Semantic Versioning](https://semver.org/) tags, e.g. `v1.0.0`:
+
+```
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+### 2. Publish a self-contained build
+
+WPF apps don't support trimming reliably, so publish **self-contained**
+(bundles the .NET runtime — no separate runtime install needed) rather
+than trimmed:
+
+```
+dotnet publish RouteJumper/RouteJumper.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -o publish/win-x64
+```
+
+This produces a single `RouteJumper.exe` (plus a handful of native
+support files) under `publish/win-x64/` that runs on a clean Windows
+machine with no prerequisites.
+
+If a smaller download matters more than a zero-dependency install,
+publish **framework-dependent** instead (users must separately install
+the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)):
+
+```
+dotnet publish RouteJumper/RouteJumper.csproj -c Release -r win-x64 --self-contained false -o publish/win-x64-fx
+```
+
+### 3. Zip the output
+
+```
+Compress-Archive -Path publish/win-x64/* -DestinationPath RouteJumper-v1.0.0-win-x64.zip
+```
+
+### 4. Create the GitHub Release
+
+Via the [`gh` CLI](https://cli.github.com/):
+
+```
+gh release create v1.0.0 RouteJumper-v1.0.0-win-x64.zip `
+  --title "RouteJumper v1.0.0" `
+  --generate-notes
+```
+
+...or via the GitHub web UI: **Releases → Draft a new release**, pick
+the pushed tag, attach the zip as a release asset, and publish. Users
+then download the zip from the Releases page, extract it, and run
+`RouteJumper.exe` — no installer required.
+
+### 5. (Later) Automate it with GitHub Actions
+
+Once this is worth automating, a workflow triggered on tag push (e.g.
+`on: push: tags: ['v*']`) can run the same `dotnet publish` +
+`Compress-Archive` + `gh release create` steps on a
+`windows-latest` runner, so pushing a tag is the only manual step. Worth
+adding once releases become routine rather than one-off — not set up
+yet.
+
+When cutting a release, move the relevant entries from
+[`CHANGELOG.md`](CHANGELOG.md)'s `[Unreleased]` section into a new
+dated, versioned section (e.g. `[1.0.0] - 2026-08-10`) as part of the
+same commit that gets tagged.
+
+---
+
+## Troubleshooting
+
+- **"No running Elite Dangerous instances found."** — RouteJumper only
+  detects `EliteDangerous64.exe` processes; make sure the game is
+  actually running (not just the launcher), then click **Refresh**.
+- **Journal file shows "Not found" for a running instance** — the
+  journal folder is wrong (see `routejumper.conf` above), or the
+  process/journal timestamps are more than 5 minutes apart (a very slow
+  launch). Confirm `JournalDirectory` points at your actual
+  `Saved Games\Frontier Developments\Elite Dangerous` folder.
+- **A macro doesn't seem to do anything in-game** — RouteJumper sends
+  real synthesized input (`SendInput`), which only reaches whichever
+  window currently has focus; don't touch the mouse/keyboard yourself
+  while a macro plays, and make sure the target game window isn't
+  minimized.
+- **Auto Pilot button stays disabled** — it requires a Captain assigned
+  with a macro selected for them (Roles tab), and, only if an Engineer
+  is *also* assigned, a macro selected for them too.
+
+---
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and redistribute.
