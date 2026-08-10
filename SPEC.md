@@ -404,7 +404,7 @@ the whole route reaches Complete or Auto Pilot is stopped:
   `Fileheader` event.
 - The journal folder itself comes from `routejumper.conf` (a plain-text,
   `Key=Value`-per-line file beside `routejumper.db` in
-  `%LocalAppData%\RouteJumper`), specifically its `JournalDirectory`
+  `%LocalAppData%\EDFCAutoPilot`), specifically its `JournalDirectory`
   entry. If the file doesn't exist yet, it's created on first read with
   that entry set to Frontier's own standard location
   (`%USERPROFILE%\Saved Games\Frontier Developments\Elite Dangerous`) —
@@ -958,7 +958,7 @@ See §7.
 ## 7. Persistence
 
 A single generic `Settings(Key TEXT PRIMARY KEY, Value TEXT)` table in a
-local SQLite database at `%LocalAppData%\RouteJumper\routejumper.db`. Every
+local SQLite database at `%LocalAppData%\EDFCAutoPilot\routejumper.db`. Every
 operation opens and closes its own short-lived connection. A persistence
 failure (e.g. a permissions issue) degrades to "nothing persisted" rather
 than the app failing to start.

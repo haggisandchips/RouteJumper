@@ -55,8 +55,8 @@ jobs:
       - name: Pack with Velopack
         shell: bash
         run: >
-          vpk pack -u RouteJumper -v ${{ steps.version.outputs.version }}
-          -p publish/win-x64 -e RouteJumper.exe
+          vpk pack -u EDFCAutoPilot -v ${{ steps.version.outputs.version }}
+          -p publish/win-x64 -e EDFCAutoPilot.exe
           -i RouteJumper/Resources/AppIcon.ico
 
       - name: Upload release to GitHub

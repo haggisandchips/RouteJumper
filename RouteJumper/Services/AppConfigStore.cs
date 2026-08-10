@@ -4,7 +4,7 @@ namespace RouteJumper.Services
 {
     /// <summary>
     /// Reads `routejumper.conf` - a plain-text, one-"Key=Value"-per-line config file beside the
-    /// SQLite settings database in `%LocalAppData%\RouteJumper` - creating it with default
+    /// SQLite settings database in `%LocalAppData%\EDFCAutoPilot` - creating it with default
     /// values the first time it's read, if it doesn't exist yet. Deliberately separate from
     /// `AppSettingsStore` (`routejumper.db`): this holds configuration a person might reasonably
     /// want to hand-edit in a text editor (e.g. to point at a non-default journal folder), not
@@ -23,7 +23,7 @@ namespace RouteJumper.Services
 
         public AppConfigStore() : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "RouteJumper"))
+            "EDFCAutoPilot"))
         {
         }
 

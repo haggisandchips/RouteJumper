@@ -26,6 +26,13 @@
         <Style x:Key="RouteDataGridCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource MaterialDesignDataGridCell}">
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="BorderThickness" Value="0" />
+            <!-- The toolkit's own cell style leaves HorizontalContentAlignment at its default
+                 (Left), which never mattered for a TextBlock/PackIcon (they render at their own
+                 natural size regardless of how much extra space they're given either way) but
+                 silently starves the Status column's ProgressBar of anything to stretch into -
+                 without this, its cell's content (see the DataTemplate below) is only ever as
+                 wide as its own widest child (the status text), not the actual column width. -->
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Style.Triggers>
                 <Trigger Property="IsFocused" Value="True">
                     <Setter Property="BorderThickness" Value="0" />
@@ -200,21 +207,27 @@
                          overlapping) and visually counts down however long the current status
                          (Plotted/Jumping/Cooldown) has left - full the instant that status
                          starts, draining to empty as it approaches its own known end (see
-                         RouteRowViewModel.Progress). Invisible (Hidden, not Collapsed - same
-                         reserved-space convention the icon column's RowIconToVisibilityConverter
-                         already uses) for a status with no known end (blank "waiting" or
-                         Complete), so a row without a progress bar still renders at the exact
-                         same height as one with it, rather than shrinking by the bar's own space.
-                         Deliberately no attempt to force this to reach the cell's exact pixel edge
-                         (a prior attempt bound the template's own Width/Height to the
-                         DataGridCell's ActualWidth/ActualHeight, which is circular - a cell's size
-                         is normally derived FROM its content, not the other way around - and broke
-                         the whole tab's layout); it simply stretches to fill whatever width the
-                         cell's own default padding leaves it. -->
+                         RouteRowViewModel.Progress), or sweeping indeterminately for "Plotting"
+                         (RouteRowViewModel.IsIndeterminateProgress, §4.4). Invisible (Hidden, not
+                         Collapsed - same reserved-space convention the icon column's
+                         RowIconToVisibilityConverter already uses) for a status with no known end
+                         (blank "waiting" or Complete), so a row without a progress bar still
+                         renders at the exact same height as one with it, rather than shrinking by
+                         the bar's own space. Reaches the actual column width (not just however
+                         wide its own status text happens to be) via RouteDataGridCellStyle's
+                         HorizontalContentAlignment="Stretch" above - the toolkit's own cell style
+                         defaults to Left, which never mattered for a plain TextBlock/PackIcon
+                         column but silently capped this template's own Grid (and so the
+                         ProgressBar's Stretch inside it) to its widest child's natural size.
+                         Binding the template's own Width/Height directly to the DataGridCell's
+                         ActualWidth/ActualHeight instead is circular - a cell's size is normally
+                         derived FROM its content, not the other way around - and broke the whole
+                         tab's layout in an earlier attempt; fixing the *cell's* own content
+                         alignment instead avoids that entirely. -->
                     <DataGridTemplateColumn Header="Status" Width="*" MinWidth="140">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <Grid>
+                                <Grid HorizontalAlignment="Stretch">
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="*" />
                                         <RowDefinition Height="Auto" />

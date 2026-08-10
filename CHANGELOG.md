@@ -33,9 +33,13 @@ and this project follows [Semantic Versioning](https://semver.org/).
   of only the short Auto Pilot delay itself.
 - The app's own display name (Explorer's file Properties, Task Manager,
   and Velopack's Start Menu shortcut) is now "ED:FC Auto Pilot",
-  matching the main window's own title/taskbar text - the underlying
-  exe filename and Velopack app ID are unchanged, so this doesn't affect
-  self-updating for already-installed copies.
+  matching the main window's own title/taskbar text.
+- Renamed the exe itself (`RouteJumper.exe` → `EDFCAutoPilot.exe`), the
+  `%LocalAppData%` settings folder (`RouteJumper` → `EDFCAutoPilot`),
+  and the Velopack app ID used for packaging/updates to match - a clean
+  break rather than an in-place migration, so an existing install needs
+  to be uninstalled and the new one installed fresh rather than picked
+  up as an automatic update.
 - Shortened the spoken announcements by dropping "beginning" - e.g.
   "Plotting in 30 seconds" instead of "Plotting beginning in 30
   seconds".
