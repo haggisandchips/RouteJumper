@@ -224,10 +224,15 @@
                                                Text="{Binding StatusDisplay}"
                                                VerticalAlignment="Center" />
 
+                                    <!-- IsIndeterminate shows WPF's own animated marquee in place of Value while
+                                         Status is "Plotting" (RouteRowViewModel.IsIndeterminateProgress) - there's no
+                                         way to know in advance how long playing the Captain's macro will take, so
+                                         this is the cue for "actively working" rather than a countdown. -->
                                     <ProgressBar Grid.Row="1"
                                                  Minimum="0" Maximum="1"
                                                  Value="{Binding Progress, Mode=OneWay}"
-                                                 Visibility="{Binding HasProgress, Converter={StaticResource BoolToHiddenVisibilityConverter}}"
+                                                 IsIndeterminate="{Binding IsIndeterminateProgress}"
+                                                 Visibility="{Binding ShowProgressBar, Converter={StaticResource BoolToHiddenVisibilityConverter}}"
                                                  Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
                                                  Background="Transparent"
                                                  BorderThickness="0"

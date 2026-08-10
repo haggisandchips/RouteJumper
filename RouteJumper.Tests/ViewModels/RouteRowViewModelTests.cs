@@ -106,6 +106,65 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void IsIndeterminateProgress_TrueOnlyWhilePlotting()
+        {
+            var row = new RouteRowViewModel { Status = "Plotting" };
+            Assert.True(row.IsIndeterminateProgress);
+
+            row.Status = "Plotted";
+            Assert.False(row.IsIndeterminateProgress);
+
+            row.Status = string.Empty;
+            Assert.False(row.IsIndeterminateProgress);
+        }
+
+        [Fact]
+        public void ShowProgressBar_TrueWhilePlotting_EvenWithNoPhaseEnd()
+        {
+            var row = new RouteRowViewModel { Status = "Plotting" };
+
+            Assert.False(row.HasProgress);
+            Assert.True(row.ShowProgressBar);
+        }
+
+        [Fact]
+        public void ShowProgressBar_TrueWhilePlotted_ViaHasProgress()
+        {
+            var row = new RouteRowViewModel { Status = "Plotted", PhaseEndUtc = DateTime.UtcNow.AddMinutes(1) };
+
+            Assert.True(row.ShowProgressBar);
+        }
+
+        [Fact]
+        public void ShowProgressBar_FalseForBlankStatusWithNoPhaseEnd()
+        {
+            var row = new RouteRowViewModel();
+
+            Assert.False(row.ShowProgressBar);
+        }
+
+        [Fact]
+        public void StatusDisplay_Plotting_IsJustTheStatusWordWithNoCountdown()
+        {
+            var row = new RouteRowViewModel { Status = "Plotting" };
+
+            Assert.Equal("Plotting", row.StatusDisplay);
+        }
+
+        [Fact]
+        public void Status_Change_AlsoRaisesIndeterminateProgressAndShowProgressBarChanged()
+        {
+            var row = new RouteRowViewModel();
+            var raised = new List<string?>();
+            row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            row.Status = "Plotting";
+
+            Assert.Contains(nameof(RouteRowViewModel.IsIndeterminateProgress), raised);
+            Assert.Contains(nameof(RouteRowViewModel.ShowProgressBar), raised);
+        }
+
+        [Fact]
         public void SettingIcon_RaisesPropertyChanged()
         {
             var row = new RouteRowViewModel();

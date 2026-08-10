@@ -4,10 +4,12 @@ using RouteJumper.ViewModels;
 namespace RouteJumper.Sequencing
 {
     /// <summary>
-    /// Applies row-addressable events (see <see cref="RowEvent"/>) - originating from a
-    /// Captain's journal (see CarrierRouteJournalWatcher) - to a route's rows. Event-driven by
-    /// design: every state change is a direct response to an <see cref="IRowEventTrigger"/>
-    /// event, never a timer or other hardcoded delay.
+    /// Applies row-addressable events (see <see cref="RowEvent"/>) - almost all originating from
+    /// a Captain's journal (see CarrierRouteJournalWatcher); the sole exception is
+    /// RowEventKind.Plotting, raised by AutoPilotController itself the instant it starts playing
+    /// the Captain's macro - to a route's rows. Event-driven by design either way: every state
+    /// change is a direct response to an <see cref="IRowEventTrigger"/> event, never a timer or
+    /// other hardcoded delay.
     /// </summary>
     public class RouteSequencer
     {
@@ -102,6 +104,15 @@ namespace RouteJumper.Sequencing
             var row = rows[targetIndex];
             switch (e.Kind)
             {
+                case RowEventKind.Plotting:
+                    if (row.Icon != RowIcon.Complete)
+                    {
+                        row.Icon = RowIcon.InProgress;
+                    }
+                    row.Status = "Plotting";
+                    row.PhaseEndUtc = null;
+                    break;
+
                 case RowEventKind.Plotted:
                     if (row.Icon != RowIcon.Complete)
                     {
@@ -203,15 +214,22 @@ namespace RouteJumper.Sequencing
         /// <summary>
         /// Finds which row a row-addressable event targets. Plotted/Arrived match by System
         /// text against any not-yet-complete row (any current status - matches the row a
-        /// catch-up would otherwise skip past). Jumping is a derived follow-up and is matched
-        /// more precisely - by System text *and* the exact status Plotted left behind - so a
-        /// stale/duplicate event firing after the row has already moved on is a safe no-op
-        /// rather than corrupting a later state. CooldownElapsed does not use this method at
-        /// all - see <see cref="ApplyCooldownElapsed"/>.
+        /// catch-up would otherwise skip past). Jumping and Plotting are both derived/precise
+        /// follow-ups and are matched more strictly - by System text *and* the exact status their
+        /// own predecessor left behind (Plotted for Jumping; blank for Plotting, since it's
+        /// AutoPilotController's own first move for a row) - so a stale/duplicate event firing
+        /// after the row has already moved on is a safe no-op rather than corrupting a later
+        /// state. CooldownElapsed does not use this method at all - see
+        /// <see cref="ApplyCooldownElapsed"/>.
         /// </summary>
         private static int FindTargetIndex(IReadOnlyList<RouteRowViewModel> rows, RowEventKind kind, string systemName)
         {
-            var requireStatus = kind == RowEventKind.Jumping ? "Plotted" : null;
+            var requireStatus = kind switch
+            {
+                RowEventKind.Jumping => "Plotted",
+                RowEventKind.Plotting => string.Empty,
+                _ => null
+            };
 
             for (var i = 0; i < rows.Count; i++)
             {

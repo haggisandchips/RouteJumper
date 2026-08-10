@@ -185,6 +185,7 @@ its current `Status` text:
 |---|---|---|---|
 | None | — | *(hidden)* | Not yet reached |
 | In-progress | *(blank)* | Play (triangle) | Current row, no status yet |
+| In-progress | `Plotting` | ProgressClock | Auto Pilot is playing the Captain's macro (§4.7) |
 | In-progress | `Plotted` | Hourglass | `CarrierJumpRequest` received |
 | In-progress | `Jumping` | RocketLaunch | 3 minutes before `DepartureTime` |
 | In-progress | `Cooldown` | Play (triangle) | Waiting on the row before it |
@@ -199,8 +200,8 @@ its current `Status` text:
   `Cooldown` is shown on the row *after* the one that just completed, not
   on that row itself.
 - A thin progress bar sits below the `Status` cell's text (its own space,
-  not overlapping it) for `Plotted`/`Jumping`/`Cooldown` only (invisible
-  for a blank or Complete status, which have no known end — `Visibility.
+  not overlapping it) for `Plotted`/`Jumping`/`Cooldown` (invisible for a
+  blank or Complete status, which have no known end — `Visibility.
   Hidden`, not `Collapsed`, same reserved-space convention as the row
   icon above, so a row without the bar renders at exactly the same
   height as one with it) — purely a cosmetic countdown, not a
@@ -214,6 +215,12 @@ its current `Status` text:
   and is never affected by, anything but its own redraw. A row whose
   relevant journal timestamp couldn't be parsed shows that status with
   no progress bar rather than a guess.
+  `Plotting` (§4.7) also shows the bar, but as an indeterminate cue (a
+  continuously animating sweep, not a value counting down to a known
+  end) rather than a countdown - there is no way to know in advance how
+  long playing the Captain's macro, or the game's own request/
+  acknowledgement, will take, so no time is shown for it either
+  (`StatusDisplay` is just the bare word "Plotting").
   `Jumping`'s own end can only be estimated at `CarrierJumpRequest` time
   as `DepartureTime` plus the same 1-minute `ArrivalToCooldownDelay` §5.7
   uses elsewhere — not `DepartureTime` itself — since the row doesn't
@@ -271,20 +278,28 @@ the whole route reaches Complete or Auto Pilot is stopped:
 
 - For whichever row is currently in-progress, if its `Status` is blank
   (not yet plotted) and it isn't showing `Cooldown`, the Captain's macro
-  plays immediately.
+  plays immediately - the row's own `Status` becomes `Plotting` (§4.4)
+  the instant the macro actually starts, and stays that way until the
+  real `CarrierJumpRequest` arrives and moves it to `Plotted` (§5.7).
+  `Plotting` is the one row status not driven by anything in the
+  journal - Auto Pilot sets it itself, since there is no journal event
+  to react to yet at that point; if the macro never results in a real
+  jump request (closed the wrong panel, game unresponsive, ...) the row
+  is left showing `Plotting` indefinitely rather than guessing.
 - If it *is* showing `Cooldown`, the Captain's macro instead plays once
   Cooldown clears (§5.7) plus the configured Auto Pilot delay (Controls
   tab Options, §6.1) — not immediately on clearing, since the game's own
   UI needs a moment to settle first.
-- If the row is already `Plotted` or `Jumping` — a jump for it has
-  already been requested, whether that happened before Auto Pilot was
-  even engaged (the app was (re)started, or the carrier's own journal
-  simply already had a plot in flight) or Auto Pilot itself triggered it
-  moments ago and journal tracking (§5.7) just hasn't advanced the row
-  past it yet — the Captain's macro does **not** play again for it.
-  Playing it a second time would plot a redundant jump; Auto Pilot just
-  waits for journal tracking to move the row on naturally, the same as
-  it does for any other row already in flight.
+- If the row is already `Plotting`, `Plotted`, or `Jumping` — a plot for
+  it is already underway or has already been requested, whether that
+  happened before Auto Pilot was even engaged (the app was (re)started,
+  or the carrier's own journal simply already had a plot in flight) or
+  Auto Pilot itself triggered it moments ago and journal tracking (§5.7)
+  just hasn't advanced the row past it yet — the Captain's macro does
+  **not** play again for it. Playing it a second time would plot a
+  redundant jump; Auto Pilot just waits for journal tracking to move the
+  row on naturally, the same as it does for any other row already in
+  flight.
 - The same rules apply the moment Auto Pilot is engaged, not just to
   later rows: if Cooldown happens to already be active on the
   in-progress row at that moment, the first macro play waits for it
@@ -1284,3 +1299,10 @@ rather than internal app state like the table below.
 48. Voice, volume, and muted all survive an app restart with no manual
     reconfiguration required, each falling back to its own default (the
     engine's default voice, 100, unmuted) until first changed.
+49. The instant Auto Pilot begins playing the Captain's macro for a blank
+    row, that row's icon becomes ProgressClock and its Status becomes
+    "Plotting" with no countdown - an indeterminate progress bar instead
+    of a counting-down one, and no "(H:MM:SS)" in the Status text. It
+    stays that way (Auto Pilot does not play the macro again for it)
+    until the real CarrierJumpRequest arrives and moves it to "Plotted",
+    even if that takes an indeterminate amount of time.

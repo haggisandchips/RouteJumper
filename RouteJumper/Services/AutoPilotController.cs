@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using RouteJumper.Models;
+using RouteJumper.Sequencing;
 using RouteJumper.ViewModels;
 
 namespace RouteJumper.Services
@@ -60,6 +61,7 @@ namespace RouteJumper.Services
         private readonly Action<RecordedMacroViewModel, EliteInstanceViewModel> _playMacro;
         private readonly Action _onRouteComplete;
         private readonly Action<string> _speak;
+        private readonly ManualRowEventTrigger _routeEventTrigger;
 
         private CancellationTokenSource? _cts;
         private RouteRowViewModel? _captainTriggeredForRow;
@@ -78,7 +80,8 @@ namespace RouteJumper.Services
             Func<int> getAutoPilotDelayMs,
             Action<RecordedMacroViewModel, EliteInstanceViewModel> playMacro,
             Action onRouteComplete,
-            Action<string> speak)
+            Action<string> speak,
+            ManualRowEventTrigger routeEventTrigger)
         {
             _rows = rows;
             _getCaptainMacro = getCaptainMacro;
@@ -89,6 +92,7 @@ namespace RouteJumper.Services
             _playMacro = playMacro;
             _onRouteComplete = onRouteComplete;
             _speak = speak;
+            _routeEventTrigger = routeEventTrigger;
         }
 
         /// <summary>Begins watching the route - evaluates immediately (covers "Auto Pilot was just clicked"), then again every time a row's Icon/Status changes.</summary>
@@ -288,10 +292,17 @@ namespace RouteJumper.Services
             var applyDelay = ReferenceEquals(_pendingCooldownRow, currentRow);
             _pendingCooldownRow = null;
 
-            _ = TriggerCaptainPlotAsync(applyDelay, _cts!.Token);
+            _ = TriggerCaptainPlotAsync(currentRow.SystemText, applyDelay, _cts!.Token);
         }
 
-        private async Task TriggerCaptainPlotAsync(bool applyDelay, CancellationToken cancellationToken)
+        /// <summary>
+        /// Raises RowEventKind.Plotting for <paramref name="systemName"/> the instant the
+        /// Captain's macro actually starts playing - not before the wait above, and not on any
+        /// journal event (see RowEventKind.Plotting) - so RouteSequencer can show that row as
+        /// actively being plotted (an indeterminate cue, §4.4) rather than sitting blank while
+        /// the macro clicks through the game's UI.
+        /// </summary>
+        private async Task TriggerCaptainPlotAsync(string systemName, bool applyDelay, CancellationToken cancellationToken)
         {
             try
             {
@@ -302,6 +313,7 @@ namespace RouteJumper.Services
 
                 if (_getCaptainMacro() is { } macro && _getCaptainInstance() is { WindowHandle: not 0 } instance)
                 {
+                    _routeEventTrigger.Fire(RowEventKind.Plotting, systemName);
                     _playMacro(macro, instance);
                 }
             }

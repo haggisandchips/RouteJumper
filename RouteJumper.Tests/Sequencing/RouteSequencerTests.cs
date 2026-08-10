@@ -66,6 +66,58 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
+        public void Plotting_SetsTargetRowInProgressAndPlottingStatusWithNoPhaseEnd()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri");
+
+            trigger.Fire(RowEventKind.Plotting, "Sol");
+
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+            Assert.Equal("Plotting", rows[0].Status);
+            Assert.Null(rows[0].PhaseEndUtc);
+        }
+
+        [Fact]
+        public void Plotting_RequiresRowToCurrentlyBeBlank()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Cooldown";
+
+            trigger.Fire(RowEventKind.Plotting, "Sol");
+
+            Assert.Equal("Cooldown", rows[0].Status);
+        }
+
+        [Fact]
+        public void Plotting_StaleEventForRowAlreadyPlotted_IsNoOp()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Plotted";
+            var phaseEnd = DateTime.UtcNow.AddMinutes(3);
+            rows[0].PhaseEndUtc = phaseEnd;
+
+            trigger.Fire(RowEventKind.Plotting, "Sol");
+
+            Assert.Equal("Plotted", rows[0].Status);
+            Assert.Equal(phaseEnd, rows[0].PhaseEndUtc);
+        }
+
+        [Fact]
+        public void Plotting_ThenPlotted_OverwritesPlottingStatus()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+            var phaseEnd = DateTime.UtcNow.AddMinutes(3);
+
+            trigger.Fire(RowEventKind.Plotting, "Sol");
+            trigger.Fire(RowEventKind.Plotted, "Sol", phaseEndUtc: phaseEnd);
+
+            Assert.Equal("Plotted", rows[0].Status);
+            Assert.Equal(phaseEnd, rows[0].PhaseEndUtc);
+        }
+
+        [Fact]
         public void Plotted_SetsTargetRowInProgressAndPlottedStatus()
         {
             var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri");

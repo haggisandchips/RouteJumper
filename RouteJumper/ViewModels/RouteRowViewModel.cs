@@ -51,6 +51,8 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _status, value))
                 {
                     OnPropertyChanged(nameof(StatusDisplay));
+                    OnPropertyChanged(nameof(IsIndeterminateProgress));
+                    OnPropertyChanged(nameof(ShowProgressBar));
                 }
             }
         }
@@ -85,14 +87,25 @@ namespace RouteJumper.ViewModels
                 {
                     _phaseStartUtc = value.HasValue ? DateTime.UtcNow : null;
                     OnPropertyChanged(nameof(HasProgress));
+                    OnPropertyChanged(nameof(ShowProgressBar));
                     OnPropertyChanged(nameof(StatusDisplay));
                     RefreshProgress();
                 }
             }
         }
 
-        /// <summary>True while Status has a known end time - drives the Status column's countdown progress bar's visibility.</summary>
+        /// <summary>True while Status has a known end time - drives the Status column's countdown progress bar's Value/text.</summary>
         public bool HasProgress => _phaseEndUtc.HasValue;
+
+        /// <summary>
+        /// True while Status is "Plotting" - there's no way to know in advance how long playing
+        /// the Captain's macro (and the game's own request/acknowledgement) will take, so this
+        /// shows an indeterminate progress cue instead of a countdown one.
+        /// </summary>
+        public bool IsIndeterminateProgress => Status == "Plotting";
+
+        /// <summary>Drives the Status column's progress bar's Visibility - shown for either a known countdown (HasProgress) or the "Plotting" indeterminate cue.</summary>
+        public bool ShowProgressBar => HasProgress || IsIndeterminateProgress;
 
         /// <summary>
         /// Fraction of the current timed phase's window still remaining: 1 the instant it starts,

@@ -9,7 +9,9 @@ namespace RouteJumper.ViewModels
     /// <summary>
     /// Top-level ViewModel for the main window: hosts the three tab ViewModels, and wires the
     /// shared row-event trigger between them (Roles' Captain journal watcher raises row events;
-    /// Route's sequencer consumes them), plus RouteViewModel.RouteSaved ->
+    /// Route's sequencer consumes them; AutoPilotController also raises one of its own -
+    /// RowEventKind.Plotting - the instant it starts playing the Captain's macro, rather than
+    /// waiting on anything journal-derived), plus RouteViewModel.RouteSaved ->
     /// RolesViewModel.RefreshRouteForCurrentCaptain, a read-only closure over RouteViewModel.Rows
     /// so ControlsViewModel can resolve a macro's "next system" paste placeholder, closures over
     /// RolesViewModel.EngineerInstance/RefreshAsync so ControlsViewModel can resolve a macro's
@@ -74,7 +76,8 @@ namespace RouteJumper.ViewModels
                 () => ControlsViewModel.AutoPilotDelayMs,
                 (macro, instance) => ControlsViewModel.PlayMacro(macro, instance),
                 RouteViewModel.StopAutoPilot,
-                SpeechAnnouncer.Speak);
+                SpeechAnnouncer.Speak,
+                routeEventTrigger);
             RouteViewModel.AutoPilotRunningChanged += (_, running) =>
             {
                 if (running)

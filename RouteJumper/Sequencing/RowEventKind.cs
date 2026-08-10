@@ -16,6 +16,19 @@ namespace RouteJumper.Sequencing
     /// </summary>
     public enum RowEventKind
     {
+        /// <summary>
+        /// Status = "Plotting" for the targeted row - unlike every other kind here, not raised
+        /// from anything observed in the journal at all: AutoPilotController raises this itself,
+        /// the instant it begins playing the Captain's macro to plot this row's jump, through the
+        /// same shared trigger the journal watcher uses (see MainViewModel's wiring). Cleared the
+        /// moment the real CarrierJumpRequest actually arrives (Plotted, below, overwrites it).
+        /// There is no way to know in advance how long the macro itself, or the game's own
+        /// request/acknowledgement, will take, so this status carries no PhaseEndUtc at all -
+        /// RouteRowViewModel shows an indeterminate progress cue for it instead of a countdown
+        /// (§4.4).
+        /// </summary>
+        Plotting,
+
         /// <summary>Status = "Plotted" for the targeted row.</summary>
         Plotted,
 

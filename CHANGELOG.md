@@ -16,6 +16,10 @@ and this project follows [Semantic Versioning](https://semver.org/).
   the main window.
 - A Preferences dialog to choose the announcement voice (from every voice
   installed on the machine), test it, and set its volume - all persisted.
+- A new "Plotting" row status, shown from the instant Auto Pilot starts
+  playing the Captain's macro until the real CarrierJumpRequest arrives -
+  an indeterminate progress cue (duration unknown) rather than a
+  countdown, since previously the row just sat blank while the macro ran.
 
 ### Changed
 
