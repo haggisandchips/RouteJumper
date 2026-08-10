@@ -470,18 +470,44 @@ Releases for a newer version and, if found, downloads and applies it on
 the *next* exit rather than interrupting the current session. This means
 a release isn't just a built exe — it has to be packaged with Velopack's
 own `vpk` tool so the installed copy and the update feed are both in the
-format `UpdateManager` expects. RouteJumper doesn't yet have an automated
-release pipeline — this section documents the standard, manual procedure
-for cutting a release today, as a reference for setting up automation
-(e.g. a GitHub Actions workflow) later.
+format `UpdateManager` expects.
 
-### 1. Install the `vpk` CLI (one-time)
+### Cutting a release (automated)
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) does
+this end to end: pushing a tag matching `v*` builds RouteJumper, packs
+it with `vpk`, and publishes it as a GitHub Release, which
+`UpdateService` then picks up automatically on every installed copy's
+next launch.
+
+```
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+That's it — no local `vpk` install, no personal access token, nothing
+else to configure. The workflow uses GitHub Actions' own automatic,
+repo-scoped `GITHUB_TOKEN` (granted `contents: write` at the top of the
+workflow file) to both fetch the previous release (so Velopack can
+generate a small delta package against it) and publish the new one.
+
+Move the relevant entries from [`CHANGELOG.md`](CHANGELOG.md)'s
+`[Unreleased]` section into a new dated, versioned section (e.g.
+`[1.0.0] - 2026-08-10`) as part of the same commit that gets tagged.
+
+### Cutting a release (manual)
+
+The steps below are what the workflow above automates — useful for
+testing a package locally, or if you ever need to cut a release without
+CI.
+
+#### 1. Install the `vpk` CLI (one-time)
 
 ```
 dotnet tool install -g vpk
 ```
 
-### 2. Decide on a version and tag
+#### 2. Decide on a version and tag
 
 Use [Semantic Versioning](https://semver.org/) tags, e.g. `v1.0.0` (pass
 the bare `1.0.0`, no `v` prefix, as the pack version in step 4):
@@ -491,7 +517,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-### 3. Publish a self-contained build
+#### 3. Publish a self-contained build
 
 WPF apps don't support trimming reliably, so publish **self-contained**
 (bundles the .NET runtime — no separate runtime install needed):
@@ -509,7 +535,7 @@ here — Velopack needs the individual output files (not one bundled exe)
 so it can diff them against the previous release and generate a small
 delta package.
 
-### 4. Pack it with Velopack
+#### 4. Pack it with Velopack
 
 ```
 vpk pack `
@@ -526,9 +552,11 @@ previous version, if `Releases/` still has that previous version's
 output sitting in it from the last time this was run (keep that folder
 around between releases so delta generation has something to diff
 against; a missing previous version just means a full-size update
-instead of a small delta one, not a failure).
+instead of a small delta one, not a failure). The workflow gets this by
+running `vpk download github` into `Releases/` first; doing this by hand
+means running that yourself, or just accepting a full-size package.
 
-### 5. Upload the release to GitHub
+#### 5. Upload the release to GitHub
 
 ```
 vpk upload github `
@@ -538,26 +566,16 @@ vpk upload github `
   --publish
 ```
 
-`--token` needs a GitHub personal access token with `repo` scope (`$env:
-GITHUB_TOKEN = gh auth token` reuses the `gh` CLI's own, if already
-logged in). Omit `--publish` to upload as a draft release for a final
-check before it goes live. First-time installers still need to download
+Unlike the automated workflow (which uses GitHub Actions' own built-in
+token), a manual upload needs a real [personal access
+token](https://github.com/settings/personal-access-tokens/new) with
+**Contents: Read and write** on this repo (`$env:GITHUB_TOKEN = gh auth
+token` reuses the `gh` CLI's own, if already logged in). Omit
+`--publish` to upload as a draft release for a final check before it
+goes live. First-time installers still need to download
 `RouteJumperSetup.exe` from the Releases page directly — `UpdateService`
 only ever updates an *already-installed* copy, and no-ops entirely for
 an unpackaged `dotnet run` build.
-
-### 6. (Later) Automate it with GitHub Actions
-
-Once this is worth automating, a workflow triggered on tag push (e.g.
-`on: push: tags: ['v*']`) can run the same `dotnet publish` + `vpk pack`
-+ `vpk upload github` steps on a `windows-latest` runner, so pushing a
-tag is the only manual step. Worth adding once releases become routine
-rather than one-off — not set up yet.
-
-When cutting a release, move the relevant entries from
-[`CHANGELOG.md`](CHANGELOG.md)'s `[Unreleased]` section into a new
-dated, versioned section (e.g. `[1.0.0] - 2026-08-10`) as part of the
-same commit that gets tagged.
 
 ---
 
