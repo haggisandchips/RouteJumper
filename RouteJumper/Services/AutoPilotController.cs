@@ -43,8 +43,8 @@ namespace RouteJumper.Services
     /// starting a new one cancels whichever is still running, the same as a manual Play does.
     ///
     /// Also announces each trigger via <see cref="_speak"/> (SpeechAnnouncer.Speak) ahead of
-    /// time - "Plotting beginning shortly"/"Plotting beginning in 5 seconds" before the Captain's
-    /// macro plays, and the same wording with "Refueling" before the Engineer's - see
+    /// time - "Plotting beginning in 30 seconds"/"Plotting beginning in 5 seconds" before the
+    /// Captain's macro plays, and the same wording with "Refueling" before the Engineer's - see
     /// AnnounceBeforeTrigger.
     /// </summary>
     public sealed class AutoPilotController
@@ -355,9 +355,9 @@ namespace RouteJumper.Services
 
         /// <summary>
         /// Schedules the two spoken lead-time announcements for a trigger due at
-        /// <paramref name="triggerAtUtc"/> - "{activity} beginning shortly" 30 seconds before it,
-        /// then "{activity} beginning in 5 seconds" 5 seconds before. The 30-second one is simply
-        /// skipped if that much lead time isn't actually available (e.g. the Engineer's refuel,
+        /// <paramref name="triggerAtUtc"/> - "{activity} beginning in 30 seconds" 30 seconds
+        /// before it, then "{activity} beginning in 5 seconds" 5 seconds before. The 30-second
+        /// one is simply skipped if that much lead time isn't actually available (e.g. the Engineer's refuel,
         /// which normally only has the configured Auto Pilot delay - a few seconds by default -
         /// between Cooldown starting and the trigger itself, nowhere near 30 seconds) - announcing
         /// it moments early would just be misleading wording. The 5-second one instead speaks
@@ -373,7 +373,7 @@ namespace RouteJumper.Services
         /// </summary>
         private void AnnounceBeforeTrigger(string activity, DateTime triggerAtUtc, Func<bool>? isRelevant, CancellationToken cancellationToken)
         {
-            _ = AnnounceAtAsync(activity, "beginning shortly", triggerAtUtc - ShortlyLeadTime, clampToImmediate: false, isRelevant, cancellationToken);
+            _ = AnnounceAtAsync(activity, "beginning in 30 seconds", triggerAtUtc - ShortlyLeadTime, clampToImmediate: false, isRelevant, cancellationToken);
             _ = AnnounceAtAsync(activity, "beginning in 5 seconds", triggerAtUtc - ImminentLeadTime, clampToImmediate: true, isRelevant, cancellationToken);
         }
 

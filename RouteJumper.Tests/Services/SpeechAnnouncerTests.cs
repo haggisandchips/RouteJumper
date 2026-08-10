@@ -183,9 +183,9 @@ namespace RouteJumper.Tests.Services
             using var dir = new TempDirectory();
             var (announcer, engine) = Create(dir);
 
-            announcer.Speak("Plotting beginning shortly");
+            announcer.Speak("Plotting beginning in 30 seconds");
 
-            Assert.Equal("Plotting beginning shortly", Assert.Single(engine.SpokenTexts));
+            Assert.Equal("Plotting beginning in 30 seconds", Assert.Single(engine.SpokenTexts));
         }
 
         [Fact]
@@ -195,7 +195,7 @@ namespace RouteJumper.Tests.Services
             var (announcer, engine) = Create(dir);
             announcer.Muted = true;
 
-            announcer.Speak("Refueling beginning shortly");
+            announcer.Speak("Refueling beginning in 30 seconds");
 
             Assert.Empty(engine.SpokenTexts);
         }

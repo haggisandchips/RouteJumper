@@ -10,8 +10,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Spoken lead-time announcements before Auto Pilot plots a jump or
-  refuels ("Plotting"/"Refueling beginning shortly"/"...in 5 seconds"),
-  via the OS speech engine.
+  refuels ("Plotting"/"Refueling beginning in 30 seconds"/"...in 5
+  seconds"), via the OS speech engine.
 - A File menu (Preferences…, Exit) and an always-visible mute button on
   the main window.
 - A Preferences dialog to choose the announcement voice (from every voice
@@ -28,7 +28,7 @@ and this project follows [Semantic Versioning](https://semver.org/).
   starts), but that instant is now computed as soon as the current row
   becomes Jumping - using its DepartureTime-derived estimated-arrival
   PhaseEndUtc - instead of only once Cooldown is actually observed
-  starting live. Gives the "Refueling beginning shortly"/"...in 5
+  starting live. Gives the "Refueling beginning in 30 seconds"/"...in 5
   seconds" announcements several real minutes of lead time to work with
   instead of only the short Auto Pilot delay itself.
 

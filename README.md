@@ -56,10 +56,10 @@ Developments plc.
 - **Copies the next system to the clipboard automatically** as the
   carrier arrives, so it's ready to paste into the game.
 - **Announces upcoming Auto Pilot actions out loud** ("Plotting beginning
-  shortly", "Refueling beginning in 5 seconds") via the OS speech engine,
-  so you don't have to keep watching the app to know when it's about to
-  send input to the game. Configurable (voice, volume) via File >
-  Preferences, and mutable via the button beside the File menu.
+  in 30 seconds", "Refueling beginning in 5 seconds") via the OS speech
+  engine, so you don't have to keep watching the app to know when it's
+  about to send input to the game. Configurable (voice, volume) via File
+  > Preferences, and mutable via the button beside the File menu.
 
 ## Requirements
 
