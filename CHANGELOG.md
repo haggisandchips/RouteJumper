@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-10
+
 ### Added
 
 - Spoken lead-time announcements before Auto Pilot plots a jump or
@@ -53,6 +55,11 @@ and this project follows [Semantic Versioning](https://semver.org/).
   actually spoke under the default Auto Pilot delay - its due time
   landed right at the instant Cooldown starts, always losing a race
   against real elapsed time.
+- The Route tab's Status column progress bar (determinate and the new
+  indeterminate "Plotting" one alike) only ever stretched as wide as its
+  own status text, not the actual column width - the DataGridCell's
+  default content alignment left nothing for the bar's own Stretch to
+  fill into.
 
 ## [1.1.0] - 2026-08-10
 
@@ -104,5 +111,6 @@ and this project follows [Semantic Versioning](https://semver.org/).
   scripting language, sample scripts, and the release procedure for
   distributing builds via GitHub.
 
+[1.2.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.2.0
 [1.1.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.1.0
 [1.0.0]: https://github.com/haggisandchips/RouteJumper/releases/tag/v1.0.0
