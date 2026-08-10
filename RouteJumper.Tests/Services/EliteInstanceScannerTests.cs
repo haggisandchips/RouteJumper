@@ -126,6 +126,43 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
+        public void ReadJournalSummary_TrackedTritiumNeverExceedsShipsOwnReportedCargoTotal()
+        {
+            // Observed in a real journal: a CargoTransfer bundled a "toship" tritium line into
+            // what was otherwise a same-instant, fully-emptied transfer - the very next Cargo
+            // event (no Inventory breakdown) reports Count 0, contradicting the tritium that was
+            // supposedly just received. Tracked tritium must self-heal against that ground truth
+            // rather than staying stuck above the ship's own reported total forever.
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"event\":\"Cargo\",\"Vessel\":\"Ship\",\"Count\":21}",
+                "{\"event\":\"CargoTransfer\",\"Transfers\":[{\"Type\":\"thargoidheart\",\"Count\":21,\"Direction\":\"tocarrier\"},{\"Type\":\"tritium\",\"Count\":3,\"Direction\":\"toship\"}]}",
+                "{\"event\":\"Cargo\",\"Vessel\":\"Ship\",\"Count\":0}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Equal(0, summary.CurrentTritium);
+            Assert.Equal(0, summary.CurrentCargo);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_ClampingTritiumToCargoTotal_StillAllowsALaterGenuineIncrease()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"event\":\"Cargo\",\"Vessel\":\"Ship\",\"Count\":21}",
+                "{\"event\":\"CargoTransfer\",\"Transfers\":[{\"Type\":\"thargoidheart\",\"Count\":21,\"Direction\":\"tocarrier\"},{\"Type\":\"tritium\",\"Count\":3,\"Direction\":\"toship\"}]}",
+                "{\"event\":\"Cargo\",\"Vessel\":\"Ship\",\"Count\":0}",
+                "{\"event\":\"CargoTransfer\",\"Transfers\":[{\"Type\":\"tritium\",\"Count\":2,\"Direction\":\"toship\"}]}",
+                "{\"event\":\"Cargo\",\"Vessel\":\"Ship\",\"Count\":2}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Equal(2, summary.CurrentTritium);
+            Assert.Equal(0, summary.CurrentCargo);
+        }
+
+        [Fact]
         public void ReadJournalSummary_CarrierDepositFuel_DecreasesShipTritiumAndSetsCarrierFuel()
         {
             // CarrierFuelLevel is only ever resolved against a CarrierID that also has a

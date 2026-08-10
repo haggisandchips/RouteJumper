@@ -350,6 +350,18 @@ namespace RouteJumper.Services
                                     {
                                         trackedTritium = GetTritiumCountFromInventory(inventory);
                                     }
+
+                                    // Tracked tritium is a subset of the ship's own reported
+                                    // total and can never legitimately exceed it - clamping here
+                                    // self-heals any drift the incremental CargoTransfer/
+                                    // CarrierDepositFuel/MarketBuy/MarketSell tracking above
+                                    // picks up from a stray/contradictory journal entry (observed
+                                    // in practice: a CargoTransfer bundling a "toship" tritium
+                                    // line into what was otherwise a same-instant, fully-emptied
+                                    // transfer, with the immediately following Cargo event
+                                    // reporting Count 0 - i.e. the ground truth already available
+                                    // here, even without an Inventory breakdown to resync from).
+                                    trackedTritium = Math.Min(trackedTritium, latestRawShipCargo);
                                 }
                                 break;
 
