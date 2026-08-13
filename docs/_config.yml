@@ -1,4 +1,10 @@
-title: RouteJumper Documentation
-description: User guide, macro scripting reference, and developer docs for RouteJumper (ED:FC Auto Pilot).
+title: ED:FC Auto Pilot Documentation
+description: User guide, macro scripting reference, and developer docs for ED:FC Auto Pilot.
 theme: jekyll-theme-cayman
 show_downloads: false
+
+# jekyll-github-metadata (pulled in by the github-pages gem) needs this to
+# resolve repo-relative info (e.g. the "Edit this page" link data) when it
+# can't detect an origin remote itself - e.g. a local preview where only
+# docs/ (not the whole git repo) is mounted into the container.
+repository: haggisandchips/RouteJumper

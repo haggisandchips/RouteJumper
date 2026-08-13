@@ -2,20 +2,12 @@
 title: Development
 ---
 
-{% include nav.html %}
-
 # Development
 
 For getting the app running from source in the first place, see
 [Building from source](https://github.com/haggisandchips/RouteJumper#building-from-source)
 in the README. This page covers running the test suite, the project
 layout, and cutting/publishing a release.
-
-## Contents
-
-- [Running the tests](#running-the-tests)
-- [Project layout](#project-layout)
-- [Packaging & distributing releases via GitHub](#packaging--distributing-releases-via-github)
 
 ---
 
@@ -53,7 +45,7 @@ RouteJumper.Tests/               xUnit unit test suite, mirroring the layout abo
 
 ## Packaging & distributing releases via GitHub
 
-RouteJumper self-updates via [Velopack](https://velopack.io/) (see
+ED:FC Auto Pilot self-updates via [Velopack](https://velopack.io/) (see
 `RouteJumper/Services/UpdateService.cs`): every launch checks GitHub
 Releases for a newer version and, if found, downloads and applies it on
 the *next* exit rather than interrupting the current session. This means
@@ -64,7 +56,7 @@ format `UpdateManager` expects.
 ### Cutting a release (automated)
 
 [`.github/workflows/release.yml`](https://github.com/haggisandchips/RouteJumper/blob/main/.github/workflows/release.yml)
-does this end to end: pushing a tag matching `v*` builds RouteJumper,
+does this end to end: pushing a tag matching `v*` builds ED:FC Auto Pilot,
 packs it with `vpk`, and publishes it as a GitHub Release, which
 `UpdateService` then picks up automatically on every installed copy's
 next launch.

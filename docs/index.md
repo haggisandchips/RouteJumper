@@ -2,27 +2,15 @@
 title: User Guide
 ---
 
-{% include nav.html %}
+# ED:FC Auto Pilot User Guide
 
-# RouteJumper User Guide
-
-This page covers what RouteJumper does, how each tab works, where its
+This page covers what ED:FC Auto Pilot does, how each tab works, where its
 data lives, and how to troubleshoot common issues. For installing the
 app and the fastest path to a working Auto Pilot setup, see the
 [README](https://github.com/haggisandchips/RouteJumper#readme). For the
 macro scripting language and ready-to-use sample scripts, see
 [Macro Scripting](macro-scripting.md). For building from source,
 running tests, and cutting releases, see [Development](development.md).
-
-## Contents
-
-- [What it does](#what-it-does)
-- [The three tabs](#the-three-tabs)
-  - [Route tab](#route-tab)
-  - [Roles tab](#roles-tab)
-  - [Controls tab](#controls-tab)
-- [Data & configuration locations](#data--configuration-locations)
-- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -93,7 +81,7 @@ Lists every running `EliteDangerous64.exe` process as a card (commander
 name, cargo, current location, fleet carrier name/location/fuel, window
 position/monitor), refreshed on launch and on demand via **Refresh**.
 
-- Assign **Captain** to the instance whose journal RouteJumper should
+- Assign **Captain** to the instance whose journal ED:FC Auto Pilot should
   track — this resets the route and replays that commander's journal
   history to catch it up to the carrier's real current status in one
   step.
@@ -140,7 +128,7 @@ Pilot (and manual playback) is built from.
 
 ## Data & configuration locations
 
-RouteJumper stores its own state in `%LocalAppData%\EDFCAutoPilot\`:
+ED:FC Auto Pilot stores its own state in `%LocalAppData%\EDFCAutoPilot\`:
 
 | File | Contents |
 |---|---|
@@ -156,7 +144,7 @@ defaults on a fresh launch).
 
 ## Troubleshooting
 
-- **"No running Elite Dangerous instances found."** — RouteJumper only
+- **"No running Elite Dangerous instances found."** — ED:FC Auto Pilot only
   detects `EliteDangerous64.exe` processes; make sure the game is
   actually running (not just the launcher), then click **Refresh**.
 - **Journal file shows "Not found" for a running instance** — the
@@ -164,7 +152,7 @@ defaults on a fresh launch).
   process/journal timestamps are more than 5 minutes apart (a very slow
   launch). Confirm `JournalDirectory` points at your actual
   `Saved Games\Frontier Developments\Elite Dangerous` folder.
-- **A macro doesn't seem to do anything in-game** — RouteJumper sends
+- **A macro doesn't seem to do anything in-game** — ED:FC Auto Pilot sends
   real synthesized input (`SendInput`), which only reaches whichever
   window currently has focus; don't touch the mouse/keyboard yourself
   while a macro plays, and make sure the target game window isn't

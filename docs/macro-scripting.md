@@ -2,8 +2,6 @@
 title: Macro Scripting
 ---
 
-{% include nav.html %}
-
 # Macro Scripting
 
 A macro is a small, line-oriented, hand-editable text script. Recording
@@ -13,11 +11,6 @@ malformed line is just skipped, not rejected).
 
 See the [User Guide](index.md#controls-tab) for how recording, playback,
 and the editor work in the app itself.
-
-## Contents
-
-- [Syntax reference](#syntax-reference)
-- [Sample scripts](#sample-scripts)
 
 ---
 
