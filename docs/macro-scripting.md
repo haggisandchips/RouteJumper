@@ -2,6 +2,8 @@
 title: Macro Scripting
 ---
 
+{% include nav.html %}
+
 # Macro Scripting
 
 A macro is a small, line-oriented, hand-editable text script. Recording

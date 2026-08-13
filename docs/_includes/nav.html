@@ -1,0 +1,5 @@
+<nav class="site-nav">
+  <a href="{{ '/' | relative_url }}"{% if page.url == '/' or page.url == '/index.html' %} class="active"{% endif %}>User Guide</a>
+  <a href="{{ '/macro-scripting.html' | relative_url }}"{% if page.url contains 'macro-scripting' %} class="active"{% endif %}>Macro Scripting</a>
+  <a href="{{ '/development.html' | relative_url }}"{% if page.url contains 'development' %} class="active"{% endif %}>Development</a>
+</nav>

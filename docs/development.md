@@ -2,6 +2,8 @@
 title: Development
 ---
 
+{% include nav.html %}
+
 # Development
 
 For getting the app running from source in the first place, see

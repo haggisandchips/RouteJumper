@@ -2,6 +2,8 @@
 title: User Guide
 ---
 
+{% include nav.html %}
+
 # RouteJumper User Guide
 
 This page covers what RouteJumper does, how each tab works, where its
