@@ -7,6 +7,22 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-13
+
+### Added
+
+- Published a documentation site (GitHub Pages) covering the three
+  tabs, the macro scripting language, sample scripts, data/config
+  locations, troubleshooting, and the development/release process -
+  moved out of the README, which now focuses on installation and the
+  Quick Start.
+
+### Changed
+
+- The Controls tab's "sample scripts" link (shown while no macro has
+  been recorded yet) now opens the docs site instead of the README's
+  own section.
+
 ## [1.2.1] - 2026-08-10
 
 ### Fixed
