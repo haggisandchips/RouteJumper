@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 namespace RouteJumper.Services
 {
     /// <summary>
-    /// Persistent key-value store backed by SQLite, in %LocalAppData%\EDFCAutoPilot - the
+    /// Persistent key-value store backed by SQLite, in <see cref="AppPaths.DataDirectory"/> - the
     /// standard per-user, non-roaming location for this kind of local application state
     /// (settings/cache, not user documents, and not meant to follow the user across machines
     /// via roaming profiles).
@@ -22,9 +22,7 @@ namespace RouteJumper.Services
     {
         private readonly string _connectionString;
 
-        public AppSettingsStore() : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "EDFCAutoPilot"))
+        public AppSettingsStore() : this(AppPaths.DataDirectory)
         {
         }
 
