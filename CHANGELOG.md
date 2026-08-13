@@ -7,6 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-13
+
+### Added
+
+- File > **About** dialog showing the app icon, name, installed version
+  (or "Development build" for an unpackaged run), a short description,
+  the fan-made/not-affiliated disclaimer, a link to the GitHub repo,
+  and copyright/license.
+- File > **Check for Updates**, an on-demand version of the update
+  check already run silently on every launch, reporting whether you're
+  up to date, a new version was downloaded, updates aren't available
+  for this build, or the check failed.
+
 ## [1.2.2] - 2026-08-13
 
 ### Added

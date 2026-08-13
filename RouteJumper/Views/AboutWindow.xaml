@@ -1,0 +1,69 @@
+<Window x:Class="RouteJumper.Views.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Style="{StaticResource MaterialDesignWindow}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{materialDesign:MaterialDesignFont}"
+        Title="About ED:FC Auto Pilot"
+        Width="380"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        d:DesignHeight="320" d:DesignWidth="380">
+
+    <StackPanel Margin="24">
+        <Image Source="/Resources/AppIcon.ico"
+               Width="64" Height="64"
+               Margin="0,0,0,12"
+               HorizontalAlignment="Center" />
+
+        <TextBlock Text="ED:FC Auto Pilot"
+                   FontSize="18" FontWeight="Bold"
+                   HorizontalAlignment="Center" />
+
+        <TextBlock x:Name="VersionText"
+                   Opacity="0.7"
+                   Margin="0,4,0,0"
+                   HorizontalAlignment="Center" />
+
+        <TextBlock Text="Elite Dangerous Fleet Carrier Auto Pilot"
+                   Margin="0,12,0,0"
+                   HorizontalAlignment="Center"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center" />
+
+        <TextBlock Margin="0,16,0,0"
+                   Opacity="0.7"
+                   FontSize="11"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center">
+            This is a fan-made tool and is not affiliated with or endorsed by
+            Frontier Developments plc. Elite Dangerous is a trademark of
+            Frontier Developments plc.
+        </TextBlock>
+
+        <TextBlock Margin="0,16,0,0" HorizontalAlignment="Center">
+            <Hyperlink Click="OnRepositoryLinkClick">github.com/haggisandchips/RouteJumper</Hyperlink>
+        </TextBlock>
+
+        <TextBlock Text="© 2026 Ivor Potter — MIT License"
+                   Opacity="0.7"
+                   FontSize="11"
+                   Margin="0,4,0,0"
+                   HorizontalAlignment="Center" />
+
+        <Button Content="Close"
+                Width="90"
+                Padding="4"
+                Margin="0,20,0,0"
+                HorizontalAlignment="Right"
+                IsCancel="True"
+                Click="OnCloseClick" />
+    </StackPanel>
+</Window>

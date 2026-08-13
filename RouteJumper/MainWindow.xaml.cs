@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using RouteJumper.Services;
 using RouteJumper.ViewModels;
@@ -174,6 +175,64 @@ namespace RouteJumper
             var mainViewModel = (MainViewModel)DataContext;
             new PreferencesWindow(mainViewModel.SpeechAnnouncer) { Owner = this }.ShowDialog();
         }
+
+        /// <summary>Opens the modal About dialog (icon, name, version, disclaimer) - same view-layer carve-out as the Preferences dialog above.</summary>
+        private void OnAboutClick(object sender, RoutedEventArgs e)
+        {
+            new AboutWindow { Owner = this }.ShowDialog();
+        }
+
+        private bool _checkingForUpdates;
+
+        /// <summary>
+        /// Manually triggers the same download-and-apply-on-next-exit check App.xaml.cs already
+        /// runs silently on startup (UpdateService), but reports the outcome back via a message
+        /// box, since this one is an explicit user request rather than a background check. Guards
+        /// against re-entrancy (disables the menu item, and the _checkingForUpdates flag covers
+        /// the brief window before that disable has visibly taken effect) since a real check can
+        /// take a few seconds against GitHub's API/CDN.
+        /// </summary>
+        private async void OnCheckForUpdatesClick(object sender, RoutedEventArgs e)
+        {
+            if (_checkingForUpdates)
+            {
+                return;
+            }
+
+            _checkingForUpdates = true;
+            var menuItem = sender as MenuItem;
+            if (menuItem != null)
+            {
+                menuItem.IsEnabled = false;
+            }
+
+            try
+            {
+                var outcome = await UpdateService.CheckForUpdatesManuallyAsync();
+                MessageBox.Show(this, DescribeUpdateOutcome(outcome), "Check for Updates",
+                    MessageBoxButton.OK,
+                    outcome == UpdateCheckOutcome.Error ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            }
+            finally
+            {
+                _checkingForUpdates = false;
+                if (menuItem != null)
+                {
+                    menuItem.IsEnabled = true;
+                }
+            }
+        }
+
+        private static string DescribeUpdateOutcome(UpdateCheckOutcome outcome) => outcome switch
+        {
+            UpdateCheckOutcome.NotInstalled =>
+                "Automatic updates aren't available for this build. Install ED:FC Auto Pilot via the GitHub Releases page to enable them.",
+            UpdateCheckOutcome.UpToDate => "You're already running the latest version.",
+            UpdateCheckOutcome.UpdateDownloaded =>
+                "A new version has been downloaded and will be installed the next time you exit ED:FC Auto Pilot.",
+            UpdateCheckOutcome.Error => "Couldn't check for updates. Check your internet connection and try again.",
+            _ => "",
+        };
 
         private void OnClosing(object? sender, CancelEventArgs e)
         {

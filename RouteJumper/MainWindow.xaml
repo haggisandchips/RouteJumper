@@ -47,6 +47,9 @@
                 <Menu Grid.Column="0" Background="Transparent">
                     <MenuItem Header="_File">
                         <MenuItem Header="_Preferences…" Click="OnPreferencesClick" />
+                        <MenuItem Header="Check for _Updates" Click="OnCheckForUpdatesClick" />
+                        <Separator />
+                        <MenuItem Header="_About" Click="OnAboutClick" />
                         <Separator />
                         <MenuItem Header="E_xit" Click="OnExitClick" />
                     </MenuItem>

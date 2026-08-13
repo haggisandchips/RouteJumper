@@ -27,7 +27,7 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 | Persistence of route text, window bounds, and Captain/Engineer role assignment | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
-| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit and a Preferences dialog (voice/volume/test), and an always-visible mute button | |
+| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit, Preferences (voice/volume/test), About (§3.6), and Check for Updates (§3.7), and an always-visible mute button | |
 | Material Design styling | |
 
 ---
@@ -64,6 +64,13 @@ See §6.
 - A `Menu` sits above the tab area, visible regardless of which tab is
   active, with a single top-level **File** entry:
   - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
+  - **Check for Updates** manually triggers the same download-and-
+    apply-on-next-exit check already run silently on every launch
+    (§3.7) - the only difference is that this one reports what it found
+    via a message box, since it's an explicit request rather than a
+    background check. Disabled while a check it started is still in
+    flight, to avoid stacking concurrent checks.
+  - **About** opens the About dialog (§3.6) as a modal window.
   - **Exit** closes the main window (which persists its bounds as normal,
     §7, and ends the app).
 - Beside the menu, right-aligned and equally always-visible, a single
@@ -93,6 +100,32 @@ See §6.
   "edits save as they're made" convention the Controls tab's own Options
   section already uses - **Close** is purely a "done for now" navigation
   action, not a distinct save step.
+
+### 3.6 About dialog
+- A modal dialog (File > About), purely informational, with no
+  persisted state of its own: the app icon, the product name "ED:FC
+  Auto Pilot", the installed version (§3.7) or "Development build" for
+  an unpackaged run, a one-line description, the same fan-made/not-
+  affiliated-with-Frontier disclaimer the README carries, a link to the
+  project's GitHub repository (opens in the default browser), and a
+  copyright/license line. A single **Close** button dismisses it.
+
+### 3.7 Automatic updates
+- On every launch, RouteJumper silently checks the project's GitHub
+  Releases for a newer version (via Velopack); if one exists, it's
+  downloaded in the background and applied on the *next* normal exit
+  rather than interrupting the current session. This check, and the
+  version it reports on the About dialog (§3.6), both no-op for an
+  unpackaged run (`dotnet run`/F5) - only a real Velopack-installed
+  copy has a version to check or report.
+- File > **Check for Updates** (§3.4) runs the identical check on
+  demand and reports the outcome via a message box: already
+  up to date, a new version was downloaded (and will install on next
+  exit, same as the silent check), automatic updates aren't available
+  for this build (unpackaged run), or the check itself failed (e.g. no
+  network) - the last of these is the one case a failure is surfaced to
+  the user at all, since the silent startup check never reports
+  anything either way.
 
 ---
 
@@ -1306,3 +1339,10 @@ rather than internal app state like the table below.
     stays that way (Auto Pilot does not play the macro again for it)
     until the real CarrierJumpRequest arrives and moves it to "Plotted",
     even if that takes an indeterminate amount of time.
+50. File > **About** opens a modal dialog showing the app icon, "ED:FC
+    Auto Pilot", its installed version (or "Development build" for an
+    unpackaged run), and the fan-made/not-affiliated disclaimer. File >
+    **Check for Updates** runs an on-demand version of the same check
+    already run silently on every launch, and reports the outcome
+    (up to date / downloaded, installs on next exit / not available for
+    this build / check failed) via a message box.
