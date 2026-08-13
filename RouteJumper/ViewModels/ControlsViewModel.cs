@@ -43,7 +43,7 @@ namespace RouteJumper.ViewModels
         private const string DefaultNextSystemTestOverride = "Sol";
         private const string DefaultTritiumLoopsTestOverride = "1";
 
-        private const string SampleScriptsUrl = "https://github.com/haggisandchips/RouteJumper#sample-scripts";
+        private const string SampleScriptsUrl = "https://haggisandchips.github.io/RouteJumper/macro-scripting.html#sample-scripts";
 
         private readonly AppSettingsStore _settings;
         private readonly EliteInstanceScanner _scanner;
@@ -182,7 +182,7 @@ namespace RouteJumper.ViewModels
         public RelayCommand StepCommand { get; }
 
         /// <summary>
-        /// Opens the README's sample scripts section in the default browser - offered as a
+        /// Opens the docs' sample scripts section in the default browser - offered as a
         /// starting point when Macros is empty (see ControlsView.xaml), since a script has to
         /// come from somewhere before Record/New Script are of any use.
         /// </summary>

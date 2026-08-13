@@ -857,12 +857,13 @@ compact list, one row per macro:
 
 While no macro has been recorded (or written via **New Script**) yet,
 the list is replaced by an italic hint pointing at a starting point:
-"No macros recorded yet. See the README's sample scripts for
+"No macros recorded yet. See the docs' sample scripts for
 ready-to-use examples, or click New Script above to write one by hand."
-— "sample scripts" is a real link, opening the README's
-[Sample scripts](README.md#sample-scripts) section in the default
-browser. Disappears for good the moment the first macro exists, the
-same as any other empty-state message elsewhere in the app.
+— "sample scripts" is a real link, opening the docs site's
+[Sample scripts](https://haggisandchips.github.io/RouteJumper/macro-scripting.html#sample-scripts)
+section in the default browser. Disappears for good the moment the
+first macro exists, the same as any other empty-state message elsewhere
+in the app.
 
 The source commander a macro was originally recorded against is shown as
 a small caption under its name — display only; it does not restrict which

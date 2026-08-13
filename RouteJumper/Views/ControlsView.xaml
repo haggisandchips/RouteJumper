@@ -264,14 +264,14 @@
                     <DockPanel LastChildFill="True">
                         <!-- Shown only until the first macro exists (recorded or hand-written via
                              New Script) - a fresh install has nothing to Play/Step yet, so this
-                             points at the README's ready-to-use examples as a starting point. -->
+                             points at the docs' ready-to-use examples as a starting point. -->
                         <TextBlock DockPanel.Dock="Top"
                                    Visibility="{Binding ElementName=MacrosItemsControl, Path=HasItems, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}"
                                    Opacity="0.6"
                                    FontStyle="Italic"
                                    TextWrapping="Wrap"
                                    Margin="0,0,0,12">
-                            <Run Text="No macros recorded yet. See the README's " />
+                            <Run Text="No macros recorded yet. See the docs' " />
                             <Hyperlink Command="{Binding OpenSampleScriptsCommand}">sample scripts</Hyperlink>
                             <Run Text=" for ready-to-use examples, or click New Script above to write one by hand." />
                         </TextBlock>

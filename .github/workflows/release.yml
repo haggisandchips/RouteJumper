@@ -3,8 +3,8 @@ name: Release
 # Pushing a tag like v1.0.0 is the only manual step - this builds RouteJumper,
 # packs it with Velopack, and publishes it as a GitHub Release. UpdateService
 # (RouteJumper/Services/UpdateService.cs) then picks it up automatically on
-# every installed copy's next launch. See README's "Packaging & distributing
-# releases via GitHub" section for the equivalent manual steps.
+# every installed copy's next launch. See the docs' "Packaging & distributing
+# releases via GitHub" section (docs/development.md) for the equivalent manual steps.
 on:
   push:
     tags:
