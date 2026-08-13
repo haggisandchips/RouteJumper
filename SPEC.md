@@ -7,11 +7,19 @@
 
 ## 1. Purpose
 
-RouteJumper is a desktop utility for Elite Dangerous fleet carrier owners. A user
-pastes a list of star systems (one per line) to form a route. Once a Captain's
-game instance is assigned on the Roles tab, RouteJumper watches that commander's
-journal file and automatically tracks the carrier's progress along the route,
-updating each row's status as the carrier plots, jumps, arrives, and cools down.
+RouteJumper is a desktop utility for Elite Dangerous commanders, with two
+mutually exclusive tracking modes (§3.4). In **Fleet Carrier mode** (the
+default), a user pastes a list of star systems (one per line) to form a
+route; once a Captain's game instance is assigned on the Roles tab,
+RouteJumper watches that commander's journal file and automatically tracks
+the carrier's progress along the route, updating each row's status as the
+carrier plots, jumps, arrives, and cools down — with an optional Auto
+Pilot that drives the whole route via recorded macros. In **Ship mode**
+(§8), a solo commander instead pastes a manually hand-picked route (e.g.
+from a neutron-highway plotter) and assigns their own running instance on
+the Track tab; RouteJumper tracks the same row-by-row progress against
+that commander's own ship journal, purely passively — there is no
+automation, since the CMDR must plot and fly every jump themselves.
 
 ---
 
@@ -21,13 +29,14 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 |---|---|
 | Route tab: paste a route, save it to a table, track progress against a real journal | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
 | Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Configurable journal-match tolerance or cooldown timing |
-| Event-driven row-progress engine, driven by a Captain's journal | Persisting per-row progress (icon/status), or the last-selected tab |
+| Event-driven row-progress engine, driven by a Captain's journal (Fleet Carrier mode) or a commander's own ship journal (Ship mode, §8) | Persisting per-row progress (icon/status), or the last-selected tab |
 | Manual "Set next system" override for correcting automatic detection | |
 | Selecting a macro for each of Captain/Engineer (§5.5), gating Auto Pilot on that selection, and Auto Pilot playing the Captain's macro to plot each jump and (if Engineer is assigned) the Engineer's to refuel each Cooldown (§4.7) | Auto Pilot retrying a jump after `CarrierJumpCancelled` (§4.7) |
-| Persistence of route text, window bounds, and Captain/Engineer role assignment | |
+| Persistence of route text, window bounds, Captain/Engineer role assignment, tracking mode, and tracked instance (§7) | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
-| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit, Preferences (voice/volume/test), About (§3.6), and Check for Updates (§3.7), and an always-visible mute button | |
+| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit, Preferences (voice/volume/test), About (§3.6), Check for Updates (§3.7), and a Ship Mode toggle, and an always-visible mute button | |
+| **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
 | Material Design styling | |
 
 ---
@@ -35,8 +44,12 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 ## 3. Window Structure
 
 ### 3.1 Main Window
-- Single top-level window with a `TabControl` holding exactly three tabs, in
-  order: **Route**, **Roles**, **Controls**. Route is selected by default.
+- Single top-level window with a `TabControl`. Route is always shown, first,
+  and selected by default; which other tabs are shown depends on the
+  current tracking mode (§3.4) — **Roles**, **Controls** in Fleet Carrier
+  mode (the default), or **Track** (§8) in Ship mode. Switching modes
+  changes which tabs are visible immediately, whichever tab is currently
+  showing.
 - Tab headings are placed on the **left edge** of the window
   (`TabStripPlacement="Left"`).
 - Window is resizable; content reflows (no fixed-pixel layouts).
@@ -71,6 +84,14 @@ See §6.
     background check. Disabled while a check it started is still in
     flight, to avoid stacking concurrent checks.
   - **About** opens the About dialog (§3.6) as a modal window.
+  - **Ship Mode** is a checkable item toggling between Fleet Carrier mode
+    (unchecked, the default) and Ship mode (checked) - see §8. Toggling it
+    swaps which tabs are visible (§3.1), shows/hides and force-stops the
+    Route tab's Auto Pilot button (§4.2), and switches which of Roles'
+    Captain-journal watcher or Track's ship-journal watcher is actually
+    running - exactly one is ever active at a time. Persisted immediately;
+    restored at startup, defaulting to Fleet Carrier mode until first
+    changed.
   - **Exit** closes the main window (which persists its bounds as normal,
     §7, and ends the app).
 - Beside the menu, right-aligned and equally always-visible, a single
@@ -202,7 +223,11 @@ one is visible at a time.
     too (§5.5); disabled otherwise, including whenever assignment or
     macro selection changes on the Roles tab while this tab is showing,
     or requirements drop out from under a run already in progress (which
-    also stops that run outright, not just re-locks the button).
+    also stops that run outright, not just re-locks the button). **Hidden
+    entirely** (not merely disabled) in Ship mode (§8) — there is no
+    macro automation of any kind in that mode — and switching into Ship
+    mode force-stops a run already in progress, the same as requirements
+    dropping out from under it.
 
 ### 4.3 Line-to-row conversion (on Save)
 - Text is split on line breaks; `\r\n` is normalized to `\n` first.
@@ -223,9 +248,10 @@ its current `Status` text:
 |---|---|---|---|
 | None | — | *(hidden)* | Not yet reached |
 | In-progress | *(blank)* | Play (triangle) | Current row, no status yet |
-| In-progress | `Plotting` | ProgressClock | Auto Pilot is playing the Captain's macro (§4.7) |
-| In-progress | `Plotted` | Hourglass | `CarrierJumpRequest` received |
-| In-progress | `Jumping` | RocketLaunch | 3 minutes before `DepartureTime` |
+| In-progress | `Targeted` | Target | Ship mode only (§8.3): `FSDTarget` observed for this row |
+| In-progress | `Plotting` | ProgressClock | Fleet Carrier mode only (§4.7): Auto Pilot is playing the Captain's macro |
+| In-progress | `Plotted` | Hourglass | Fleet Carrier mode only: `CarrierJumpRequest` received |
+| In-progress | `Jumping` | RocketLaunch | Fleet Carrier: 3 minutes before `DepartureTime`. Ship mode (§8.3): `StartJump` observed, immediately — there is no lead time to wait out |
 | In-progress | `Cooldown` | Play (triangle) | Waiting on the row before it |
 | Complete | *(blank)* | Check | Reached, permanently for this table |
 
@@ -267,6 +293,13 @@ its current `Status` text:
   early; the carrier's jump is effectively instantaneous at
   `DepartureTime` in practice, making this a close approximation of the
   real, later-confirmed arrival time.
+  Ship mode's own `Targeted` and `Jumping` never show a bar at all
+  (neither a countdown nor `Plotting`'s indeterminate sweep) — there is
+  no known duration for either (§8.3: a target can sit selected
+  indefinitely, and a jump's own charge time isn't tracked). Ship mode's
+  `Cooldown`, though, does show the normal countdown bar, the same as
+  Fleet Carrier mode's — just counting down the provisional duration
+  §8.3 describes instead of the fixed 4 minutes.
 - Alongside the progress bar, the same countdown is shown as text: the
   `Status` cell reads `Plotted (0:11:32)` — the status word, a space, then
   the remaining time in parentheses as `H:MM:SS` (hours unpadded — a
@@ -1018,6 +1051,8 @@ rather than internal app state like the table below.
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 | Announcement voice, volume, muted (§3.4, §3.5) | Every change | App startup, falling back to the engine's own default voice, 100 volume, and unmuted until first changed |
+| Tracking mode (Fleet Carrier/Ship, §3.4) | Every toggle | App startup, falling back to Fleet Carrier mode until first changed |
+| Tracked instance, by commander FID (§8.2) | Assigned/explicitly unassigned | Every Track tab refresh, while currently unassigned in memory |
 
 - Role assignment is restored by FID (not `ProcessId`, which doesn't
   survive a process restart) — this covers both "app just launched" and
@@ -1040,7 +1075,136 @@ rather than internal app state like the table below.
 
 ---
 
-## 8. Non-Functional Requirements
+## 8. Track Tab (Ship Mode)
+
+Only visible while Ship mode is the current tracking mode (§3.4) — Roles
+and Controls are hidden while this tab is shown, and vice versa. A leaner
+counterpart to the Roles tab: one role instead of two (just "the tracked
+instance"), no macros, no cargo-capacity gating — Ship mode has no Auto
+Pilot to feed, so all that matters is which single running instance's own
+ship RouteJumper should passively track.
+
+### 8.1 Instance discovery
+Reuses §5.1's scanning mechanism verbatim — the same `EliteDangerous64.exe`
+process discovery, the same background-thread Refresh (button disables
+itself for the duration; the rest of the app stays interactive), and the
+same empty-state message. Each card shows only commander name, current
+location, and journal filename — no cargo/carrier fields, since they're
+irrelevant to picking an instance to track. Clicking a card's journal
+filename copies it to the clipboard and plays a confirmation sound, the
+same as §5.3's equivalent (no visual indicator afterward, unlike the
+Route tab's own click-to-copy).
+
+### 8.2 Tracking a single instance
+- A single **Track** toggle button per card (in place of Roles' separate
+  Captain/Engineer buttons) assigns/unassigns that instance as the one
+  tracked. Assigning to a new instance unassigns whichever instance
+  previously held it — there is only ever one tracked instance at a time.
+- Assigning resets the whole route (every row: icon → None, Status →
+  blank), then applies that instance's own ship's *current* status to it
+  as a single result computed from the whole journal — the same
+  reset-then-replay principle §5.4/§5.7 use for Captain, but scoped to
+  this commander's own ship (§8.3), explicitly never their fleet carrier
+  even if the same journal also contains carrier events (§8.4). Also
+  triggers a background rescan of this tab, the same as assigning
+  Captain does for Roles.
+- Unassigning (explicitly, or because the tracked instance stops
+  running) leaves the route table exactly as displayed — tracking simply
+  stops, the same as clearing Captain (§5.4). A role holder's process no
+  longer running clears the in-memory assignment but leaves the
+  persisted FID alone (§7), so it's picked back up automatically if that
+  commander's instance reappears.
+- Persisted by commander FID, not `ProcessId` (§7) — a restored match on
+  a later refresh goes through the same reset-and-replay as a fresh
+  manual assignment.
+- Switching *away* from Ship mode (back to Fleet Carrier) stops watching
+  the tracked instance's journal but does not clear the assignment —
+  switching back to Ship mode later resumes it with a fresh
+  reset-and-replay, the same as a fresh assignment.
+
+### 8.3 Journal-driven route updates
+Analogous to §5.7, but driven by the commander's own ship, not a fleet
+carrier, with a different event vocabulary and different timing:
+
+- **`Targeted`**: `FSDTarget` (selecting/locking a jump target, e.g. in
+  the galaxy map) sets the targeted row's Status to `Targeted`. Real
+  play shows Elite's own multi-route auto-target behaviour typically
+  firing the *next* hop's `FSDTarget` while the *current* hop is still
+  `Jumping`/`Cooldown` — the CMDR pre-selecting, or the game
+  auto-selecting, the following waypoint before the current one has
+  actually finished. Applying it immediately in that window would mark
+  the wrong (not-yet-current) row, so it's deferred until the in-flight
+  cycle actually finishes (`Cooldown` clears), then applied to whichever
+  row is genuinely current at that point. This also naturally covers a
+  CMDR manually re-targeting mid-jump out of habit, not just the game's
+  own automatic behaviour.
+- **`Jumping`**: `StartJump` with `JumpType` `"Hyperspace"` sets Status to
+  `Jumping`, immediately — `"Supercharge"` (an in-system neutron/
+  white-dwarf FSD boost that doesn't change system) is ignored. Unlike
+  Fleet Carrier mode's own `Jumping` transition, there is no lead time to
+  derive: `StartJump` only ever fires once a jump is already, genuinely
+  underway.
+- **Arrived** (the same composite step as §5.7: targeted row → Complete,
+  blank; next row, if any, → current): *not* fired directly off
+  `FSDJump`, even though it carries the arrival system name — `FSDJump`
+  fires while the game is still mid-transition (loading/settling), too
+  early to treat as arrived for Cooldown-timing purposes. The actual
+  signal is the `Music` event that follows it: a `MusicTrack` of
+  `DestinationFromHyperspace` or `Supercruise` (both valid — which one
+  depends on some other in-game factor not yet understood) once the game
+  has actually settled into normal flight at the destination. `FSDJump`
+  records a pending arrival; the next qualifying `Music` event resolves
+  it into the real Arrived step. A generous fallback timer resolves the
+  pending arrival anyway if neither Music track shows up in time — a
+  backstop, not the expected path.
+- **`Cooldown`** (shown on the row *after* the arrived-at one, same
+  convention as §5.7): clears a **provisional** fixed duration after
+  Arrived resolves. Ships do have a real FSD cooldown after a jump (not
+  merely cosmetic dressing to mirror Fleet Carrier mode's own vocabulary)
+  — its exact real-world duration hasn't been measured yet, so a
+  placeholder value is used pending that measurement.
+- Unlike Fleet Carrier mode, there is no known journal event for an
+  aborted/interrupted ship jump (Elite's schema has no
+  `StartJumpCancelled`) — a jump interrupted mid-charge (e.g. by an
+  attack) leaves its row stuck on `Jumping` until the CMDR uses the
+  existing manual "Set next system" override (§4.2); it is not
+  automatically recovered.
+- Same catch-up principle as §5.7: on assignment (or resuming after a
+  mode switch), the whole journal is read first, oldest to newest by
+  line order, to compute a single authoritative "what's this ship's
+  status right now" — whichever of a still-open target selection, an
+  in-flight jump, or the most recent arrival was seen *last* — and only
+  that one derived result is applied, never one event per historical
+  line. Only after that does live tailing begin.
+
+### 8.4 Distinguishing the ship from a fleet carrier
+A commander who also owns a fleet carrier has both `FSDTarget`/
+`StartJump`/`FSDJump` (their own ship) and `CarrierJumpRequest`/
+`CarrierLocation`/`CarrierJump` (their carrier) events in the same
+journal. Ship mode's tracking is never confused by this: the ship-event
+family carries no `CarrierID`/`CarrierType` fields at all, and is
+structurally separate from the carrier-event family — no filtering is
+needed the way Roles' Captain assignment needs (§5.7), since there's no
+value-level ambiguity to resolve in the first place.
+
+### 8.5 Auto Copy To Clipboard
+Works identically to §4.6, with no Ship-mode-specific changes — a
+live-observed ship arrival (the `FSDJump` line itself, ahead of the
+delayed Arrived/Cooldown UI transition, the same "ready before the UI
+catches up" timing §4.6 already documents for carriers) copies the next
+row's system, if the toggle is on.
+
+### 8.6 No Auto Pilot
+Ship mode has no macro automation at all — the CMDR plots and flies every
+jump manually, since the precision required (aligning a neutron/
+white-dwarf boost, avoiding a collision) must stay in their own hands.
+The Route tab's Auto Pilot button is hidden, not merely disabled, while
+Ship mode is active (§4.2), and any run already in progress is stopped
+outright the instant Ship mode is switched on.
+
+---
+
+## 9. Non-Functional Requirements
 
 - **Framework:** WPF, .NET 8 (`net8.0-windows`), MVVM throughout — no
   business logic in code-behind. The window-placement, focus-management,
@@ -1058,7 +1222,7 @@ rather than internal app state like the table below.
 
 ---
 
-## 9. Styling — Material Design
+## 10. Styling — Material Design
 
 - `App.xaml` merges a `materialDesign:BundledTheme` (`PrimaryColor="Blue"`,
   `SecondaryColor="Cyan"`, `BaseTheme="Light"`) plus
@@ -1073,7 +1237,7 @@ rather than internal app state like the table below.
 
 ---
 
-## 10. Acceptance Criteria
+## 11. Acceptance Criteria
 
 1. Launching the app shows **Route**, **Roles**, **Controls** tabs with
    headings on the left edge; Route is selected by default.
@@ -1346,3 +1510,47 @@ rather than internal app state like the table below.
     already run silently on every launch, and reports the outcome
     (up to date / downloaded, installs on next exit / not available for
     this build / check failed) via a message box.
+51. File > **Ship Mode** is a checkable toggle, unchecked (Fleet Carrier
+    mode) by default. Checking it immediately hides the Roles and
+    Controls tabs, shows the Track tab, and hides the Route tab's Auto
+    Pilot button; unchecking it reverses all three. The toggle state
+    persists across a restart.
+52. Switching to Ship Mode while Auto Pilot is engaged stops it outright
+    (button reverts to hidden, not just re-locked) rather than leaving a
+    macro silently playing in the background.
+53. The Track tab scans for running Elite Dangerous instances the same
+    way the Roles tab does (empty-state message, background-thread
+    Refresh), showing commander name, current location, and journal
+    filename per card - no cargo/carrier fields. Exactly one instance can
+    be tracked at a time; a single **Track** button per card
+    assigns/unassigns it, unassigning whichever instance previously held
+    it.
+54. Assigning a tracked instance resets the whole route, then applies
+    that instance's own ship's current status to it as a single
+    catch-up result computed from the whole journal (§8.3) - explicitly
+    the CMDR's own ship, never a fleet carrier they might also own, even
+    though both event families can appear in the same journal.
+55. A row's Status progresses `Targeted` (on `FSDTarget`) → `Jumping`
+    (on `StartJump` with `JumpType` `"Hyperspace"`, immediately, no lead
+    time) → *(arrived: row Complete, next row current)* → `Cooldown`
+    (cleared after a provisional fixed duration) → blank, driven by the
+    tracked instance's own ship journal. `Targeted` observed while
+    another row is `Jumping` or `Cooldown` is deferred until that cycle
+    finishes, rather than being applied to the wrong (not-yet-current)
+    row - confirmed against real journal data showing Elite's own
+    multi-route auto-target behaviour does this routinely.
+56. The composite Arrived step is driven by a `Music` event
+    (`MusicTrack` `"DestinationFromHyperspace"` or `"Supercruise"`)
+    following `FSDJump`, not by `FSDJump` itself - confirmed against real
+    journal data that `FSDJump` alone fires too early for Cooldown
+    timing. "Auto Copy To Clipboard" is unaffected by this and still
+    fires immediately off the live `FSDJump` line itself.
+57. Unassigning the tracked instance (explicitly, or because its process
+    stops running) leaves the route table exactly as displayed, with no
+    forced reset. Switching away from Ship mode behaves the same way;
+    switching back (or reassigning) always re-derives progress from a
+    fresh reset-and-catch-up.
+58. The tracking mode and tracked instance (by FID) both survive an app
+    restart with no manual reconfiguration required, restoring in Ship
+    mode with the same instance re-tracked (once it's running again) if
+    that's how the app was left.

@@ -17,6 +17,22 @@ namespace RouteJumper.Sequencing
     public enum RowEventKind
     {
         /// <summary>
+        /// Status = "Targeted" for the targeted row - Ship mode only (raised by
+        /// ShipRouteJournalWatcher off the ship's own FSDTarget event; nothing in Fleet Carrier
+        /// mode raises this). Matches like Plotted (any not-yet-complete row, no status
+        /// precondition of its own) - but RouteSequencer defers actually applying it while any
+        /// row currently shows "Jumping" or "Cooldown", instead of applying it immediately: real
+        /// journal data shows the game's own multi-route auto-target behaviour typically fires
+        /// the *next* hop's FSDTarget while the *current* hop is still charging or cooling down,
+        /// which would otherwise paint the wrong (not-yet-current) row as "Targeted" prematurely.
+        /// The deferred system name is applied once CooldownElapsed actually fires (see
+        /// RouteSequencer.FlushDeferredTargeted) - by which point the route has settled and the
+        /// right row is unambiguous. This also naturally covers a CMDR manually re-targeting
+        /// mid-jump out of habit, not just the game's own automatic behaviour.
+        /// </summary>
+        Targeted,
+
+        /// <summary>
         /// Status = "Plotting" for the targeted row - unlike every other kind here, not raised
         /// from anything observed in the journal at all: AutoPilotController raises this itself,
         /// the instant it begins playing the Captain's macro to plot this row's jump, through the
@@ -33,8 +49,13 @@ namespace RouteJumper.Sequencing
         Plotted,
 
         /// <summary>
-        /// Derived from Plotted: Status = "Jumping" for the targeted row, once 3 minutes
-        /// before its carrier's DepartureTime is reached.
+        /// Fleet Carrier mode: derived from Plotted, Status = "Jumping" for the targeted row once
+        /// 3 minutes before its carrier's DepartureTime is reached. Ship mode: raised immediately
+        /// off the ship's own StartJump event, with no lead time to derive - real journal data
+        /// shows StartJump only ever fires once a jump is already, genuinely underway. Matches a
+        /// row already showing "Plotted" (Fleet Carrier) or "Targeted" (Ship, the normal case) as
+        /// well as a still-blank row (Ship mode fallback, in case FSDTarget was never observed for
+        /// this hop) - see RouteSequencer.FindTargetIndex.
         /// </summary>
         Jumping,
 
@@ -52,11 +73,13 @@ namespace RouteJumper.Sequencing
         Arrived,
 
         /// <summary>
-        /// Derived from Arrived: clears Status on the row *after* the one this event's
-        /// SystemName names (i.e. the same row Arrived put into Cooldown - see
-        /// RouteSequencer.ApplyCooldownElapsed), once a further 4-minute cooldown period has
-        /// elapsed since Arrived (5 minutes total since the carrier's own CarrierLocation
-        /// timestamp). A no-op if there was no next row for Arrived to have set Cooldown on.
+        /// Derived from Arrived: clears Status on whichever row is currently showing "Cooldown"
+        /// (the row Arrived put into it - see RouteSequencer.ApplyCooldownElapsed, which finds it
+        /// by its Cooldown status directly rather than by this event's own SystemName, to stay
+        /// correct even if the route revisits the same system name more than once), once a
+        /// further 4-minute cooldown period has elapsed since Arrived (5 minutes total since the
+        /// carrier's own CarrierLocation timestamp). A no-op if there was no next row for Arrived
+        /// to have set Cooldown on, or nothing is currently showing it.
         /// </summary>
         CooldownElapsed,
 

@@ -147,8 +147,12 @@
                 </DataGrid.RowStyle>
                 <DataGrid.Columns>
 
-                    <!-- Blank icon column -->
-                    <DataGridTemplateColumn Header="" Width="Auto" MinWidth="36">
+                    <!-- Blank icon column - a fixed default (not Auto: DataGridTemplateColumn's
+                         Auto-sizing measured this narrower than the 18x18 PackIcon actually
+                         needs on a fresh, never-resized launch, clipping it) - 54 is 50% wider
+                         than the icon's own former 36px MinWidth floor, which stays as a
+                         drag-resize floor below. -->
+                    <DataGridTemplateColumn Header="" Width="54" MinWidth="36">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <materialDesign:PackIcon Visibility="{Binding Icon, Converter={StaticResource RowIconToVisibilityConverter}}"
@@ -302,6 +306,7 @@
                         Margin="0,0,8,0" />
                 <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
                         Command="{Binding AutoPilotCommand}"
+                        Visibility="{Binding ShowAutoPilotButton, Converter={StaticResource BoolToVisibilityConverter}}"
                         Width="90"
                         Padding="4" />
             </StackPanel>

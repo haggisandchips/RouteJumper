@@ -26,33 +26,52 @@ namespace RouteJumper.ViewModels
     /// </summary>
     public class MainViewModel : ObservableObject
     {
+        private const string TrackingModeSettingKey = "TrackingMode";
+
+        // Fixed tab order - see MainWindow.xaml's TabControl.Columns. Not persisted (SPEC §7:
+        // the last-selected tab never is) - only used to carry the *current* selection across a
+        // mode switch, within a single running session.
+        private const int RouteTabIndex = 0;
+        private const int RolesTabIndex = 1;
+        private const int ControlsTabIndex = 2;
+        private const int TrackTabIndex = 3;
+
+        private readonly AppSettingsStore _settings;
+        private TrackingMode _mode;
+        private int _selectedTabIndex = RouteTabIndex;
+
         public MainViewModel()
         {
-            var settings = new AppSettingsStore();
+            _settings = new AppSettingsStore();
             var config = new AppConfigStore();
             var routeEventTrigger = new ManualRowEventTrigger();
 
-            SpeechAnnouncer = new SpeechAnnouncer(settings, new SapiSpeechEngine());
+            SpeechAnnouncer = new SpeechAnnouncer(_settings, new SapiSpeechEngine());
 
             // The RolesViewModel/ControlsViewModel property dereferences below are guaranteed
             // safe despite still being unassigned at this exact statement - these closures are
             // only ever invoked later, once the whole constructor (and both assignments) has
             // completed; the nullable analyzer can't see that far ahead through a deferred
             // lambda, hence the null-forgiving operators.
-            RouteViewModel = new RouteViewModel(settings, routeEventTrigger, () => RolesViewModel!.CanEngageAutoPilot);
+            RouteViewModel = new RouteViewModel(_settings, routeEventTrigger, () => RolesViewModel!.CanEngageAutoPilot);
             RolesViewModel = new RolesViewModel(
                 routeEventTrigger,
-                settings,
+                _settings,
                 new EliteInstanceScanner(config),
                 () => ControlsViewModel!.Macros);
+            TrackViewModel = new TrackViewModel(routeEventTrigger, _settings, new EliteInstanceScanner(config));
             ControlsViewModel = new ControlsViewModel(
-                settings,
+                _settings,
                 new EliteInstanceScanner(config),
                 () => RouteViewModel.Rows.FirstOrDefault(r => r.Icon == RowIcon.InProgress)?.SystemText,
                 () => RolesViewModel.EngineerInstance,
                 RolesViewModel.RefreshAsync);
 
-            RouteViewModel.RouteSaved += (_, _) => RolesViewModel.RefreshRouteForCurrentCaptain();
+            RouteViewModel.RouteSaved += (_, _) =>
+            {
+                RolesViewModel.RefreshRouteForCurrentCaptain();
+                TrackViewModel.RefreshRouteForCurrentTrackedInstance();
+            };
             RolesViewModel.AutoPilotEligibilityChanged += (_, _) =>
             {
                 RouteViewModel.RaiseAutoPilotEligibilityChanged();
@@ -90,6 +109,21 @@ namespace RouteJumper.ViewModels
                 }
             };
 
+            // Restores the persisted TrackingMode (default FleetCarrier) and applies it - must
+            // run before RestoreFromSettings below, so RouteViewModel's Auto Pilot button
+            // visibility and whichever of Roles/Track is active are correct *before* a restored
+            // route (and any Captain/tracked-instance catch-up it triggers) is applied. Safe to
+            // call synchronously here despite RolesViewModel/TrackViewModel's own constructors
+            // having already kicked off an async scan of their own (Task.Run, still suspended at
+            // this point) - nothing can resume either scan's continuation until this whole
+            // constructor returns and the WPF Dispatcher gets a chance to run again, so ApplyMode
+            // is guaranteed to set each ViewModel's active state before either one's first
+            // scan-completion continuation ever executes.
+            _mode = Enum.TryParse<TrackingMode>(_settings.GetString(TrackingModeSettingKey), out var restoredMode)
+                ? restoredMode
+                : TrackingMode.FleetCarrier;
+            ApplyMode(_mode);
+
             // Must run after the RouteSaved wiring above - see RouteViewModel.RestoreFromSettings.
             RouteViewModel.RestoreFromSettings();
         }
@@ -98,9 +132,85 @@ namespace RouteJumper.ViewModels
 
         public RolesViewModel RolesViewModel { get; }
 
+        public TrackViewModel TrackViewModel { get; }
+
         public ControlsViewModel ControlsViewModel { get; }
 
         /// <summary>Owns spoken-announcement voice/volume/mute state - bound directly by MainWindow's mute button and the Preferences dialog.</summary>
         public SpeechAnnouncer SpeechAnnouncer { get; }
+
+        /// <summary>
+        /// File &gt; Ship Mode toggle (a checkable MenuItem binds directly to this). Switches
+        /// between Fleet Carrier mode (Roles/Controls tabs, Auto Pilot) and Ship mode (Track tab,
+        /// no automation) - see ApplyMode. Persisted immediately; restored at startup.
+        /// </summary>
+        public bool IsShipMode
+        {
+            get => _mode == TrackingMode.Ship;
+            set
+            {
+                var newMode = value ? TrackingMode.Ship : TrackingMode.FleetCarrier;
+                if (_mode == newMode)
+                {
+                    return;
+                }
+
+                // Computed from the *old* mode's own selection, before ApplyMode below hides the
+                // tab it might currently be pointing at.
+                SelectedTabIndex = MapSelectedTabAcrossModeSwitch(newMode, SelectedTabIndex);
+
+                _mode = newMode;
+                _settings.SetString(TrackingModeSettingKey, _mode.ToString());
+                ApplyMode(_mode);
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// The TabControl's own selection (two-way bound) - not persisted (SPEC §7), but carried
+        /// across a mode switch within the running session so the user never lands on a tab that
+        /// just became hidden. See MapSelectedTabAcrossModeSwitch.
+        /// </summary>
+        public int SelectedTabIndex
+        {
+            get => _selectedTabIndex;
+            set => SetProperty(ref _selectedTabIndex, value);
+        }
+
+        /// <summary>
+        /// Keeps the selected tab meaningful across a mode switch, rather than leaving it
+        /// pointing at a tab that's about to be hidden: entering Ship mode from Controls moves to
+        /// Route (Controls has no Ship-mode equivalent); from Roles moves to Track (its closest
+        /// equivalent); Route stays Route. Leaving Ship mode maps Track back to Roles; anything
+        /// else (i.e. Route) stays put.
+        /// </summary>
+        private static int MapSelectedTabAcrossModeSwitch(TrackingMode newMode, int currentTabIndex)
+        {
+            if (newMode == TrackingMode.Ship)
+            {
+                return currentTabIndex switch
+                {
+                    ControlsTabIndex => RouteTabIndex,
+                    RolesTabIndex => TrackTabIndex,
+                    _ => currentTabIndex
+                };
+            }
+
+            return currentTabIndex == TrackTabIndex ? RolesTabIndex : currentTabIndex;
+        }
+
+        /// <summary>
+        /// Activates exactly one of RolesViewModel/TrackViewModel's own journal watcher (see each
+        /// one's SetActive) and updates the Route tab's Auto Pilot button visibility to match -
+        /// exactly one tracking source is ever live at a time, matching "alternative mode," not
+        /// "both at once."
+        /// </summary>
+        private void ApplyMode(TrackingMode mode)
+        {
+            var isShip = mode == TrackingMode.Ship;
+            RolesViewModel.SetActive(!isShip);
+            TrackViewModel.SetActive(isShip);
+            RouteViewModel.SetShipMode(isShip);
+        }
     }
 }

@@ -59,6 +59,40 @@ namespace RouteJumper.Tests.TestSupport
             return this;
         }
 
+        public JournalFile StartJump(string jumpType, string? starSystem, DateTime? timestampUtc = null)
+        {
+            var systemPart = starSystem is null ? string.Empty : ",\"StarSystem\":\"" + starSystem + "\"";
+            _lines.Add(
+                "{\"timestamp\":\"" + TimestampOf(timestampUtc ?? DateTime.UtcNow) + "\",\"event\":\"StartJump\"," +
+                "\"JumpType\":\"" + jumpType + "\"" + systemPart + "}");
+            return this;
+        }
+
+        public JournalFile FSDJump(string starSystem, DateTime? timestampUtc = null)
+        {
+            _lines.Add(
+                "{\"timestamp\":\"" + TimestampOf(timestampUtc ?? DateTime.UtcNow) + "\",\"event\":\"FSDJump\"," +
+                "\"StarSystem\":\"" + starSystem + "\"}");
+            return this;
+        }
+
+        /// <summary>Note the field is "Name", not "StarSystem" - confirmed against a real journal.</summary>
+        public JournalFile FSDTarget(string name, DateTime? timestampUtc = null)
+        {
+            _lines.Add(
+                "{\"timestamp\":\"" + TimestampOf(timestampUtc ?? DateTime.UtcNow) + "\",\"event\":\"FSDTarget\"," +
+                "\"Name\":\"" + name + "\"}");
+            return this;
+        }
+
+        public JournalFile Music(string musicTrack, DateTime? timestampUtc = null)
+        {
+            _lines.Add(
+                "{\"timestamp\":\"" + TimestampOf(timestampUtc ?? DateTime.UtcNow) + "\",\"event\":\"Music\"," +
+                "\"MusicTrack\":\"" + musicTrack + "\"}");
+            return this;
+        }
+
         public string WriteTo(string path)
         {
             File.WriteAllLines(path, _lines);

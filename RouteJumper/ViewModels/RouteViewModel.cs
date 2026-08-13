@@ -24,6 +24,7 @@ namespace RouteJumper.ViewModels
         private string? _lastSavedRouteText;
         private bool _isSaved;
         private bool _isAutoPilotRunning;
+        private bool _showAutoPilotButton = true;
         private bool _autoCopyToClipboardEnabled;
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
@@ -61,7 +62,7 @@ namespace RouteJumper.ViewModels
             SaveCommand = new RelayCommand(Save, () => !string.IsNullOrWhiteSpace(RouteText));
             CancelCommand = new RelayCommand(Cancel);
             EditCommand = new RelayCommand(Edit, () => IsSaved && !IsAutoPilotRunning);
-            AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
+            AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => ShowAutoPilotButton && IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
             CopySystemCommand = new RelayCommand<RouteRowViewModel>(CopySystemToClipboard);
             SetNextSystemCommand = new RelayCommand<RouteRowViewModel>(SetNextSystem);
 
@@ -192,6 +193,40 @@ namespace RouteJumper.ViewModels
         /// under a run already in progress. A no-op if not currently running.
         /// </summary>
         public void StopAutoPilot() => IsAutoPilotRunning = false;
+
+        /// <summary>
+        /// Whether the Route tab's Auto Pilot button is shown at all - false in Ship mode, where
+        /// there's no macro automation (the CMDR flies and plots every jump manually). Also
+        /// folded into AutoPilotCommand's own CanExecute as defense-in-depth, so a stale
+        /// reference to the command can't be invoked while it's hidden either.
+        /// </summary>
+        public bool ShowAutoPilotButton
+        {
+            get => _showAutoPilotButton;
+            private set
+            {
+                if (SetProperty(ref _showAutoPilotButton, value))
+                {
+                    AutoPilotCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Called by MainViewModel whenever TrackingMode changes. Entering Ship mode hides the
+        /// Auto Pilot button and forcibly stops any run already in progress - hiding the button
+        /// alone would leave a macro silently still playing in the background, which would
+        /// directly violate Ship mode's "no automation at all" premise. Leaving Ship mode simply
+        /// shows the button again; nothing was left running to resume.
+        /// </summary>
+        public void SetShipMode(bool isShipMode)
+        {
+            ShowAutoPilotButton = !isShipMode;
+            if (isShipMode)
+            {
+                StopAutoPilot();
+            }
+        }
 
         /// <summary>Copies a row's System text to the clipboard and plays a confirmation ping.</summary>
         public RelayCommand<RouteRowViewModel> CopySystemCommand { get; }
@@ -365,10 +400,13 @@ namespace RouteJumper.ViewModels
         /// <summary>
         /// Drives "Auto Copy To Clipboard". Ignores every RowEvent kind except
         /// LiveCarrierLocation. Finds the row named by the event (the system the carrier just
-        /// arrived at - matched by name alone, not by current Icon/Status, since this fires
-        /// ahead of the delayed Arrived transition and so can't rely on that row already
-        /// showing Complete) and, if a next row exists, copies *that* row's System text - no
-        /// confirmation sound, unlike the manual click-to-copy, since this fires unattended.
+        /// arrived at - matched by name, skipping any row already Complete, since this fires
+        /// ahead of the delayed Arrived transition and so can't rely on the *current* visit's row
+        /// already showing Complete - but a repeated system name earlier in the route from a
+        /// genuinely earlier, already-finished visit must not be matched instead, or every later
+        /// revisit would keep copying whatever followed that first visit) and, if a next row
+        /// exists, copies *that* row's System text - no confirmation sound, unlike the manual
+        /// click-to-copy, since this fires unattended.
         /// </summary>
         private void OnLiveCarrierLocation(object? sender, RowEvent e)
         {
@@ -380,6 +418,11 @@ namespace RouteJumper.ViewModels
             var arrivedIndex = -1;
             for (var i = 0; i < Rows.Count; i++)
             {
+                if (Rows[i].Icon == RowIcon.Complete)
+                {
+                    continue;
+                }
+
                 if (string.Equals(Rows[i].SystemText, e.SystemName, StringComparison.OrdinalIgnoreCase))
                 {
                     arrivedIndex = i;

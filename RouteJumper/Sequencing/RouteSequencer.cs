@@ -15,6 +15,9 @@ namespace RouteJumper.Sequencing
     {
         private IReadOnlyList<RouteRowViewModel>? _rows;
 
+        /// <summary>A Targeted event's system name, held back because it arrived while some row was still Jumping/Cooldown - see ApplyRowEvent's own Targeted case and FlushDeferredTargeted.</summary>
+        private string? _deferredTargetedSystemName;
+
         /// <summary>
         /// Wires a row-addressable trigger into this instance. Any number of triggers can be
         /// attached; each applies directly to whichever rows were last passed to
@@ -44,15 +47,15 @@ namespace RouteJumper.Sequencing
         /// replaying each one individually. Jumping never needs to catch up earlier rows - by
         /// construction it only ever targets the row a prior Plotted event already brought
         /// current. CooldownElapsed is handled entirely separately (see
-        /// <see cref="ApplyCooldownElapsed"/>) since the Cooldown status it clears lives on the
-        /// row *after* the one its SystemName names, not on that row itself. Reset is not
+        /// <see cref="ApplyCooldownElapsed"/>) - not name-targeted at all, since the row it clears
+        /// isn't the one its own SystemName names (see RowEventKind.CooldownElapsed). Reset is not
         /// row-targeted at all - it clears every row unconditionally and skips the rest of this
         /// method entirely. JumpCancelled is also not name-targeted - see
         /// <see cref="ApplyJumpCancelled"/>. LiveCarrierLocation is not a route-mutating event at
         /// all - it's ignored here; RouteViewModel has its own separate subscription to the same
         /// trigger for it (see that value's doc comment).
         /// </summary>
-        private static void ApplyRowEvent(IReadOnlyList<RouteRowViewModel> rows, RowEvent e)
+        private void ApplyRowEvent(IReadOnlyList<RouteRowViewModel> rows, RowEvent e)
         {
             if (e.Kind == RowEventKind.Reset)
             {
@@ -62,6 +65,7 @@ namespace RouteJumper.Sequencing
                     eachRow.Status = string.Empty;
                     eachRow.PhaseEndUtc = null;
                 }
+                _deferredTargetedSystemName = null;
                 return;
             }
 
@@ -70,9 +74,18 @@ namespace RouteJumper.Sequencing
                 return;
             }
 
+            if (e.Kind == RowEventKind.Targeted && rows.Any(r => r.Status is "Jumping" or "Cooldown"))
+            {
+                // See RowEventKind.Targeted's own doc comment - held back until the in-flight
+                // cycle actually finishes, rather than potentially painting the wrong row.
+                _deferredTargetedSystemName = e.SystemName;
+                return;
+            }
+
             if (e.Kind == RowEventKind.CooldownElapsed)
             {
-                ApplyCooldownElapsed(rows, e.SystemName);
+                ApplyCooldownElapsed(rows);
+                FlushDeferredTargeted(rows);
                 return;
             }
 
@@ -104,6 +117,10 @@ namespace RouteJumper.Sequencing
             var row = rows[targetIndex];
             switch (e.Kind)
             {
+                case RowEventKind.Targeted:
+                    SetTargeted(row);
+                    break;
+
                 case RowEventKind.Plotting:
                     if (row.Icon != RowIcon.Complete)
                     {
@@ -159,33 +176,65 @@ namespace RouteJumper.Sequencing
             }
         }
 
-        /// <summary>
-        /// CooldownElapsed's SystemName names the row the carrier arrived *at* (the same name
-        /// Arrived above used) - but the Cooldown status it needs to clear was put on the row
-        /// *after* that one, not on the arrived-at row itself. So this looks up the (by now
-        /// Complete) arrived-at row by name first, then clears Cooldown on the row immediately
-        /// after it, if that row is still showing it. A safe no-op - same stale/duplicate-event
-        /// tolerance <see cref="FindTargetIndex"/> documents - if no such row is found, or the
-        /// row after it has already moved past Cooldown (e.g. a manual "Set next system"
-        /// override ran in between).
-        /// </summary>
-        private static void ApplyCooldownElapsed(IReadOnlyList<RouteRowViewModel> rows, string arrivedSystemName)
+        /// <summary>Sets Status = "Targeted" on <paramref name="row"/> - shared by ApplyRowEvent's own Targeted case and FlushDeferredTargeted, which both need the identical mutation.</summary>
+        private static void SetTargeted(RouteRowViewModel row)
         {
-            for (var i = 0; i < rows.Count; i++)
+            if (row.Icon != RowIcon.Complete)
             {
-                if (rows[i].Icon != RowIcon.Complete ||
-                    !string.Equals(rows[i].SystemText, arrivedSystemName, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
+                row.Icon = RowIcon.InProgress;
+            }
+            row.Status = "Targeted";
+            row.PhaseEndUtc = null;
+        }
 
-                if (i + 1 < rows.Count && rows[i + 1].Icon == RowIcon.InProgress && rows[i + 1].Status == "Cooldown")
-                {
-                    rows[i + 1].Status = string.Empty;
-                    rows[i + 1].PhaseEndUtc = null;
-                }
-
+        /// <summary>
+        /// Applies whatever Targeted event was held back by ApplyRowEvent's own Targeted case,
+        /// now that the in-flight cycle has actually finished (called immediately after
+        /// CooldownElapsed is processed, regardless of whether that specific call found a row to
+        /// clear - a route's very last row never gets a Cooldown to clear at all, but a deferred
+        /// Targeted should still flush once its own CooldownElapsed timer fires). A safe no-op if
+        /// nothing was deferred, or if the deferred system name no longer matches any row (e.g. a
+        /// manual "Set next system" override ran in the meantime).
+        /// </summary>
+        private void FlushDeferredTargeted(IReadOnlyList<RouteRowViewModel> rows)
+        {
+            if (_deferredTargetedSystemName is not { } systemName)
+            {
                 return;
+            }
+
+            _deferredTargetedSystemName = null;
+
+            var targetIndex = FindTargetIndex(rows, RowEventKind.Targeted, systemName);
+            if (targetIndex >= 0)
+            {
+                SetTargeted(rows[targetIndex]);
+            }
+        }
+
+        /// <summary>
+        /// Clears whichever row is currently showing "Cooldown" - there is only ever one such row
+        /// at a time (set exclusively by Arrived's own "next row" step above), so this searches
+        /// directly for it rather than looking it up via CooldownElapsed's own SystemName (the row
+        /// the carrier arrived *at*, not the one Cooldown itself is showing on - see
+        /// RowEventKind.CooldownElapsed). Deliberately *not* matched by name: a route that
+        /// revisits the same system more than once would otherwise risk matching an earlier,
+        /// already-completed visit's occurrence of that name instead of the current one, leaving
+        /// the real Cooldown row stuck forever once its own timer fired and found the wrong
+        /// target. A safe no-op - same stale/duplicate-event tolerance <see cref="FindTargetIndex"/>
+        /// documents - if no row is currently showing Cooldown (e.g. a manual "Set next system"
+        /// override already cleared it).
+        /// </summary>
+        private static void ApplyCooldownElapsed(IReadOnlyList<RouteRowViewModel> rows)
+        {
+            foreach (var row in rows)
+            {
+                if (row.Icon == RowIcon.InProgress && row.Status == "Cooldown")
+                {
+                    row.Status = string.Empty;
+                    row.PhaseEndUtc = null;
+                    return;
+                }
             }
         }
 
@@ -212,22 +261,24 @@ namespace RouteJumper.Sequencing
         }
 
         /// <summary>
-        /// Finds which row a row-addressable event targets. Plotted/Arrived match by System
-        /// text against any not-yet-complete row (any current status - matches the row a
+        /// Finds which row a row-addressable event targets. Plotted/Arrived/Targeted match by
+        /// System text against any not-yet-complete row (any current status - matches the row a
         /// catch-up would otherwise skip past). Jumping and Plotting are both derived/precise
-        /// follow-ups and are matched more strictly - by System text *and* the exact status their
-        /// own predecessor left behind (Plotted for Jumping; blank for Plotting, since it's
-        /// AutoPilotController's own first move for a row) - so a stale/duplicate event firing
-        /// after the row has already moved on is a safe no-op rather than corrupting a later
-        /// state. CooldownElapsed does not use this method at all - see
-        /// <see cref="ApplyCooldownElapsed"/>.
+        /// follow-ups and are matched more strictly - by System text *and* the status their own
+        /// predecessor left behind - so a stale/duplicate event firing after the row has already
+        /// moved on is a safe no-op rather than corrupting a later state. Plotting requires blank
+        /// (it's AutoPilotController's own first move for a row). Jumping accepts "Plotted"
+        /// (Fleet Carrier mode's own predecessor), "Targeted" (Ship mode's normal predecessor,
+        /// off FSDTarget), or blank (Ship mode fallback, in case FSDTarget was never observed for
+        /// this hop - a jump should still be trackable even without it). CooldownElapsed does not
+        /// use this method at all - see <see cref="ApplyCooldownElapsed"/>.
         /// </summary>
         private static int FindTargetIndex(IReadOnlyList<RouteRowViewModel> rows, RowEventKind kind, string systemName)
         {
-            var requireStatus = kind switch
+            var allowedStatuses = kind switch
             {
-                RowEventKind.Jumping => "Plotted",
-                RowEventKind.Plotting => string.Empty,
+                RowEventKind.Jumping => new[] { "Plotted", "Targeted", string.Empty },
+                RowEventKind.Plotting => new[] { string.Empty },
                 _ => null
             };
 
@@ -239,7 +290,7 @@ namespace RouteJumper.Sequencing
                     continue;
                 }
 
-                if (requireStatus != null && row.Status != requireStatus)
+                if (allowedStatuses != null && Array.IndexOf(allowedStatuses, row.Status) < 0)
                 {
                     continue;
                 }

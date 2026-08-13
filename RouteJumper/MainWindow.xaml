@@ -22,6 +22,8 @@
     <Window.Resources>
         <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
         <converters:MuteIconConverter x:Key="MuteIconConverter" />
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
     </Window.Resources>
 
     <Grid>
@@ -40,6 +42,7 @@
                 BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -55,9 +58,33 @@
                     </MenuItem>
                 </Menu>
 
+                <!-- Switches between Fleet Carrier mode (Roles/Controls tabs, Auto Pilot) and
+                     Ship mode (Track tab, no automation) - see MainViewModel.ApplyMode. A pair of
+                     mutually-exclusive choice chips (same RadioButton GroupName), centred in the
+                     toolbar strip (this middle column stretches; File/mute stay Auto-sized either
+                     side of it), always visible regardless of which tab is active. -->
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Mode"
+                               Opacity="0.6"
+                               VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <RadioButton Content="Ship"
+                                 GroupName="TrackingMode"
+                                 Style="{StaticResource MaterialDesignChoiceChipSecondaryRadioButton}"
+                                 IsChecked="{Binding IsShipMode, Mode=TwoWay}"
+                                 Margin="0,0,4,0" />
+                    <RadioButton Content="Fleet Carrier"
+                                 GroupName="TrackingMode"
+                                 Style="{StaticResource MaterialDesignChoiceChipSecondaryRadioButton}"
+                                 IsChecked="{Binding IsShipMode, Mode=TwoWay, Converter={StaticResource InverseBooleanConverter}}" />
+                </StackPanel>
+
                 <!-- Silences Auto Pilot's spoken plot/refuel announcements (SpeechAnnouncer.Speak) -
                      does not affect the Preferences dialog's own Test button, which always plays. -->
-                <Button Grid.Column="1"
+                <Button Grid.Column="2"
                         Style="{StaticResource MaterialDesignIconButton}"
                         Command="{Binding SpeechAnnouncer.ToggleMuteCommand}"
                         ToolTip="Mute/unmute spoken announcements"
@@ -106,15 +133,22 @@
             </Grid>
         </Border>
 
-        <TabControl Grid.Row="2" Margin="8" TabStripPlacement="Left">
+        <TabControl Grid.Row="2" Margin="8" TabStripPlacement="Left"
+                    SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
             <TabItem Header="Route">
                 <views:RouteView DataContext="{Binding RouteViewModel}" />
             </TabItem>
-            <TabItem Header="Roles">
+            <TabItem Header="Roles"
+                     Visibility="{Binding IsShipMode, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}">
                 <views:RolesView DataContext="{Binding RolesViewModel}" />
             </TabItem>
-            <TabItem Header="Controls">
+            <TabItem Header="Controls"
+                     Visibility="{Binding IsShipMode, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}">
                 <views:ControlsView DataContext="{Binding ControlsViewModel}" />
+            </TabItem>
+            <TabItem Header="Track"
+                     Visibility="{Binding IsShipMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                <views:TrackView DataContext="{Binding TrackViewModel}" />
             </TabItem>
         </TabControl>
     </Grid>

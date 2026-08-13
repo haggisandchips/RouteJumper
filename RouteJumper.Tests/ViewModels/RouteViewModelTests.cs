@@ -212,6 +212,48 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void SetShipMode_True_HidesButtonAndDisablesCommand()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir, canEngageAutoPilot: () => true);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+            Assert.True(vm.AutoPilotCommand.CanExecute(null));
+
+            vm.SetShipMode(true);
+
+            Assert.False(vm.ShowAutoPilotButton);
+            Assert.False(vm.AutoPilotCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public void SetShipMode_True_ForciblyStopsAnAlreadyRunningAutoPilot()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir, canEngageAutoPilot: () => true);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+            vm.AutoPilotCommand.Execute(null);
+            Assert.True(vm.IsAutoPilotRunning);
+
+            vm.SetShipMode(true);
+
+            Assert.False(vm.IsAutoPilotRunning);
+        }
+
+        [Fact]
+        public void SetShipMode_False_ShowsButtonAgain()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir, canEngageAutoPilot: () => true);
+            vm.SetShipMode(true);
+
+            vm.SetShipMode(false);
+
+            Assert.True(vm.ShowAutoPilotButton);
+        }
+
+        [Fact]
         public void StopAutoPilot_WhileRunning_SetsIsAutoPilotRunningFalse()
         {
             using var dir = new TempDirectory();
@@ -413,6 +455,30 @@ namespace RouteJumper.Tests.ViewModels
 
             trigger.Fire(RowEventKind.LiveCarrierLocation, "Sol", isLive: true);
 
+            Assert.False(vm.Rows[1].IsCopiedToClipboard);
+        }
+
+        [Fact]
+        public void LiveCarrierLocationEvent_RepeatedSystemName_CopiesRowAfterCurrentVisitNotFirstOccurrence()
+        {
+            // Regression test: matching purely by name (without skipping an already-Complete
+            // earlier occurrence) would always resolve to the row after the *first* visit to a
+            // repeated system, even on a later revisit - copying the wrong "next" system every
+            // time the route revisits that name.
+            using var dir = new TempDirectory();
+            var trigger = new ManualRowEventTrigger();
+            var vm = Create(dir, trigger);
+            vm.RouteText = "Sol\nDeciat\nSol\nWolf 359";
+            vm.SaveCommand.Execute(null);
+            vm.Rows[0].Icon = RowIcon.Complete; // first (earlier) visit to Sol, already finished
+            vm.Rows[1].Icon = RowIcon.Complete; // Deciat, also done
+            StaThread.Run(() => vm.AutoCopyToClipboardEnabled = true);
+
+            // The *second* Sol (index 2) is the current visit - not yet Complete at the moment
+            // LiveCarrierLocation fires (it's ahead of the delayed Arrived transition).
+            StaThread.Run(() => trigger.Fire(RowEventKind.LiveCarrierLocation, "Sol", isLive: true));
+
+            Assert.True(vm.Rows[3].IsCopiedToClipboard); // Wolf 359, not Deciat
             Assert.False(vm.Rows[1].IsCopiedToClipboard);
         }
 

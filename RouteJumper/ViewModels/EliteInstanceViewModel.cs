@@ -13,6 +13,7 @@ namespace RouteJumper.ViewModels
     {
         private bool _isCaptain;
         private bool _isEngineer;
+        private bool _isTracked;
 
         public EliteInstanceViewModel(
             int processId,
@@ -227,6 +228,13 @@ namespace RouteJumper.ViewModels
         {
             get => _isEngineer;
             set => SetProperty(ref _isEngineer, value);
+        }
+
+        /// <summary>True while this instance is the Track tab's tracked (Ship mode) instance.</summary>
+        public bool IsTracked
+        {
+            get => _isTracked;
+            set => SetProperty(ref _isTracked, value);
         }
     }
 }
