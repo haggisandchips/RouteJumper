@@ -165,6 +165,40 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void Distance_Change_AlsoRaisesDistanceDisplayChanged()
+        {
+            var row = new RouteRowViewModel();
+            var raised = new List<string?>();
+            row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            row.Distance = 12.3;
+
+            Assert.Contains(nameof(RouteRowViewModel.Distance), raised);
+            Assert.Contains(nameof(RouteRowViewModel.DistanceDisplay), raised);
+        }
+
+        [Fact]
+        public void DistanceDisplay_NoDistance_IsEmpty()
+        {
+            var row = new RouteRowViewModel();
+            Assert.Equal(string.Empty, row.DistanceDisplay);
+        }
+
+        [Fact]
+        public void DistanceDisplay_FormatsToOneDecimalPlaceWithLySuffix()
+        {
+            var row = new RouteRowViewModel { Distance = 12.345 };
+            Assert.Equal("12.3 ly", row.DistanceDisplay);
+        }
+
+        [Fact]
+        public void StarType_RoundTrips()
+        {
+            var row = new RouteRowViewModel { StarType = "K (Yellow-Orange) Star" };
+            Assert.Equal("K (Yellow-Orange) Star", row.StarType);
+        }
+
+        [Fact]
         public void SettingIcon_RaisesPropertyChanged()
         {
             var row = new RouteRowViewModel();

@@ -193,5 +193,16 @@ namespace RouteJumper.Tests.ViewModels
 
             Assert.False(received);
         }
+
+        [Fact]
+        public async Task InitialScanTask_CompletesOnceConstructorsOwnScanFinishes()
+        {
+            using var dir = new TempDirectory();
+            var (vm, _) = Create(dir, new[] { Instance(1) });
+
+            await vm.InitialScanTask;
+
+            Assert.Single(vm.Instances);
+        }
     }
 }

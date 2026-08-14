@@ -1,3 +1,5 @@
+using System.IO;
+using RouteJumper.Models;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
 using RouteJumper.Tests.TestSupport;
@@ -34,12 +36,14 @@ namespace RouteJumper.Tests.Services
             return events;
         }
 
-        private static (ShipRouteJournalWatcher Watcher, List<CapturedEvent> Events) CreateLive()
+        private static (ShipRouteJournalWatcher Watcher, List<CapturedEvent> Events) CreateLive(
+            string journalPath = "unused", IStarSystemLookupService? starSystemLookupService = null)
         {
             var events = new List<CapturedEvent>();
             var watcher = new ShipRouteJournalWatcher(
-                "unused",
-                (kind, systemName, isLive, phaseEndUtc) => events.Add(new CapturedEvent(kind, systemName, isLive, phaseEndUtc)));
+                journalPath,
+                (kind, systemName, isLive, phaseEndUtc) => events.Add(new CapturedEvent(kind, systemName, isLive, phaseEndUtc)),
+                starSystemLookupService);
             return (watcher, events);
         }
 
@@ -95,10 +99,12 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task StartAsync_TargetSetAfterArrival_FiresTargetedForNewSystem()
+        public async Task StartAsync_TargetSetAfterArrival_FiresBothArrivedAndTargeted()
         {
-            // Whichever of the three relevant events came last in the file wins, regardless of
-            // kind - here a fresh FSDTarget for the *next* hop is the latest word.
+            // Position (Location/FSDJump) and Targeted (FSDTarget) are independent results, not a
+            // single "whichever came last wins" tie-break - see ComputeCatchUpState's own doc
+            // comment. Both apply: the ship really did arrive at Deciat, *and* it has since
+            // locked a fresh target (Sol) that hasn't been jumped to yet.
             using var dir = new TempDirectory();
             var journal = new JournalFile()
                 .FSDJump("Deciat", DateTime.UtcNow.AddMinutes(-2))
@@ -106,9 +112,85 @@ namespace RouteJumper.Tests.Services
 
             var events = await RunCatchUpAsync(dir, journal);
 
+            Assert.Equal(2, events.Count);
+            var arrived = Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
+            Assert.Equal("Deciat", arrived.SystemName);
+            Assert.False(arrived.IsLive);
+            var targeted = Assert.Single(events, e => e.Kind == RowEventKind.Targeted);
+            Assert.Equal("Sol", targeted.SystemName);
+            Assert.False(targeted.IsLive);
+        }
+
+        [Fact]
+        public async Task StartAsync_JumpStartedAfterArrival_FiresArrivedThenJumping()
+        {
+            using var dir = new TempDirectory();
+            var journal = new JournalFile()
+                .FSDJump("Deciat", DateTime.UtcNow.AddMinutes(-2))
+                .StartJump("Hyperspace", "Sol", DateTime.UtcNow.AddMinutes(-1));
+
+            var events = await RunCatchUpAsync(dir, journal);
+
+            Assert.Equal(2, events.Count);
+            Assert.Single(events, e => e.Kind == RowEventKind.Arrived && e.SystemName == "Deciat");
+            Assert.Single(events, e => e.Kind == RowEventKind.Jumping && e.SystemName == "Sol");
+        }
+
+        [Fact]
+        public async Task StartAsync_TargetThenStartJump_TargetIsSupersededSoOnlyJumpingFires()
+        {
+            // Once a lock-on has actually been acted on (a real StartJump), the stale target no
+            // longer describes anything relevant - mirrors how live processing naturally
+            // supersedes one Status with another as the ship's real state moves on.
+            using var dir = new TempDirectory();
+            var journal = new JournalFile()
+                .FSDTarget("Deciat", DateTime.UtcNow.AddMinutes(-2))
+                .StartJump("Hyperspace", "Deciat", DateTime.UtcNow.AddMinutes(-1));
+
+            var events = await RunCatchUpAsync(dir, journal);
+
             var single = Assert.Single(events);
-            Assert.Equal(RowEventKind.Targeted, single.Kind);
-            Assert.Equal("Sol", single.SystemName);
+            Assert.Equal(RowEventKind.Jumping, single.Kind);
+        }
+
+        [Fact]
+        public async Task StartAsync_TargetThenNavRouteClear_FiresNoTargetedResult()
+        {
+            using var dir = new TempDirectory();
+            var journal = new JournalFile()
+                .FSDTarget("Deciat", DateTime.UtcNow.AddMinutes(-2))
+                .NavRouteClear(DateTime.UtcNow.AddMinutes(-1));
+
+            var events = await RunCatchUpAsync(dir, journal);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public async Task StartAsync_LocationAloneEstablishesPosition_FiresArrived()
+        {
+            using var dir = new TempDirectory();
+            var journal = new JournalFile().Location("Sol", DateTime.UtcNow.AddMinutes(-1));
+
+            var events = await RunCatchUpAsync(dir, journal);
+
+            var arrived = Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
+            Assert.Equal("Sol", arrived.SystemName);
+            Assert.False(arrived.IsLive);
+        }
+
+        [Fact]
+        public async Task StartAsync_LocationAfterFsdJump_LocationWins()
+        {
+            using var dir = new TempDirectory();
+            var journal = new JournalFile()
+                .FSDJump("Deciat", DateTime.UtcNow.AddMinutes(-2))
+                .Location("Sol", DateTime.UtcNow.AddMinutes(-1));
+
+            var events = await RunCatchUpAsync(dir, journal);
+
+            var arrived = Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
+            Assert.Equal("Sol", arrived.SystemName);
         }
 
         [Fact]
@@ -278,6 +360,249 @@ namespace RouteJumper.Tests.Services
                 isLive: true);
 
             Assert.Empty(events);
+        }
+
+        [Fact]
+        public void ProcessLine_LiveLocation_FiresLiveCarrierLocationThenArrivedWithNoPhaseEnd()
+        {
+            var (watcher, events) = CreateLive();
+            using var _ = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"Location\",\"StarSystem\":\"Sol\"}",
+                isLive: true);
+
+            Assert.Equal(2, events.Count);
+            Assert.Single(events, e => e.Kind == RowEventKind.LiveCarrierLocation && e.SystemName == "Sol");
+            var arrived = Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
+            Assert.Equal("Sol", arrived.SystemName);
+            Assert.True(arrived.IsLive);
+            // Never a jump-completion signal in its own right - must never imply a cooldown is
+            // now counting down (RouteSequencer's own Arrived Cooldown gate needs both IsLive and
+            // a real PhaseEndUtc).
+            Assert.Null(arrived.PhaseEndUtc);
+        }
+
+        [Fact]
+        public void ProcessLine_CatchUpLocation_FiresArrivedNotLive()
+        {
+            var (watcher, events) = CreateLive();
+            using var _ = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"Location\",\"StarSystem\":\"Sol\"}",
+                isLive: false);
+
+            var arrived = Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
+            Assert.False(arrived.IsLive);
+            Assert.DoesNotContain(events, e => e.Kind == RowEventKind.LiveCarrierLocation);
+        }
+
+        [Fact]
+        public void ProcessLine_LiveLocation_SupersedesAPendingFsdJumpArrivalAwaitingMusic()
+        {
+            // A fresh Location snapshot (e.g. a relog) is more recent and more authoritative than
+            // a stale pending arrival still awaiting Music confirmation - the pending arrival must
+            // never fire once superseded.
+            var (watcher, events) = CreateLive();
+            using var _ = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDJump\",\"StarSystem\":\"Deciat\"}",
+                isLive: true);
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"Location\",\"StarSystem\":\"Sol\"}",
+                isLive: true);
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"Music\",\"MusicTrack\":\"Supercruise\"}",
+                isLive: true);
+
+            // Only Location's own Arrived (Sol) - the superseded FSDJump pending arrival (Deciat)
+            // never fires, even though a qualifying Music track followed.
+            Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
+            Assert.DoesNotContain(events, e => e.Kind == RowEventKind.Arrived && e.SystemName == "Deciat");
+        }
+
+        [Fact]
+        public void ProcessLine_LiveNavRouteClear_FiresTargetCleared()
+        {
+            var (watcher, events) = CreateLive();
+            using var _ = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"NavRouteClear\"}",
+                isLive: true);
+
+            var single = Assert.Single(events);
+            Assert.Equal(RowEventKind.TargetCleared, single.Kind);
+            Assert.True(single.IsLive);
+        }
+
+        // ===================== FSDTarget-driven cache seeding (StarClass/NavRoute.json) =====================
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithStarClass_SeedsStarType()
+        {
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, _) = CreateLive(starSystemLookupService: fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Deciat\",\"StarClass\":\"K\"}",
+                isLive: true);
+            // Cache seeding is deliberately backgrounded (see ProcessLine's own comment) so it
+            // never delays processing the next journal line - tests wait for it explicitly instead
+            // of racing a fire-and-forget Task.Run.
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithoutStarClass_DoesNotSeedStarType()
+        {
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, _) = CreateLive(starSystemLookupService: fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Deciat\"}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Empty(fake.StarTypes);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithRemainingJumpsInRoute_SeedsFromNavRouteJson()
+        {
+            using var dir = new TempDirectory();
+            var journalPath = dir.CombinePath("Journal.Test.01.log");
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "event": "NavRoute",
+                    "Route": [
+                        { "StarSystem": "Sol", "SystemAddress": 10477373803, "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Deciat", "SystemAddress": 1, "StarPos": [3.0, 4.0, 0.0], "StarClass": "K" }
+                    ]
+                }
+                """);
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, _) = CreateLive(journalPath, fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Sol\",\"RemainingJumpsInRoute\":2}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
+            Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
+            Assert.Equal("G (White-Yellow) Star", fake.StarTypes["Sol"]);
+            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithoutRemainingJumpsInRoute_DoesNotReadNavRoute()
+        {
+            using var dir = new TempDirectory();
+            var journalPath = dir.CombinePath("Journal.Test.01.log");
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                { "Route": [ { "StarSystem": "Sol", "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" } ] }
+                """);
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, _) = CreateLive(journalPath, fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Sol\"}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Empty(fake.Coordinates);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithRemainingJumpsInRoute_MissingNavRouteFile_DoesNotThrow()
+        {
+            using var dir = new TempDirectory();
+            var journalPath = dir.CombinePath("Journal.Test.01.log");
+            // No NavRoute.json written at all - a plausible real-world race (RemainingJumpsInRoute
+            // present, but the file hasn't been (re)written yet) that must degrade gracefully.
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, events) = CreateLive(journalPath, fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Sol\",\"RemainingJumpsInRoute\":2}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Empty(fake.Coordinates);
+            Assert.Single(events, e => e.Kind == RowEventKind.Targeted); // the row event itself still fired fine
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveNavRouteEvent_SeedsFromNavRouteJson()
+        {
+            // The NavRoute journal event itself - not just FSDTarget's own RemainingJumpsInRoute
+            // field - is the primary signal that NavRoute.json was just (re)written, e.g. plotting
+            // or re-plotting a route via the galaxy map, which can happen well before the CMDR
+            // ever actually targets/locks the next jump.
+            using var dir = new TempDirectory();
+            var journalPath = dir.CombinePath("Journal.Test.01.log");
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "event": "NavRoute",
+                    "Route": [
+                        { "StarSystem": "Sol", "SystemAddress": 10477373803, "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Deciat", "SystemAddress": 1, "StarPos": [3.0, 4.0, 0.0], "StarClass": "K" }
+                    ]
+                }
+                """);
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, events) = CreateLive(journalPath, fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"NavRoute\"}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
+            Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
+            Assert.Equal("G (White-Yellow) Star", fake.StarTypes["Sol"]);
+            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+            Assert.Empty(events); // no row-progress event - purely opportunistic cache seeding
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveNavRouteEventWithNoLookupServiceSupplied_DoesNotThrow()
+        {
+            var (watcher, events) = CreateLive(); // starSystemLookupService intentionally omitted
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"NavRoute\"}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithNoLookupServiceSupplied_DoesNotThrow()
+        {
+            var (watcher, events) = CreateLive(); // starSystemLookupService intentionally omitted
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Sol\",\"StarClass\":\"G\",\"RemainingJumpsInRoute\":2}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Single(events, e => e.Kind == RowEventKind.Targeted);
         }
     }
 }

@@ -1,3 +1,5 @@
+using System.IO;
+using RouteJumper.Models;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
 using RouteJumper.Tests.TestSupport;
@@ -155,6 +157,143 @@ namespace RouteJumper.Tests.Services
 
             var arrived = Assert.Single(events, e => e.Kind == RowEventKind.Arrived);
             Assert.Equal("Sol", arrived.SystemName);
+        }
+
+        // ===================== FSDTarget-driven cache seeding (Captain's own ship) =====================
+
+        private static (CarrierRouteJournalWatcher Watcher, List<CapturedEvent> Events) CreateLive(
+            string journalPath = "unused", IStarSystemLookupService? starSystemLookupService = null)
+        {
+            var events = new List<CapturedEvent>();
+            var watcher = new CarrierRouteJournalWatcher(
+                journalPath,
+                CarrierId,
+                (kind, systemName, isLive, phaseEndUtc) => events.Add(new CapturedEvent(kind, systemName, isLive, phaseEndUtc)),
+                () => { },
+                starSystemLookupService);
+            return (watcher, events);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithStarClass_SeedsStarTypeWithoutFiringAnyRowEvent()
+        {
+            // Unlike Ship mode's own FSDTarget handling, the Captain's own ship targeting a jump
+            // is not itself route-relevant here (carrier progress is driven entirely by Carrier*
+            // events) - only the opportunistic cache seed should happen, no RowEvent at all.
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, events) = CreateLive(starSystemLookupService: fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Deciat\",\"StarClass\":\"K\"}",
+                isLive: true);
+            // Cache seeding is deliberately backgrounded (see ProcessLine's own comment) so it
+            // never delays processing the next journal line - tests wait for it explicitly instead
+            // of racing a fire-and-forget Task.Run.
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithRemainingJumpsInRoute_SeedsFromNavRouteJson()
+        {
+            using var dir = new TempDirectory();
+            var journalPath = dir.CombinePath("Journal.Test.01.log");
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "event": "NavRoute",
+                    "Route": [
+                        { "StarSystem": "Sol", "SystemAddress": 10477373803, "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Deciat", "SystemAddress": 1, "StarPos": [3.0, 4.0, 0.0], "StarClass": "K" }
+                    ]
+                }
+                """);
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, _) = CreateLive(journalPath, fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Sol\",\"RemainingJumpsInRoute\":2}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
+            Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithNoLookupServiceSupplied_DoesNotThrow()
+        {
+            var (watcher, events) = CreateLive(); // starSystemLookupService intentionally omitted
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Sol\",\"StarClass\":\"G\",\"RemainingJumpsInRoute\":2}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveNavRouteEvent_SeedsFromNavRouteJsonWithoutFiringAnyRowEvent()
+        {
+            using var dir = new TempDirectory();
+            var journalPath = dir.CombinePath("Journal.Test.01.log");
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "event": "NavRoute",
+                    "Route": [
+                        { "StarSystem": "Sol", "SystemAddress": 10477373803, "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Deciat", "SystemAddress": 1, "StarPos": [3.0, 4.0, 0.0], "StarClass": "K" }
+                    ]
+                }
+                """);
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, events) = CreateLive(journalPath, fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"NavRoute\"}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
+            Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveNavRouteEventWithNoLookupServiceSupplied_DoesNotThrow()
+        {
+            var (watcher, events) = CreateLive(); // starSystemLookupService intentionally omitted
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"NavRoute\"}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void ProcessLine_LiveNavRouteClear_FiresTargetCleared()
+        {
+            // The Captain's own ship explicitly clearing its plotted route - carries no
+            // CarrierID/CarrierType, same as FSDTarget/NavRoute above.
+            var (watcher, events) = CreateLive();
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"NavRouteClear\"}",
+                isLive: true);
+
+            var single = Assert.Single(events);
+            Assert.Equal(RowEventKind.TargetCleared, single.Kind);
+            Assert.True(single.IsLive);
         }
     }
 }

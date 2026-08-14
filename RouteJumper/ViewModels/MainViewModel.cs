@@ -48,18 +48,34 @@ namespace RouteJumper.ViewModels
 
             SpeechAnnouncer = new SpeechAnnouncer(_settings, new SapiSpeechEngine());
 
+            // One shared instance across all three ViewModels below - not just each defaulting to
+            // its own (which would still share the same underlying on-disk cache via AppSettingsStore
+            // just fine, and did before this). The instance itself must be shared so RouteViewModel's
+            // DataSeeded subscription (its live-refresh debounce - see its own constructor) actually
+            // observes seeds made through RolesViewModel's/TrackViewModel's own CarrierRouteJournalWatcher/
+            // ShipRouteJournalWatcher, which write through this same object rather than a separate one.
+            var starSystemLookupService = new EdsmStarSystemLookupService(_settings);
+
             // The RolesViewModel/ControlsViewModel property dereferences below are guaranteed
             // safe despite still being unassigned at this exact statement - these closures are
             // only ever invoked later, once the whole constructor (and both assignments) has
             // completed; the nullable analyzer can't see that far ahead through a deferred
             // lambda, hence the null-forgiving operators.
-            RouteViewModel = new RouteViewModel(_settings, routeEventTrigger, () => RolesViewModel!.CanEngageAutoPilot);
+            RouteViewModel = new RouteViewModel(
+                _settings,
+                routeEventTrigger,
+                () => RolesViewModel!.CanEngageAutoPilot,
+                starSystemLookupService,
+                () => _mode == TrackingMode.Ship
+                    ? TrackViewModel!.Instances.FirstOrDefault(i => i.IsTracked)?.CurrentSystem
+                    : RolesViewModel!.CaptainInstance?.CurrentSystem);
             RolesViewModel = new RolesViewModel(
                 routeEventTrigger,
                 _settings,
                 new EliteInstanceScanner(config),
-                () => ControlsViewModel!.Macros);
-            TrackViewModel = new TrackViewModel(routeEventTrigger, _settings, new EliteInstanceScanner(config));
+                () => ControlsViewModel!.Macros,
+                starSystemLookupService);
+            TrackViewModel = new TrackViewModel(routeEventTrigger, _settings, new EliteInstanceScanner(config), starSystemLookupService);
             ControlsViewModel = new ControlsViewModel(
                 _settings,
                 new EliteInstanceScanner(config),
@@ -126,6 +142,21 @@ namespace RouteJumper.ViewModels
 
             // Must run after the RouteSaved wiring above - see RouteViewModel.RestoreFromSettings.
             RouteViewModel.RestoreFromSettings();
+
+            // RestoreFromSettings' own Save() call above captures its Distance/Star Type origin
+            // (the closure passed into RouteViewModel's constructor) before RolesViewModel's/
+            // TrackViewModel's own startup instance scan - still in flight, suspended at its own
+            // Task.Run - has resolved a restored Captain/tracked instance, so row 1's Distance
+            // comes back blank on a normal relaunch even though one is about to be restored
+            // moments later. Re-triggering enrichment once that scan actually finishes closes the
+            // gap; RefreshEnrichment is cheap to call regardless (a no-op if no route is saved).
+            _ = RefreshEnrichmentAfterInitialScanAsync();
+        }
+
+        private async Task RefreshEnrichmentAfterInitialScanAsync()
+        {
+            await (_mode == TrackingMode.Ship ? TrackViewModel.InitialScanTask : RolesViewModel.InitialScanTask);
+            RouteViewModel.RefreshEnrichment();
         }
 
         public RouteViewModel RouteViewModel { get; }

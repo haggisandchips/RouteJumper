@@ -184,16 +184,18 @@ one is visible at a time.
   | 1 | *(blank)* | Row icon — see §4.4 |
   | 2 | `#` | Row number, 1-based, in save order |
   | 3 | `System` | The row's system text, plus a clipboard icon when this row's text is currently on the clipboard (§4.6) |
-  | 4 | `Status` | Current status text — see §4.4 |
+  | 4 | `Distance` | Leg distance in light-years, previous row → this row — see §4.9 |
+  | 5 | `Star Type` | This row's system's main star's type — see §4.9 |
+  | 6 | `Status` | Current status text — see §4.4 |
 
 - Column widths are user-resizable (drag a header's edge). The icon, `#`,
-  and `System` columns are persisted per column (§7) — restored on the
-  next launch in place of the default widths above, until first resized.
-  `Status`, the trailing column, always fills whatever width the other
-  three leave unused rather than being persisted as a fixed size — its
-  progress bar (§4.4) needs real remaining width to stretch into on every
-  launch, at whatever size the window happens to be, not a pixel width
-  frozen from a previous session.
+  `System`, `Distance`, and `Star Type` columns are persisted per column
+  (§7) — restored on the next launch in place of the default widths
+  above, until first resized. `Status`, the trailing column, always fills
+  whatever width the other five leave unused rather than being persisted
+  as a fixed size — its progress bar (§4.4) needs real remaining width to
+  stretch into on every launch, at whatever size the window happens to
+  be, not a pixel width frozen from a previous session.
 - Clicking anywhere in a row copies that row's system name to the clipboard
   and plays a confirmation sound (see §4.6 for the clipboard-source icon
   this also sets).
@@ -449,6 +451,105 @@ the whole route reaches Complete or Auto Pilot is stopped:
 - Muting (§3.4) silently suppresses every announcement described here;
   it has no effect on the Preferences dialog's own Test control (§3.5).
 
+### 4.9 Distance and Star Type
+
+Every row's `Distance` and `Star Type` columns (§4.2) are populated
+asynchronously, in the background, against
+[EDSM](https://www.edsm.net) - the first (and, as of writing, only)
+outbound network call this app makes to a third-party service, aside from
+Velopack's own internal update-check calls (§3.7). Only system names are
+ever sent; no commander or journal data leaves the app. Applies identically
+in Fleet Carrier and Ship mode - useful in both, though more so for Ship
+mode's manually-flown routes, where knowing whether the next leg is within
+jump range matters, and `Star Type` is "interesting info" for explorers who
+might pause en route rather than something either mode tracks.
+
+- **`Distance`** is a **leg distance**: the straight-line distance,
+  previous row → this row - never a live "distance from wherever the CMDR
+  currently is." Row 1's own "previous" is wherever the CMDR's own ship
+  (Fleet Carrier mode: the currently-assigned Captain's; Ship mode: the
+  currently-tracked instance's - never a fleet carrier's own position,
+  even in Fleet Carrier mode) was at the moment the route was last
+  saved/restored; every row after that is the static distance between two
+  named systems in the route. Computed once per Save (and once more, in
+  the background, after app startup once a restored Captain/tracked
+  instance's own first scan resolves - see below) and never
+  recomputed afterward, even as the CMDR/carrier actually progresses along
+  the route - this is a planning aid, not a live nav computer, and is
+  computed entirely outside the event-driven row-progress engine that
+  drives Icon/Status (§5.7/§8.3, CLAUDE.md) since it describes the route's
+  static topology, not tracked progress.
+- **`Star Type`** is this row's own system's main star's EDSM-reported
+  type (e.g. "K (Yellow-Orange) Star"), independent of `Distance` and of
+  any origin/current position.
+- Both populate **progressively** in the background after Save/restore -
+  the table itself appears immediately with these columns blank, filling
+  in over the next moments as each lookup resolves, never blocking the
+  UI. A system EDSM has no coordinates/star data for - or a lookup that
+  fails outright (offline, EDSM unreachable, etc.) - simply leaves that
+  cell blank permanently, rather than blocking, freezing, retrying
+  forever, or showing a guess.
+- Once resolved, a system's coordinates/star type are cached locally
+  indefinitely (§7) and never queried again - a second Save/restore
+  referencing the same system name reuses the cached value instantly. An
+  *unresolved* name is not cached, and is retried on the next
+  Save/restore, since EDSM's own crowdsourced data can fill in later.
+- On a normal app launch with a previously-saved route, `Distance`
+  populates in two passes: once immediately (using whatever origin is
+  already known at that instant, if any), and once more automatically
+  once the restored Captain's/tracked instance's own startup scan
+  actually resolves - since that scan is still asynchronously in flight
+  at the moment the route itself is first restored, row 1's distance
+  would otherwise come back blank on every relaunch despite a Captain/
+  tracked instance being restored moments later.
+- **Both modes also opportunistically fill the same cache for free**,
+  entirely locally, from journal events a commander's own ship raises -
+  in Ship mode, the tracked instance's own journal (§8.3's journal
+  watcher already observes `FSDTarget` live for the `Targeted` row
+  status); in Fleet Carrier mode, the *Captain's* own ship journal
+  (watched independently of the carrier's own `CarrierJumpRequest`/
+  `CarrierLocation` events - a Captain can be flying their own ship
+  around, e.g. escorting the carrier or running their own errands, while
+  the carrier itself jumps on its own schedule):
+  - `FSDTarget`'s own `StarClass` field seeds `Star Type` for whichever
+    system was just targeted, formatted to match EDSM's own naming (e.g.
+    `K` → "K (Yellow-Orange) Star") - reformatted only where that mapping
+    is well-established (main-sequence classes, neutron stars, black
+    holes, white dwarf subclasses); anything more exotic is cached as the
+    raw journal code rather than guessing at an unverified format.
+  - Two independent triggers read the companion `NavRoute.json` file
+    (beside the journal, the same convention every other Frontier
+    companion file uses) and seed both `Distance`'s coordinates and
+    `Star Type` for **every** system in the currently-plotted route in
+    one pass: the `NavRoute` journal event itself - a marker-only line
+    (no fields of its own) confirming the file was just (re)written,
+    e.g. the CMDR plotting or re-plotting a route via the galaxy map -
+    and, as a secondary trigger, `FSDTarget`'s own `RemainingJumpsInRoute`
+    field (present only while a multi-jump route is actively plotted),
+    which can catch a still-current route even without a fresh `NavRoute`
+    line (e.g. after an app restart mid-route). Either way, this includes
+    procedurally-generated systems EDSM may have no record of at all,
+    since `NavRoute.json` is the game's own exact calculation for
+    wherever the CMDR is actually about to fly - the one gap it genuinely
+    fills that the route-*tracking* engine itself can't use it for
+    (§5.7/§8.3: the game's own plotted route doesn't necessarily match
+    the pasted one row-for-row) - coordinates/star type are looked up by
+    system name, so they benefit the pasted route regardless of whether
+    it matches the in-game one.
+  - Purely opportunistic caching, never required for anything to work -
+    a system neither of these fills in still falls back to an EDSM
+    lookup exactly as before, and Fleet Carrier mode's own Auto Pilot/row
+    tracking is entirely unaffected by any of it (Captain FSDTarget lines
+    fire no row event at all, only this cache seed).
+- **A newly-seeded system refreshes already-displayed rows live**, not
+  only at the next Save/restore - a system resolved via `FSDTarget`/
+  `NavRoute.json` moments after the table was last populated (e.g. mid-
+  session, not just on app launch) updates that row's cell within the
+  next second or so, without requiring an app restart. Debounced: a
+  single `NavRoute.json` read can seed many systems in a tight loop, which
+  collapses into one refresh shortly after the burst quiets down rather
+  than one per system.
+
 ---
 
 ## 5. Roles Tab
@@ -618,6 +719,22 @@ commander's own).
   the route (a deliberately circular route) is the one case "first
   occurrence" can point at the wrong instance of it - the manual "Set
   next system" override (§4.2) exists for exactly that.
+- This "complete every earlier row" behaviour applies equally to the
+  one-off catch-up result above and to an ordinary, genuinely live
+  `Plotted`/`Arrived` event during live tailing — even one that targets a
+  row further ahead than the current one (e.g. the carrier's real path
+  skipped over a pasted row entirely). `Plotted`/`Arrived` are both
+  authoritative, confirmed progress (a real `CarrierJumpRequest`, or a
+  real arrival) rather than a mere intention, so a request/arrival
+  landing further along the pasted route than expected is still real
+  proof the carrier passed that point — live or replayed makes no
+  difference to that fact. `Targeted` (Ship mode, §8.3) is the one kind
+  that never sweeps anything, at any time - a locked jump target is only
+  ever an intention, never proof anything was actually reached; see
+  §8.3's own Targeted handling for how a stale target is cleared instead
+  without inventing false progress. A genuine off-route deviation is what
+  the manual "Set next system" override (§4.2) is for, as a deliberate
+  action.
 
 **Transitions and timing** (all measured from a journal event's own
 timestamp, never from when the app happens to read the line; each fires
@@ -1044,7 +1161,8 @@ rather than internal app state like the table below.
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
-| Route table column widths (icon, `#`, `System` only — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
+| Route table column widths (icon, `#`, `System`, `Distance`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
+| EDSM system coordinates/star type cache (§4.9) | First successful lookup of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
@@ -1124,53 +1242,86 @@ Route tab's own click-to-copy).
 
 ### 8.3 Journal-driven route updates
 Analogous to §5.7, but driven by the commander's own ship, not a fleet
-carrier, with a different event vocabulary and different timing:
+carrier, with a different event vocabulary and different timing. Unlike
+§5.7's carrier tracking - where a single `CarrierJumpRequest`/
+`CarrierLocation` stream is both "what's the current system" and "is
+anything locked in" rolled together - Ship mode deliberately keeps two
+things independent, since real play (the CMDR repeatedly targeting or
+re-targeting systems, including well off-route, without necessarily ever
+jumping) can change one without the other:
 
-- **`Targeted`**: `FSDTarget` (selecting/locking a jump target, e.g. in
-  the galaxy map) sets the targeted row's Status to `Targeted`. Real
-  play shows Elite's own multi-route auto-target behaviour typically
-  firing the *next* hop's `FSDTarget` while the *current* hop is still
-  `Jumping`/`Cooldown` — the CMDR pre-selecting, or the game
-  auto-selecting, the following waypoint before the current one has
-  actually finished. Applying it immediately in that window would mark
-  the wrong (not-yet-current) row, so it's deferred until the in-flight
-  cycle actually finishes (`Cooldown` clears), then applied to whichever
-  row is genuinely current at that point. This also naturally covers a
-  CMDR manually re-targeting mid-jump out of habit, not just the game's
-  own automatic behaviour. If the targeted system doesn't match any row
-  at all — e.g. the CMDR manually targeted an off-route system, realised
-  it was too far for one jump, and plotted a multi-jump in-game route to
-  somewhere else instead, whose own first-hop `FSDTarget` names an
-  intermediate system the pasted route never mentions — whichever row was
-  previously showing `Targeted` is cleared back to blank rather than left
-  stuck showing a target the ship is no longer actually pointed at; its
-  icon is left alone, since it's still genuinely the next system the
-  route expects to reach.
+- **Current system** (drives Complete/in-progress, exactly like §5.7's
+  composite Arrived step: whichever row matches → Complete, blank; the
+  next row, if any, → in-progress) is calculated **only** from
+  `Location` and `FSDJump` - both genuinely authoritative "the ship is
+  now at system X" statements, never from `FSDTarget`/`StartJump`, which
+  are only ever intentions or an in-flight jump, not proof of arrival.
+  Whichever of the two fires later always wins. If the named system
+  isn't found in the route at all (the CMDR is genuinely off-route, or
+  hasn't reached the route yet), **nothing is marked Complete** - the
+  table is left exactly as it was rather than guessing.
+  - `FSDJump` itself is not applied immediately, even though it carries
+    the arrival system name - see the Arrived sub-bullet below for why
+    (Music confirmation).
+  - `Location` (session start, a relog, or another definite-position
+    snapshot) *is* applied immediately, with no such wait - it isn't the
+    tail end of a just-completed jump, so there's nothing to wait for. It
+    never puts the next row into `Cooldown`, even though it's a live
+    event: a positional snapshot is not proof a jump just completed, and
+    it supersedes any `FSDJump` arrival still awaiting Music confirmation
+    below (a fresher, more authoritative statement of position wins).
+- **`Targeted`** is a separate overlay, never itself proof of arrival and
+  never able to complete anything: `FSDTarget` (selecting/locking a jump
+  target, e.g. in the galaxy map) sets Status to `Targeted` on whichever
+  not-yet-complete row it names - there is only ever one `Targeted` row
+  at a time. Real play shows Elite's own multi-route auto-target
+  behaviour typically firing the *next* hop's `FSDTarget` while the
+  *current* hop is still `Jumping`/`Cooldown` - the CMDR pre-selecting,
+  or the game auto-selecting, the following waypoint before the current
+  one has actually finished. Applying it immediately in that window would
+  mark the wrong (not-yet-current) row, so it's deferred until the
+  in-flight cycle actually finishes (`Cooldown` clears), then applied to
+  whichever row is genuinely current at that point. This also naturally
+  covers a CMDR manually re-targeting mid-jump out of habit, not just the
+  game's own automatic behaviour.
+  `Targeted` is cleared - by a fresh `FSDTarget` for a different or
+  off-route system, or by `NavRouteClear` (the CMDR explicitly clearing
+  their plotted route) - without ever leaving the row it was on looking
+  like the route's current row. A row that only ever showed its icon
+  *because* it was `Targeted` reverts fully to no icon at all once
+  cleared; only the one row current system has genuinely reached (see
+  above) keeps its icon regardless of any targeting churn elsewhere. This
+  is what makes repeatedly targeting or re-targeting various systems,
+  on or off route, without ever actually jumping, behave correctly: it
+  only ever changes which row (if any) shows the `Targeted` overlay,
+  never which row is Complete or current.
 - **`Jumping`**: `StartJump` with `JumpType` `"Hyperspace"` sets Status to
   `Jumping`, immediately — `"Supercharge"` (an in-system neutron/
   white-dwarf FSD boost that doesn't change system) is ignored. Unlike
   Fleet Carrier mode's own `Jumping` transition, there is no lead time to
   derive: `StartJump` only ever fires once a jump is already, genuinely
   underway.
-- **Arrived** (the same composite step as §5.7: targeted row → Complete,
-  blank; next row, if any, → current): *not* fired directly off
-  `FSDJump`, even though it carries the arrival system name — `FSDJump`
-  fires while the game is still mid-transition (loading/settling), too
-  early to treat as arrived for Cooldown-timing purposes. The actual
-  signal is the `Music` event that follows it: a `MusicTrack` of
-  `DestinationFromHyperspace` or `Supercruise` (both valid — which one
-  depends on some other in-game factor not yet understood) once the game
-  has actually settled into normal flight at the destination. `FSDJump`
-  records a pending arrival; the next qualifying `Music` event resolves
-  it into the real Arrived step. A generous fallback timer resolves the
-  pending arrival anyway if neither Music track shows up in time — a
-  backstop, not the expected path.
+- **Arrived's `FSDJump` path**: not applied directly off `FSDJump`, even
+  though it carries the arrival system name — `FSDJump` fires while the
+  game is still mid-transition (loading/settling), too early to treat as
+  arrived for Cooldown-timing purposes. The actual signal is the `Music`
+  event that follows it: a `MusicTrack` of `DestinationFromHyperspace` or
+  `Supercruise` (both valid — which one depends on some other in-game
+  factor not yet understood) once the game has actually settled into
+  normal flight at the destination. `FSDJump` records a pending arrival;
+  the next qualifying `Music` event resolves it into the real current-
+  system update above. A generous fallback timer resolves the pending
+  arrival anyway if neither Music track shows up in time — a backstop,
+  not the expected path.
 - **`Cooldown`** (shown on the row *after* the arrived-at one, same
   convention as §5.7): clears a **provisional** fixed duration after
-  Arrived resolves. Ships do have a real FSD cooldown after a jump (not
-  merely cosmetic dressing to mirror Fleet Carrier mode's own vocabulary)
-  — its exact real-world duration hasn't been measured yet, so a
-  placeholder value is used pending that measurement.
+  the current system updates to the arrived-at row via a genuinely live
+  `FSDJump`/Music resolution specifically - never off `Location`, which
+  never sets `Cooldown` at all (see above). Ships do have a real FSD
+  cooldown after a jump (not merely cosmetic dressing to mirror Fleet
+  Carrier mode's own vocabulary) — its exact real-world duration hasn't
+  been measured yet, so a placeholder value is used pending that
+  measurement.
 - Unlike Fleet Carrier mode, there is no known journal event for an
   aborted/interrupted ship jump (Elite's schema has no
   `StartJumpCancelled`) — a jump interrupted mid-charge (e.g. by an
@@ -1179,11 +1330,18 @@ carrier, with a different event vocabulary and different timing:
   automatically recovered.
 - Same catch-up principle as §5.7: on assignment (or resuming after a
   mode switch), the whole journal is read first, oldest to newest by
-  line order, to compute a single authoritative "what's this ship's
-  status right now" — whichever of a still-open target selection, an
-  in-flight jump, or the most recent arrival was seen *last* — and only
-  that one derived result is applied, never one event per historical
-  line. Only after that does live tailing begin.
+  line order, to compute a single authoritative result for *each* of the
+  independent pieces above - current system (whichever of `Location`/
+  `FSDJump` came last), an in-flight jump (a Hyperspace `StartJump` not
+  yet superseded by a later `Location`/`FSDJump`), and a still-open
+  target (an `FSDTarget` not yet superseded by `NavRouteClear` or by the
+  ship actually having since jumped or arrived) - and only those derived
+  results are applied, never one event per historical line. This is what
+  lets catch-up correctly resolve "the ship really did arrive at Deciat,
+  *and* separately has a fresh, not-yet-acted-on target locked on Sol" as
+  two simultaneous, independent facts, rather than a single "whichever
+  event merely happened most recently in the file" answer. Only after
+  this does live tailing begin.
 
 ### 8.4 Distinguishing the ship from a fleet carrier
 A commander who also owns a fleet carrier has both `FSDTarget`/
@@ -1227,6 +1385,11 @@ outright the instant Ship mode is switched on.
   `MaterialDesignThemes`/`MaterialDesignColors`, `Microsoft.Data.Sqlite`,
   and `System.Speech` (the OS speech engine used for §4.8's spoken
   announcements).
+- **Network:** the Route tab's Distance/Star Type columns (§4.9) are this
+  app's first feature making outbound calls to a third-party web service -
+  [EDSM](https://www.edsm.net), free and requiring no API key. Every call
+  is best-effort (never blocks Save, the UI, or app startup), aggressively
+  cached (§7), and sends only system names, never commander/journal data.
 
 ---
 
@@ -1558,7 +1721,9 @@ outright the instant Ship mode is switched on.
     than leaving it stuck - e.g. targeting an off-route system, then
     plotting a multi-jump in-game route elsewhere whose own first-hop
     `FSDTarget` names an intermediate system the pasted route never
-    mentions. The cleared row's icon is left as the current row.
+    mentions. The cleared row's icon reverts to none at all, unless it's
+    also the route's one genuine current row (see criterion 64), in which
+    case that row's own icon is unaffected.
 58. Unassigning the tracked instance (explicitly, or because its process
     stops running) leaves the route table exactly as displayed, with no
     forced reset. Switching away from Ship mode behaves the same way;
@@ -1568,3 +1733,65 @@ outright the instant Ship mode is switched on.
     restart with no manual reconfiguration required, restoring in Ship
     mode with the same instance re-tracked (once it's running again) if
     that's how the app was left.
+60. Saving or restoring a route computes each row's `Distance` and
+    `Star Type` (§4.9) asynchronously against EDSM without blocking the
+    table's own appearance - the table shows immediately with both
+    columns blank, filling in progressively as each lookup resolves. Row
+    1's `Distance` is measured from the CMDR's own ship's current system
+    (Fleet Carrier mode: the Captain's; Ship mode: the tracked instance's)
+    at that moment, not a fleet carrier's own position.
+61. A system EDSM has no data for, or a lookup that fails outright (e.g.
+    offline), leaves that row's `Distance`/`Star Type` cell blank rather
+    than blocking, freezing, retrying forever, or crashing. A
+    successfully-resolved system is never queried again on a later
+    Save/restore - its coordinates/star type are reused from the local
+    cache instantly.
+62. A commander's own ship `FSDTarget`/`NavRoute` events opportunistically
+    seed `Star Type`/`Distance`'s coordinate cache (§4.9) - `FSDTarget`'s
+    own `StarClass` field, and `NavRoute.json` (read on either a live
+    `NavRoute` event or `FSDTarget`'s own `RemainingJumpsInRoute` field) -
+    in both Fleet Carrier mode (the Captain's own ship, independent of
+    the carrier's own jump tracking) and Ship mode, and an
+    already-displayed row refreshes live once a seed resolves it -
+    without requiring a Save, restore, or app restart.
+63. A `Plotted`/`Arrived` event that targets a row further ahead than
+    expected (the carrier/CMDR skipped over one or more pasted rows
+    entirely) completes those skipped rows too, live or replayed alike -
+    both represent authoritative, confirmed progress (a real
+    `CarrierJumpRequest`, or a real arrival), never a mere intention. A
+    `Targeted` event (Ship mode, §8.3) never completes anything, at any
+    time - a locked jump target is only ever an intention. A genuine
+    off-route deviation the CMDR never intended is corrected via the
+    manual "Set next system" override (§4.2), not inferred automatically.
+64. Ship mode's current-system tracking (§8.3) is driven only by
+    `Location`/`FSDJump`, never by `FSDTarget`/`StartJump`. Repeatedly
+    targeting or re-targeting various systems - on or off route - without
+    ever actually jumping never marks any row Complete and never leaves
+    more than one row showing an icon of its own: the route's one
+    genuine current row (wherever `Location`/`FSDJump` last confirmed the
+    ship to be, or row 1 by default before either has fired) always keeps
+    its own icon regardless of the targeting churn, and a row that only
+    ever showed an icon *because* it was `Targeted` fully reverts to no
+    icon at all - never left looking like the current row - the instant
+    it stops being targeted (superseded by a different target, an
+    off-route target, or `NavRouteClear`).
+65. `NavRouteClear` (Ship mode's own ship, and the Captain's own ship in
+    Fleet Carrier mode) clears whichever row is currently showing
+    `Targeted`, the same as a fresh off-route `FSDTarget` would (see
+    criterion 64).
+66. Ship mode's `Location` event (session start, a relog, or another
+    definite-position snapshot) updates current-system tracking
+    immediately, the same as a confirmed `FSDJump` arrival, but never
+    puts the next row into `Cooldown`, even when observed live - only a
+    genuinely just-completed hyperspace jump (`FSDJump`/Music) does that.
+    A `Location` observed while an earlier `FSDJump` is still awaiting
+    Music confirmation supersedes it - the superseded pending arrival
+    never fires.
+67. Ship mode's catch-up (assigning a tracked instance, or resuming after
+    a mode switch) resolves current-system, in-flight-jump, and
+    still-open-target as three independent results from the whole
+    journal, not a single "whichever event happened most recently in the
+    file" answer - e.g. a journal showing a confirmed arrival followed by
+    a fresh, not-yet-acted-on target correctly applies *both*: the
+    arrived-at row (and everything before it) becomes Complete, and the
+    targeted row (wherever it is in the route) shows `Targeted`.

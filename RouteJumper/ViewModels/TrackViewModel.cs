@@ -27,6 +27,7 @@ namespace RouteJumper.ViewModels
         private readonly IEliteInstanceScanner _scanner;
         private readonly ManualRowEventTrigger _routeEventTrigger;
         private readonly AppSettingsStore _settings;
+        private readonly IStarSystemLookupService _starSystemLookupService;
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
@@ -34,22 +35,40 @@ namespace RouteJumper.ViewModels
         private ShipRouteJournalWatcher? _shipWatcher;
         private bool _isActive;
 
+        /// <summary>
+        /// <paramref name="starSystemLookupService"/> lets a live FSDTarget in Ship mode
+        /// opportunistically seed the Route tab's Distance/Star Type cache (SPEC §4.9) for free -
+        /// see ShipRouteJournalWatcher. Defaults to a real EDSM-backed instance sharing this
+        /// ViewModel's own AppSettingsStore, the same "real default unless a test overrides it"
+        /// pattern RouteViewModel's own constructor already uses - no cross-ViewModel instance
+        /// sharing is needed for the cache itself to be shared, since AppSettingsStore is a
+        /// stateless wrapper over the same on-disk SQLite table regardless of which
+        /// EdsmStarSystemLookupService instance is writing through it.
+        /// </summary>
         public TrackViewModel(
             ManualRowEventTrigger routeEventTrigger,
             AppSettingsStore settings,
-            IEliteInstanceScanner scanner)
+            IEliteInstanceScanner scanner,
+            IStarSystemLookupService? starSystemLookupService = null)
         {
             _routeEventTrigger = routeEventTrigger;
             _settings = settings;
             _scanner = scanner;
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
             ToggleTrackedCommand = new RelayCommand<EliteInstanceViewModel>(ToggleTracked);
             CopyJournalFileNameCommand = new RelayCommand<string>(ClipboardCopyHelper.CopyWithPing);
 
-            _ = RefreshAsync();
+            InitialScanTask = RefreshAsync();
         }
+
+        /// <summary>
+        /// Completes once this constructor's own first scan finishes - see
+        /// RolesViewModel.InitialScanTask's own doc comment for why MainViewModel needs this.
+        /// </summary>
+        public Task InitialScanTask { get; }
 
         public ObservableCollection<EliteInstanceViewModel> Instances { get; }
 
@@ -273,7 +292,8 @@ namespace RouteJumper.ViewModels
             var dispatcher = Application.Current.Dispatcher;
             _shipWatcher = new ShipRouteJournalWatcher(
                 instance.JournalFilePath,
-                (kind, systemName, isLive, phaseEndUtc) => dispatcher.BeginInvoke(() => _routeEventTrigger.Fire(kind, systemName, isLive, phaseEndUtc)));
+                (kind, systemName, isLive, phaseEndUtc) => dispatcher.BeginInvoke(() => _routeEventTrigger.Fire(kind, systemName, isLive, phaseEndUtc)),
+                _starSystemLookupService);
 
             _ = _shipWatcher.StartAsync();
         }

@@ -1,3 +1,4 @@
+using System.Windows.Threading;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
@@ -9,8 +10,19 @@ namespace RouteJumper.Tests.ViewModels
 {
     public class RouteViewModelTests
     {
-        private static RouteViewModel Create(TempDirectory dir, IRowEventTrigger? trigger = null, Func<bool>? canEngageAutoPilot = null) =>
-            new(new AppSettingsStore(dir.Path), trigger, canEngageAutoPilot);
+        // Defaults to a FakeStarSystemLookupService (never the real EDSM one) so every test in
+        // this file - including ones that don't care about Distance/Star Type at all - stays
+        // offline/hermetic and fast; Save() fires enrichment off in the background regardless of
+        // whether a test is looking at it.
+        private static RouteViewModel Create(
+            TempDirectory dir,
+            IRowEventTrigger? trigger = null,
+            Func<bool>? canEngageAutoPilot = null,
+            IStarSystemLookupService? starSystemLookupService = null,
+            Func<string?>? getOriginSystemName = null) =>
+            new(new AppSettingsStore(dir.Path), trigger, canEngageAutoPilot,
+                starSystemLookupService ?? new FakeStarSystemLookupService(),
+                getOriginSystemName);
 
         [Fact]
         public void SaveCommand_DisabledForBlankText()
@@ -497,6 +509,174 @@ namespace RouteJumper.Tests.ViewModels
             // No next row to copy - the initial "turn it on" copy of the in-progress row is the
             // only thing that should have happened.
             Assert.True(vm.Rows[0].IsCopiedToClipboard);
+        }
+
+        [Fact]
+        public void Save_ReturnsImmediately_WhileEnrichmentLookupStillGated()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService { Gate = new TaskCompletionSource() };
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+
+            vm.SaveCommand.Execute(null); // must not block on the still-gated fake lookup
+
+            Assert.True(vm.IsSaved);
+            Assert.Single(vm.Rows);
+            Assert.Null(vm.Rows[0].Distance);
+            Assert.Null(vm.Rows[0].StarType);
+        }
+
+        [Fact]
+        public async Task Save_RowsPopulate_OnceEnrichmentLookupCompletes()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService { Gate = new TaskCompletionSource() };
+            fake.StarTypes["Sol"] = "G (White-Yellow) Star";
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+
+            vm.SaveCommand.Execute(null);
+            fake.Gate.SetResult();
+            await WaitUntilAsync(() => vm.Rows[0].StarType != null);
+
+            Assert.Equal("G (White-Yellow) Star", vm.Rows[0].StarType);
+        }
+
+        [Fact]
+        public async Task Save_OriginClosure_DrivesRow1Distance()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Origin System"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["Sol"] = new GalacticCoordinates(3, 4, 0);
+            var vm = Create(dir, starSystemLookupService: fake, getOriginSystemName: () => "Origin System");
+            vm.RouteText = "Sol";
+
+            vm.SaveCommand.Execute(null);
+            await WaitUntilAsync(() => vm.Rows[0].Distance != null);
+
+            Assert.Equal(5.0, vm.Rows[0].Distance!.Value, precision: 6);
+        }
+
+        [Fact]
+        public async Task Save_BeforePriorEnrichmentCompletes_CancelsTheStaleRun()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService { Gate = new TaskCompletionSource() };
+            fake.StarTypes["Alpha Centauri"] = "G (White-Yellow) Star";
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null); // starts enrichment for "Sol", gated - never completes
+
+            vm.RouteText = "Alpha Centauri";
+            vm.SaveCommand.Execute(null); // supersedes the still-pending "Sol" run
+            fake.Gate.SetResult();
+            await WaitUntilAsync(() => vm.Rows[0].StarType != null);
+
+            Assert.Equal("Alpha Centauri", vm.Rows[0].SystemText);
+            Assert.Equal("G (White-Yellow) Star", vm.Rows[0].StarType);
+        }
+
+        [Fact]
+        public void DataSeeded_AfterSaveAlreadyRendered_LiveRefreshesAlreadyDisplayedRowWithoutRestart()
+        {
+            // Regression test for the reported bug: a system resolved *after* Save's own
+            // enrichment pass already ran (e.g. a live FSDTarget/NavRoute.json seed arriving later
+            // in the session) used to only ever show up at the next Save/restore (an app restart)
+            // - RouteViewModel's DataSeeded subscription (its debounce timer) is what fixes that.
+            // Needs a real, pumped Dispatcher (DispatcherTimer.Tick only fires against one) - see
+            // PumpDispatcherUntil - so this is deliberately the one real-time-dependent test for
+            // this behaviour, mirroring the same accepted real-time-Timer testing gap
+            // CarrierRouteJournalWatcherTests/ShipRouteJournalWatcherTests already document for
+            // themselves, just paid for directly here instead of skipped, since this test exists
+            // specifically to prove the live-refresh bug fix end to end.
+            StaThread.Run(() =>
+            {
+                using var dir = new TempDirectory();
+                var fake = new FakeStarSystemLookupService();
+                var vm = Create(dir, starSystemLookupService: fake);
+                vm.RouteText = "Sol";
+                vm.SaveCommand.Execute(null);
+                Assert.Null(vm.Rows[0].StarType); // "Sol" wasn't resolvable yet at Save time
+
+                fake.SeedStarType("Sol", "G (White-Yellow) Star"); // e.g. a live FSDTarget seed
+
+                PumpDispatcherUntil(() => vm.Rows[0].StarType != null, timeoutMs: 2000);
+
+                Assert.Equal("G (White-Yellow) Star", vm.Rows[0].StarType);
+            });
+        }
+
+        [Fact]
+        public void DataSeeded_BurstOfSeeds_CollapsesIntoOneRefreshNotOnePerSeed()
+        {
+            StaThread.Run(() =>
+            {
+                using var dir = new TempDirectory();
+                var fake = new FakeStarSystemLookupService();
+                var vm = Create(dir, starSystemLookupService: fake);
+                vm.RouteText = "Sol";
+                vm.SaveCommand.Execute(null);
+                var callCountBeforeBurst = fake.StarTypeCallOrder.Count;
+
+                // A burst of seeds in a tight loop (e.g. one NavRoute.json read seeding many
+                // systems) should debounce into a single refresh, not one per seed.
+                for (var i = 0; i < 5; i++)
+                {
+                    fake.SeedStarType("Sol", "G (White-Yellow) Star");
+                }
+
+                PumpDispatcherUntil(() => fake.StarTypeCallOrder.Count > callCountBeforeBurst, timeoutMs: 2000);
+
+                // Exactly one further GetMainStarTypeAsync call (the single debounced refresh),
+                // not five.
+                Assert.Equal(callCountBeforeBurst + 1, fake.StarTypeCallOrder.Count);
+            });
+        }
+
+        /// <summary>
+        /// Runs a nested Dispatcher message loop on the calling thread (which must already have
+        /// one - see StaThread.Run + a DispatcherTimer constructed on this same thread, as
+        /// RouteViewModel's own debounce timer is) until <paramref name="condition"/> is true or
+        /// <paramref name="timeoutMs"/> elapses - the only way a DispatcherTimer's Tick (background
+        /// priority) ever actually fires, since a plain synchronous test method has no message
+        /// pump of its own.
+        /// </summary>
+        private static void PumpDispatcherUntil(Func<bool> condition, int timeoutMs)
+        {
+            var frame = new DispatcherFrame();
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            var pollTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(20) };
+            pollTimer.Tick += (_, _) =>
+            {
+                if (condition() || DateTime.UtcNow > deadline)
+                {
+                    frame.Continue = false;
+                }
+            };
+            pollTimer.Start();
+            Dispatcher.PushFrame(frame);
+            pollTimer.Stop();
+
+            if (!condition())
+            {
+                throw new TimeoutException("Condition was not met within the timeout.");
+            }
+        }
+
+        private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 2000)
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (!condition())
+            {
+                if (DateTime.UtcNow > deadline)
+                {
+                    throw new TimeoutException("Condition was not met within the timeout.");
+                }
+
+                await Task.Delay(10);
+            }
         }
     }
 }

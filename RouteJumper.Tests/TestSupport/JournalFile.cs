@@ -93,6 +93,20 @@ namespace RouteJumper.Tests.TestSupport
             return this;
         }
 
+        public JournalFile Location(string starSystem, DateTime? timestampUtc = null)
+        {
+            _lines.Add(
+                "{\"timestamp\":\"" + TimestampOf(timestampUtc ?? DateTime.UtcNow) + "\",\"event\":\"Location\"," +
+                "\"StarSystem\":\"" + starSystem + "\"}");
+            return this;
+        }
+
+        public JournalFile NavRouteClear(DateTime? timestampUtc = null)
+        {
+            _lines.Add("{\"timestamp\":\"" + TimestampOf(timestampUtc ?? DateTime.UtcNow) + "\",\"event\":\"NavRouteClear\"}");
+            return this;
+        }
+
         public string WriteTo(string path)
         {
             File.WriteAllLines(path, _lines);

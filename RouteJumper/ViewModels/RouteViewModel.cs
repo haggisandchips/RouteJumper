@@ -19,6 +19,9 @@ namespace RouteJumper.ViewModels
         private readonly RouteSequencer _sequencer;
         private readonly AppSettingsStore _settings;
         private readonly Func<bool> _canEngageAutoPilot;
+        private readonly RouteRowEnrichmentService _enrichmentService;
+        private readonly Func<string?> _getOriginSystemName;
+        private CancellationTokenSource? _enrichmentCts;
 
         private string _routeText = string.Empty;
         private string? _lastSavedRouteText;
@@ -29,6 +32,7 @@ namespace RouteJumper.ViewModels
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
         private readonly DispatcherTimer _progressTimer;
+        private readonly DispatcherTimer _dataSeededDebounceTimer;
 
         /// <summary>
         /// <paramref name="canEngageAutoPilot"/> resolves whether the Roles tab currently has
@@ -37,12 +41,57 @@ namespace RouteJumper.ViewModels
         /// RolesViewModel, the same one-way, event-free bridging pattern used elsewhere, since
         /// this ViewModel has no reference to RolesViewModel itself. Defaults to always-true so
         /// existing callers/tests that don't care about role/macro gating keep working.
+        ///
+        /// <paramref name="starSystemLookupService"/>/<paramref name="getOriginSystemName"/> drive
+        /// the Distance/Star Type columns (see Save's own enrichment trigger below) -
+        /// <paramref name="getOriginSystemName"/> resolves row 1's "previous" system (the CMDR's
+        /// own current system at Save time), the same closure-over-another-tab's-ViewModel
+        /// bridging pattern as <paramref name="canEngageAutoPilot"/>. Both default to a real EDSM
+        /// lookup / "unknown" respectively, so existing callers/tests that don't care about
+        /// enrichment keep working unchanged.
         /// </summary>
-        public RouteViewModel(AppSettingsStore settings, IRowEventTrigger? rowEventTrigger = null, Func<bool>? canEngageAutoPilot = null)
+        public RouteViewModel(
+            AppSettingsStore settings,
+            IRowEventTrigger? rowEventTrigger = null,
+            Func<bool>? canEngageAutoPilot = null,
+            IStarSystemLookupService? starSystemLookupService = null,
+            Func<string?>? getOriginSystemName = null)
         {
             _settings = settings;
             _canEngageAutoPilot = canEngageAutoPilot ?? (() => true);
+            var lookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
+            _enrichmentService = new RouteRowEnrichmentService(lookupService);
+            _getOriginSystemName = getOriginSystemName ?? (() => null);
             Rows = new ObservableCollection<RouteRowViewModel>();
+
+            // Debounced live refresh: a live FSDTarget/NavRoute.json seed (Ship mode) or a
+            // Captain's own ship FSDTarget (Fleet Carrier mode - see CarrierRouteJournalWatcher)
+            // can resolve a system's Distance/Star Type *after* this table's own last Save/restore
+            // already rendered that row blank - without this, the newly-known data would only ever
+            // show up at the next Save/restore (e.g. an app restart), not live. DataSeeded may fire
+            // from a background thread (journal watchers tail files off the UI thread), so it's
+            // marshalled onto this DispatcherTimer's own captured dispatcher (the thread that
+            // constructed this ViewModel - the UI thread in production) before touching it, rather
+            // than Application.Current.Dispatcher - which would be null in a headless test host
+            // that never starts a real WPF Application. The timer itself debounces: one
+            // NavRoute.json read seeds many systems in a tight loop, and a full RefreshEnrichment()
+            // per seed would be wasteful - Stop+Start on every DataSeeded restarts the countdown,
+            // so a burst collapses into one refresh shortly after it quiets down, not one per
+            // system.
+            _dataSeededDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+            _dataSeededDebounceTimer.Tick += (_, _) =>
+            {
+                _dataSeededDebounceTimer.Stop();
+                RefreshEnrichment();
+            };
+            lookupService.DataSeeded += (_, _) => _dataSeededDebounceTimer.Dispatcher.BeginInvoke(() =>
+            {
+                _dataSeededDebounceTimer.Stop();
+                _dataSeededDebounceTimer.Start();
+            });
 
             // Row-addressable events (from the Roles tab's Captain journal watcher) apply
             // directly to Rows.
@@ -282,7 +331,56 @@ namespace RouteJumper.ViewModels
             _lastSavedRouteText = RouteText;
             _settings.SetString(RouteTextSettingKey, RouteText);
             RouteSaved?.Invoke(this, EventArgs.Empty);
+
+            TriggerEnrichment();
         }
+
+        /// <summary>
+        /// (Re)starts populating every row's Distance/Star Type (RouteRowEnrichmentService)
+        /// against a fresh snapshot of the current Rows/origin - called at the end of every Save
+        /// (including RestoreFromSettings' own re-invocation of it), and once more by
+        /// RefreshEnrichment below. Cancels any still-running previous population first, so an
+        /// Edit-&gt;Save cycle (or a fast double-Save) cleanly abandons a now-superseded lookup
+        /// rather than racing to mutate rows a newer Save already replaced. This is a one-time,
+        /// best-effort background calculation, never wired into RouteSequencer/the event-driven
+        /// Sequencing/ engine (CLAUDE.md) - Distance/Star Type describe the route's static
+        /// topology, not tracked progress, and never need live recomputation once resolved.
+        /// </summary>
+        private void TriggerEnrichment()
+        {
+            _enrichmentCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _enrichmentCts = cts;
+
+            var rowsSnapshot = Rows.ToList();
+            var origin = _getOriginSystemName();
+            _ = RunEnrichmentAsync(rowsSnapshot, origin, cts.Token);
+        }
+
+        private async Task RunEnrichmentAsync(List<RouteRowViewModel> rows, string? origin, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _enrichmentService.PopulateAsync(rows, origin, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded by a later Save/RefreshEnrichment - that newer run already owns
+                // populating the current Rows, so there's nothing left to do here.
+            }
+        }
+
+        /// <summary>
+        /// Re-runs Distance/Star Type population for the currently-saved route without rebuilding
+        /// Rows itself - called by MainViewModel once RolesViewModel's/TrackViewModel's own
+        /// startup instance scan finishes, since on a normal app relaunch RestoreFromSettings'
+        /// own Save() runs (and so captures its origin) before that scan has resolved a restored
+        /// Captain/tracked instance, leaving row 1's Distance blank even though one is about to be
+        /// restored moments later. Re-fetching here is cheap regardless, since
+        /// EdsmStarSystemLookupService's cache will almost always already have everything from
+        /// that first pass. A no-op-ish call (nothing to populate) if no route is saved yet.
+        /// </summary>
+        public void RefreshEnrichment() => TriggerEnrichment();
 
         /// <summary>
         /// Undoes whatever's been typed since Edit was last entered: if a route has been saved

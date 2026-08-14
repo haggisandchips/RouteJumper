@@ -80,6 +80,7 @@ namespace RouteJumper.Services
         private readonly long _carrierId;
         private readonly Action<RowEventKind, string, bool, DateTime?> _onRowEvent;
         private readonly Action _onCarrierStatsObserved;
+        private readonly IStarSystemLookupService? _starSystemLookupService;
         private readonly object _readLock = new();
         private readonly List<Timer> _scheduledTimers = new();
 
@@ -95,16 +96,28 @@ namespace RouteJumper.Services
         /// </summary>
         private Timer? _pendingJumpingTimer;
 
+        /// <summary>The most recently kicked-off background cache-seeding task (see ProcessLine's FSDTarget/NavRoute cases) - test-only visibility via WaitForPendingCacheSeedAsync; production code never awaits this.</summary>
+        private Task _pendingCacheSeedTask = Task.CompletedTask;
+
+        /// <summary>
+        /// <paramref name="starSystemLookupService"/>, if given, lets a live FSDTarget from the
+        /// Captain's own ship opportunistically seed the Route tab's Distance/Star Type cache
+        /// (SPEC §4.9) for free - see ProcessLine's own FSDTarget case and StarSystemCacheSeeder,
+        /// the same mechanism ShipRouteJournalWatcher uses in Ship mode. Optional/null-safe so
+        /// existing callers/tests that don't care about this are unaffected.
+        /// </summary>
         public CarrierRouteJournalWatcher(
             string journalPath,
             long carrierId,
             Action<RowEventKind, string, bool, DateTime?> onRowEvent,
-            Action onCarrierStatsObserved)
+            Action onCarrierStatsObserved,
+            IStarSystemLookupService? starSystemLookupService = null)
         {
             _journalPath = journalPath;
             _carrierId = carrierId;
             _onRowEvent = onRowEvent;
             _onCarrierStatsObserved = onCarrierStatsObserved;
+            _starSystemLookupService = starSystemLookupService;
         }
 
         public Task StartAsync() => Task.Run(() =>
@@ -311,10 +324,20 @@ namespace RouteJumper.Services
 
         private static readonly HashSet<string> RelevantEvents = new()
         {
-            "CarrierJumpRequest", "CarrierLocation", "CarrierJumpCancelled", "CarrierStats"
+            "CarrierJumpRequest", "CarrierLocation", "CarrierJumpCancelled", "CarrierStats", "FSDTarget", "NavRoute", "NavRouteClear"
         };
 
-        private void ProcessLine(string line, bool isLive)
+        /// <summary>
+        /// Test-only hook: awaits whatever background cache-seeding task (see ProcessLine's
+        /// FSDTarget/NavRoute cases) was most recently kicked off, so tests can deterministically
+        /// wait for it to finish before asserting cache state, rather than racing a fire-and-forget
+        /// Task.Run. Production code never calls this - the whole point of backgrounding the seed
+        /// is that nothing else in this class waits on it.
+        /// </summary>
+        internal Task WaitForPendingCacheSeedAsync() => _pendingCacheSeedTask;
+
+        /// <summary>Internal (not private) so tests can exercise the live-tailed path deterministically, without depending on real FileSystemWatcher timing - same testability precedent as ShipRouteJournalWatcher.ProcessLine.</summary>
+        internal void ProcessLine(string line, bool isLive)
         {
             var eventName = JournalEventName.Extract(line);
             if (eventName is null || !RelevantEvents.Contains(eventName))
@@ -335,6 +358,56 @@ namespace RouteJumper.Services
             using (doc)
             {
                 var root = doc.RootElement;
+
+                if (eventName == "FSDTarget")
+                {
+                    // The Captain's own ship targeting a jump - structurally unrelated to (and
+                    // carries none of) the CarrierID/CarrierType fields every carrier event below
+                    // is filtered by, so this is handled entirely separately, before that
+                    // filtering. Opportunistic cache seeding only (SPEC §4.9) - nothing about
+                    // carrier route-progress tracking depends on it. Deliberately backgrounded
+                    // (Task.Run, not awaited) - see ShipRouteJournalWatcher's identical handling
+                    // for the full rationale (NavRoute.json reads/seeds must never delay processing
+                    // whatever journal line comes right after this one) and StarSystemCacheSeeder,
+                    // which this shares. root.Clone() detaches the element from `doc`, which this
+                    // method's own `using` block disposes as soon as ProcessLine returns - long
+                    // before this background task actually runs.
+                    if (root.TryGetProperty("Name", out var nm) && nm.GetString() is { } targetSystem)
+                    {
+                        var clonedRoot = root.Clone();
+                        _pendingCacheSeedTask = Task.Run(
+                            () => StarSystemCacheSeeder.SeedFromFsdTarget(clonedRoot, targetSystem, _journalPath, _starSystemLookupService));
+                    }
+
+                    return;
+                }
+
+                if (eventName == "NavRoute")
+                {
+                    // Marker-only line (just a timestamp) that NavRoute.json has just been
+                    // (re)written by the Captain's own ship plotting/re-plotting a route via the
+                    // galaxy map - also carries no CarrierID/CarrierType. Same deliberately
+                    // backgrounded seeding as FSDTarget above - see ShipRouteJournalWatcher's
+                    // identical handling and StarSystemCacheSeeder.
+                    if (_starSystemLookupService != null)
+                    {
+                        var lookupService = _starSystemLookupService;
+                        _pendingCacheSeedTask = Task.Run(() => StarSystemCacheSeeder.SeedFromNavRoute(_journalPath, lookupService));
+                    }
+
+                    return;
+                }
+
+                if (eventName == "NavRouteClear")
+                {
+                    // The Captain's own ship explicitly clearing its plotted route - also carries
+                    // no CarrierID/CarrierType. Fleet Carrier mode never itself raises Targeted
+                    // (that's Ship-mode-only, per RowEventKind.Targeted), so this is normally an
+                    // inert no-op here - kept for symmetry with ShipRouteJournalWatcher's identical
+                    // handling, and to stay correct if that ever changes. See RowEventKind.TargetCleared.
+                    _onRowEvent(RowEventKind.TargetCleared, string.Empty, isLive, null);
+                    return;
+                }
 
                 // CarrierJumpCancelled/CarrierStats carry no CarrierType field at all (unlike
                 // CarrierJumpRequest/CarrierLocation, which can also describe a shared squadron

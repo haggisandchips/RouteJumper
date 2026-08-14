@@ -21,6 +21,7 @@ namespace RouteJumper.ViewModels
         private readonly ManualRowEventTrigger _routeEventTrigger;
         private readonly AppSettingsStore _settings;
         private readonly Func<ObservableCollection<RecordedMacroViewModel>> _getMacros;
+        private readonly IStarSystemLookupService _starSystemLookupService;
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
@@ -43,12 +44,14 @@ namespace RouteJumper.ViewModels
             ManualRowEventTrigger routeEventTrigger,
             AppSettingsStore settings,
             IEliteInstanceScanner scanner,
-            Func<ObservableCollection<RecordedMacroViewModel>> getMacros)
+            Func<ObservableCollection<RecordedMacroViewModel>> getMacros,
+            IStarSystemLookupService? starSystemLookupService = null)
         {
             _routeEventTrigger = routeEventTrigger;
             _settings = settings;
             _scanner = scanner;
             _getMacros = getMacros;
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
@@ -58,8 +61,17 @@ namespace RouteJumper.ViewModels
             ClearCaptainMacroCommand = new RelayCommand(() => CaptainMacro = null);
             ClearEngineerMacroCommand = new RelayCommand(() => EngineerMacro = null);
 
-            _ = RefreshAsync();
+            InitialScanTask = RefreshAsync();
         }
+
+        /// <summary>
+        /// Completes once this constructor's own first scan finishes - lets MainViewModel await a
+        /// restored Captain assignment before re-triggering RouteViewModel's own Distance/Star
+        /// Type enrichment (see RouteViewModel.RefreshEnrichment), since that first scan is
+        /// otherwise still in flight (suspended at its own Task.Run) by the time
+        /// RouteViewModel.RestoreFromSettings' Save() call captures its origin system.
+        /// </summary>
+        public Task InitialScanTask { get; }
 
         /// <summary>
         /// Raised whenever anything CanEngageAutoPilot depends on changes - lets MainViewModel
@@ -496,7 +508,8 @@ namespace RouteJumper.ViewModels
                     {
                         RefreshCommand.Execute(null);
                     }
-                }));
+                }),
+                _starSystemLookupService);
 
             _ = _captainWatcher.StartAsync();
         }

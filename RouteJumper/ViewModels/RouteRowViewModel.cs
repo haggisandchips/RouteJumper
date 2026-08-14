@@ -1,10 +1,11 @@
+using System.Globalization;
 using RouteJumper.Common;
 using RouteJumper.Models;
 
 namespace RouteJumper.ViewModels
 {
     /// <summary>
-    /// Represents one row of the Route table: Icon | # | System | Status.
+    /// Represents one row of the Route table: Icon | # | System | Distance | Star Type | Status.
     /// </summary>
     public class RouteRowViewModel : ObservableObject
     {
@@ -13,6 +14,8 @@ namespace RouteJumper.ViewModels
         private string _systemText = string.Empty;
         private string _status = string.Empty;
         private bool _isCopiedToClipboard;
+        private double? _distance;
+        private string? _starType;
         private DateTime? _phaseEndUtc;
         private DateTime? _phaseStartUtc;
         private double _progress;
@@ -68,6 +71,44 @@ namespace RouteJumper.ViewModels
         {
             get => _isCopiedToClipboard;
             set => SetProperty(ref _isCopiedToClipboard, value);
+        }
+
+        /// <summary>
+        /// Leg distance in light-years, previous row -&gt; this row - row 1's "previous" is
+        /// wherever the CMDR's own ship (Fleet Carrier mode: the Captain's; Ship mode: the tracked
+        /// instance's) was when the route was last saved; every other row is the static distance
+        /// between two named systems. Set once by RouteRowEnrichmentService after Save/restore,
+        /// never by RouteSequencer - this describes the route's static topology, not tracked
+        /// progress, so it's deliberately outside CLAUDE.md's event-driven rule for Sequencing/.
+        /// Null (blank cell, see DistanceDisplay) until resolved, or permanently if EDSM has no
+        /// coordinates for one of the two systems involved.
+        /// </summary>
+        public double? Distance
+        {
+            get => _distance;
+            set
+            {
+                if (SetProperty(ref _distance, value))
+                {
+                    OnPropertyChanged(nameof(DistanceDisplay));
+                }
+            }
+        }
+
+        /// <summary>What the Distance cell actually shows: "12.3 ly", or blank while Distance is null.</summary>
+        public string DistanceDisplay => Distance is { } distance
+            ? $"{distance.ToString("0.0", CultureInfo.InvariantCulture)} ly"
+            : string.Empty;
+
+        /// <summary>
+        /// This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange) Star"), set once
+        /// by RouteRowEnrichmentService after Save/restore. Null (blank cell) until resolved, or
+        /// permanently if EDSM has no record of this system at all.
+        /// </summary>
+        public string? StarType
+        {
+            get => _starType;
+            set => SetProperty(ref _starType, value);
         }
 
         /// <summary>

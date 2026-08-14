@@ -416,5 +416,16 @@ namespace RouteJumper.Tests.ViewModels
             var settings = new AppSettingsStore(dir.Path);
             Assert.Equal(string.Empty, settings.GetString("CaptainFid"));
         }
+
+        [Fact]
+        public async Task InitialScanTask_CompletesOnceConstructorsOwnScanFinishes()
+        {
+            using var dir = new TempDirectory();
+            var (vm, _) = Create(dir, new[] { Instance(1) });
+
+            await vm.InitialScanTask;
+
+            Assert.Single(vm.Instances);
+        }
     }
 }

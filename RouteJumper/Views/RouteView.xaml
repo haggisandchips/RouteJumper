@@ -236,6 +236,39 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- Leg distance, previous row -> this row (row 1's "previous" is wherever the
+                         CMDR's own ship was when the route was last saved) - see
+                         RouteRowViewModel.Distance's own doc comment. Resolved asynchronously
+                         against EDSM after Save/restore; blank until resolved (or permanently, if
+                         EDSM has no coordinates for one of the two systems involved). Same
+                         ElementStyle centering fix as "#" above - a plain DataGridTextColumn's
+                         generated TextBlock doesn't auto-center against Status's taller row
+                         height. -->
+                    <DataGridTextColumn Header="Distance"
+                                         Binding="{Binding DistanceDisplay}"
+                                         Width="90"
+                                         MinWidth="70">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange)
+                         Star") - resolved the same way/timing as Distance above, and blank under
+                         the same conditions. -->
+                    <DataGridTextColumn Header="Star Type"
+                                         Binding="{Binding StarType}"
+                                         Width="150"
+                                         MinWidth="100">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
                     <!-- A thin ProgressBar sits below the Status text (its own Grid row, not
                          overlapping) and visually counts down however long the current status
                          (Plotted/Jumping/Cooldown) has left - full the instant that status

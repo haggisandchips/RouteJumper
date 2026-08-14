@@ -68,6 +68,28 @@ namespace RouteJumper.Services
     /// no StartJumpCancelled), so this class does not attempt to handle that case - a row left
     /// stuck on "Jumping" by an interrupted charge needs the existing manual "Set next system"
     /// override (§4.2) until/unless a real cancellation signal is identified.
+    ///
+    /// FSDTarget also opportunistically seeds the Route tab's Distance/Star Type cache (SPEC
+    /// §4.9), via the optional <see cref="_starSystemLookupService"/> and the shared
+    /// <see cref="StarSystemCacheSeeder"/> (also used by CarrierRouteJournalWatcher, for exactly
+    /// the same commander-own-ship FSDTarget behaviour in Fleet Carrier mode): its own StarClass
+    /// field names the targeted system's star; a RemainingJumpsInRoute field (present only while a
+    /// multi-jump in-game route is plotted) signals NavRoute.json is fresh and worth reading for
+    /// exact coordinates/star type of every system in that plotted route. This is purely a
+    /// nice-to-have side effect - nothing about row-progress tracking depends on it, and it never
+    /// runs during the one-off historical catch-up, only for a genuinely live FSDTarget.
+    ///
+    /// Location - fired on session start, a relog, or various other definite-position snapshots -
+    /// is the *other* authoritative source of "where is the ship right now", alongside FSDJump.
+    /// Unlike FSDJump, it is applied immediately as Arrived (via <see cref="RowEventKind.Arrived"/>),
+    /// with no Music-confirmation wait: it isn't the tail end of a just-completed hyperspace jump,
+    /// so RouteSequencer's own Cooldown gate (Arrived needs both IsLive *and* a real PhaseEndUtc)
+    /// never fires Cooldown off it - a mere positional snapshot must never imply a jump just
+    /// finished and a cooldown is now counting down. It also supersedes any FSDJump-arrival still
+    /// pending Music confirmation, being the more recent, more authoritative word on position.
+    ///
+    /// NavRouteClear (the CMDR explicitly clearing their plotted route) raises
+    /// <see cref="RowEventKind.TargetCleared"/> - see that value's own doc comment.
     /// </summary>
     public sealed class ShipRouteJournalWatcher : IDisposable
     {
@@ -92,6 +114,7 @@ namespace RouteJumper.Services
 
         private readonly string _journalPath;
         private readonly Action<RowEventKind, string, bool, DateTime?> _onRowEvent;
+        private readonly IStarSystemLookupService? _starSystemLookupService;
         private readonly object _readLock = new();
         private readonly List<Timer> _scheduledTimers = new();
 
@@ -105,10 +128,25 @@ namespace RouteJumper.Services
         /// <summary>The fallback timer for the current pending arrival, if any - used to detect (via reference equality) whether a fallback firing has already been superseded by the Music cue resolving it first.</summary>
         private Timer? _pendingArrivalTimer;
 
-        public ShipRouteJournalWatcher(string journalPath, Action<RowEventKind, string, bool, DateTime?> onRowEvent)
+        /// <summary>The most recently kicked-off background cache-seeding task (see ProcessLine's FSDTarget/NavRoute cases) - test-only visibility via WaitForPendingCacheSeedAsync; production code never awaits this.</summary>
+        private Task _pendingCacheSeedTask = Task.CompletedTask;
+
+        /// <summary>
+        /// <paramref name="starSystemLookupService"/>, if given, lets a live FSDTarget opportunistically
+        /// seed the Route tab's coordinates/star-type cache for free - see ProcessLine's FSDTarget
+        /// case and StarSystemCacheSeeder - without this class needing to know anything about EDSM
+        /// itself (or the Route tab at all); it just writes into whatever cache the shared
+        /// IStarSystemLookupService instance already backs. Optional/null-safe so existing
+        /// callers/tests that don't care about this are unaffected.
+        /// </summary>
+        public ShipRouteJournalWatcher(
+            string journalPath,
+            Action<RowEventKind, string, bool, DateTime?> onRowEvent,
+            IStarSystemLookupService? starSystemLookupService = null)
         {
             _journalPath = journalPath;
             _onRowEvent = onRowEvent;
+            _starSystemLookupService = starSystemLookupService;
         }
 
         public Task StartAsync() => Task.Run(() =>
@@ -121,17 +159,37 @@ namespace RouteJumper.Services
                 return;
             }
 
-            switch (catchUp)
+            // Applied as three independent results, in this order, rather than a single "latest
+            // wins" tie-break - see ComputeCatchUpState's own doc comment for why position/
+            // jumping/targeted are tracked separately. Position first (it drives the Complete
+            // sweep and which row is current at all), then Jumping (only meaningful once that's
+            // settled - it always names the very row Arrived just made current), then Targeted
+            // (applied directly, never deferred - RouteSequencer's own defer logic only matters
+            // for distinguishing a live "next hop pre-targeted mid-jump" situation from a settled
+            // one, and catch-up by definition only ever produces one single settled result).
+            if (catchUp.PositionSystem is { } positionSystem)
             {
-                case { Phase: CatchUpPhase.Targeted } targeted:
-                    _onRowEvent(RowEventKind.Targeted, targeted.SystemName, false, null);
-                    break;
-                case { Phase: CatchUpPhase.Jumping } jumping:
-                    _onRowEvent(RowEventKind.Jumping, jumping.SystemName, false, null);
-                    break;
-                case { Phase: CatchUpPhase.Arrived } arrived:
-                    _onRowEvent(RowEventKind.Arrived, arrived.SystemName, false, null);
-                    break;
+                _onRowEvent(RowEventKind.Arrived, positionSystem, false, null);
+            }
+
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (catchUp.JumpingSystem is { } jumpingSystem)
+            {
+                _onRowEvent(RowEventKind.Jumping, jumpingSystem, false, null);
+            }
+
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (catchUp.TargetedSystem is { } targetedSystem)
+            {
+                _onRowEvent(RowEventKind.Targeted, targetedSystem, false, null);
             }
 
             if (_disposed)
@@ -222,30 +280,52 @@ namespace RouteJumper.Services
             }
         }
 
-        private enum CatchUpPhase { Targeted, Jumping, Arrived }
+        /// <summary>
+        /// The independent result of ComputeCatchUpState's scan - see that method's own doc
+        /// comment for why position/jumping/targeted are tracked as three separate values rather
+        /// than a single "whichever of N phases came last" tie-break.
+        /// </summary>
+        private sealed record CatchUpState(string? PositionSystem, string? JumpingSystem, string? TargetedSystem);
 
         /// <summary>
-        /// Works out this ship's single, authoritative state as of the end of
-        /// <paramref name="lines"/> - a target selected but not yet engaged (FSDTarget), a jump
-        /// genuinely underway (a Hyperspace StartJump not yet followed by a matching FSDJump), or
-        /// else wherever its most recent FSDJump placed it - or null if there's no relevant
-        /// history in these lines at all. Decided purely by line order, exactly like
-        /// CarrierRouteJournalWatcher.ComputeCatchUpState - a ship can only ever be in one of
-        /// these three phases at a time, so whichever of the three event kinds was seen last is
-        /// definitionally the current word on its status. Unlike live processing (ProcessLine), a
-        /// caught-up Targeted result is applied directly, never deferred - RouteSequencer's own
-        /// defer logic only matters for distinguishing a genuinely live "next hop pre-targeted
-        /// mid-jump" situation from a settled one, and catch-up by definition only ever produces
-        /// one single settled result.
+        /// Works out this ship's authoritative state as of the end of <paramref name="lines"/>, as
+        /// three independent results rather than a single mutually-exclusive phase:
+        ///
+        /// - <b>Position</b> - wherever Location or FSDJump (whichever came *last*, by line order)
+        ///   says the ship actually is. Both are equally authoritative "here's where I am right
+        ///   now" statements (see this class's own doc comment for why Location, unlike FSDJump,
+        ///   needs no Music-confirmation step) and are applied as
+        ///   <see cref="RowEventKind.Arrived"/>. Superseded by the *next* Location/FSDJump, never
+        ///   cleared by anything else.
+        /// - <b>Jumping</b> - set by a Hyperspace StartJump not yet followed by a matching
+        ///   Location/FSDJump (a jump genuinely underway as of catch-up), cleared the instant a
+        ///   later Location/FSDJump supersedes it (the jump completed, or a fresh snapshot moots
+        ///   it).
+        /// - <b>Targeted</b> - set by FSDTarget, cleared by whichever of NavRouteClear (the CMDR
+        ///   explicitly cleared their route), StartJump (a lock-on that's since actually been acted
+        ///   on - Jumping supersedes it), or Location/FSDJump (the ship has since actually arrived
+        ///   somewhere - a stale pre-arrival target no longer describes anything relevant) comes
+        ///   next. This mirrors exactly how live processing (ProcessLine) naturally supersedes one
+        ///   Status with another as the ship's real state moves on, so catch-up and live agree.
+        ///
+        /// This independence is exactly what makes "current system, only ever advanced by
+        /// Location/FSDJump" and "Targeted, a separate overlay that never fakes a current row"
+        /// (RouteSequencer's own ClearOtherTargeted) hold up under catch-up too - repeatedly
+        /// targeting/re-targeting systems without ever actually jumping, then starting to track,
+        /// must resolve to "wherever the ship's last Location/FSDJump actually put it, plus
+        /// whichever target (if any) is still current" - never "whichever of these events merely
+        /// happened most recently in the file," which is what a single tie-break would give.
         /// </summary>
-        private static (CatchUpPhase Phase, string SystemName)? ComputeCatchUpState(IReadOnlyList<string> lines)
+        private static CatchUpState ComputeCatchUpState(IReadOnlyList<string> lines)
         {
-            (CatchUpPhase Phase, string SystemName)? latest = null;
+            string? positionSystem = null;
+            string? jumpingSystem = null;
+            string? targetedSystem = null;
 
             foreach (var line in lines)
             {
                 var eventName = JournalEventName.Extract(line);
-                if (eventName is not ("FSDTarget" or "StartJump" or "FSDJump"))
+                if (eventName is not ("FSDTarget" or "StartJump" or "FSDJump" or "Location" or "NavRouteClear"))
                 {
                     continue;
                 }
@@ -268,8 +348,12 @@ namespace RouteJumper.Services
                     {
                         if (root.TryGetProperty("Name", out var nm) && nm.GetString() is { } targetSystem)
                         {
-                            latest = (CatchUpPhase.Targeted, targetSystem);
+                            targetedSystem = targetSystem;
                         }
+                    }
+                    else if (eventName == "NavRouteClear")
+                    {
+                        targetedSystem = null;
                     }
                     else if (eventName == "StartJump")
                     {
@@ -283,20 +367,46 @@ namespace RouteJumper.Services
 
                         if (root.TryGetProperty("StarSystem", out var sn) && sn.GetString() is { } systemName)
                         {
-                            latest = (CatchUpPhase.Jumping, systemName);
+                            jumpingSystem = systemName;
+                            targetedSystem = null;
                         }
                     }
-                    else if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } arrivedSystem)
+                    else if (eventName == "FSDJump")
                     {
-                        latest = (CatchUpPhase.Arrived, arrivedSystem);
+                        if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } arrivedSystem)
+                        {
+                            positionSystem = arrivedSystem;
+                            jumpingSystem = null;
+                            targetedSystem = null;
+                        }
+                    }
+                    else if (eventName == "Location")
+                    {
+                        if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } currentSystem)
+                        {
+                            positionSystem = currentSystem;
+                            jumpingSystem = null;
+                        }
                     }
                 }
             }
 
-            return latest;
+            return new CatchUpState(positionSystem, jumpingSystem, targetedSystem);
         }
 
-        private static readonly HashSet<string> RelevantEvents = new() { "FSDTarget", "StartJump", "FSDJump", "Music" };
+        private static readonly HashSet<string> RelevantEvents = new()
+        {
+            "FSDTarget", "StartJump", "FSDJump", "Music", "NavRoute", "Location", "NavRouteClear"
+        };
+
+        /// <summary>
+        /// Test-only hook: awaits whatever background cache-seeding task (see ProcessLine's
+        /// FSDTarget/NavRoute cases) was most recently kicked off, so tests can deterministically
+        /// wait for it to finish before asserting cache state, rather than racing a fire-and-forget
+        /// Task.Run. Production code never calls this - the whole point of backgrounding the seed
+        /// is that nothing else in this class waits on it.
+        /// </summary>
+        internal Task WaitForPendingCacheSeedAsync() => _pendingCacheSeedTask;
 
         /// <summary>Internal (not private) so tests can exercise the live-tailed path deterministically, without depending on real FileSystemWatcher timing - same testability precedent as EliteInstanceScanner.ReadJournalSummary.</summary>
         internal void ProcessLine(string line, bool isLive)
@@ -331,6 +441,23 @@ namespace RouteJumper.Services
                     if (root.TryGetProperty("Name", out var nm) && nm.GetString() is { } targetSystem)
                     {
                         _onRowEvent(RowEventKind.Targeted, targetSystem, isLive, null);
+
+                        // Opportunistic cache seeding for the Route tab's Distance/Star Type
+                        // columns - see this class's own doc comment and StarSystemCacheSeeder.
+                        // Never anything this class itself needs to function, and - critically -
+                        // never allowed to delay processing whatever journal line comes right
+                        // after this one: reading/parsing NavRoute.json and seeding dozens of
+                        // systems into the cache (RemainingJumpsInRoute below) is real, sometimes
+                        // noticeable file I/O, and this class's own job (promptly clearing/
+                        // replacing a stale Targeted row - see RowEventKind.Targeted - the instant
+                        // the *next* FSDTarget/NavRouteClear line is read) must never wait on it.
+                        // root.Clone() detaches the element from `doc`, which this method's own
+                        // `using` block disposes as soon as ProcessLine returns - long before this
+                        // background task actually runs. See WaitForPendingCacheSeedAsync for how
+                        // tests observe completion deterministically instead of racing it.
+                        var clonedRoot = root.Clone();
+                        _pendingCacheSeedTask = Task.Run(
+                            () => StarSystemCacheSeeder.SeedFromFsdTarget(clonedRoot, targetSystem, _journalPath, _starSystemLookupService));
                     }
                 }
                 else if (eventName == "StartJump")
@@ -380,6 +507,62 @@ namespace RouteJumper.Services
                         ResolvePendingArrivalFromMusic();
                     }
                 }
+                else if (eventName == "NavRoute")
+                {
+                    // The journal line itself carries no fields of interest (just a timestamp) -
+                    // it's purely a marker that NavRoute.json has just been (re)written, e.g. the
+                    // CMDR plotting or re-plotting a route via the galaxy map. This is the primary
+                    // signal for reading it (FSDTarget's own RemainingJumpsInRoute field above is
+                    // a secondary one - it only fires once a jump target is actually selected,
+                    // which can lag behind the route itself being (re)plotted). Same opportunistic,
+                    // deliberately backgrounded cache seeding as FSDTarget above - see that case's
+                    // own comment for why this must never block processing the *next* line.
+                    if (_starSystemLookupService != null)
+                    {
+                        var lookupService = _starSystemLookupService;
+                        _pendingCacheSeedTask = Task.Run(() => StarSystemCacheSeeder.SeedFromNavRoute(_journalPath, lookupService));
+                    }
+                }
+                else if (eventName == "Location")
+                {
+                    if (root.TryGetProperty("StarSystem", out var ss) && ss.GetString() is { } currentSystem)
+                    {
+                        // Location is an authoritative "here's where the ship actually is right
+                        // now" snapshot (session start, a relog, docking somewhere) - unlike
+                        // FSDJump it is *not* the tail end of a just-completed hyperspace jump, so
+                        // it is applied immediately, with no Music-confirmation wait, and carries
+                        // no PhaseEndUtc: RouteSequencer's own Cooldown gate (Arrived needs both
+                        // IsLive *and* a real PhaseEndUtc - see RowEventKind.Arrived) means this
+                        // never implies a cooldown is now counting down. It also supersedes any
+                        // FSDJump-arrival still pending Music confirmation - a fresh Location
+                        // snapshot is the more recent, more authoritative word on position.
+                        CancelPendingArrival();
+
+                        if (isLive)
+                        {
+                            _onRowEvent(RowEventKind.LiveCarrierLocation, currentSystem, isLive, null);
+                        }
+
+                        _onRowEvent(RowEventKind.Arrived, currentSystem, isLive, null);
+                    }
+                }
+                else if (eventName == "NavRouteClear")
+                {
+                    // The CMDR explicitly cleared their plotted route - carries no system name of
+                    // its own. See RowEventKind.TargetCleared.
+                    _onRowEvent(RowEventKind.TargetCleared, string.Empty, isLive, null);
+                }
+            }
+        }
+
+        /// <summary>Discards the current pending FSDJump-arrival (if any), without firing Arrived for it - see ProcessLine's own "Location" case for why a fresher, more authoritative position snapshot supersedes it.</summary>
+        private void CancelPendingArrival()
+        {
+            lock (_readLock)
+            {
+                _pendingArrivalTimer?.Dispose();
+                _pendingArrivalTimer = null;
+                _pendingArrivalSystem = null;
             }
         }
 

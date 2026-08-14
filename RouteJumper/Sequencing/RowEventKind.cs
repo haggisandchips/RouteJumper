@@ -124,6 +124,17 @@ namespace RouteJumper.Sequencing
         /// so it's ready for a fresh CarrierJumpRequest. See RouteSequencer.ApplyJumpCancelled.
         /// The event's SystemName is meaningless for this kind and should be ignored/empty.
         /// </summary>
-        JumpCancelled
+        JumpCancelled,
+
+        /// <summary>
+        /// Raised the instant a NavRouteClear event is observed (Ship mode's own ship, or the
+        /// Captain's own ship in Fleet Carrier mode) - the CMDR explicitly cleared their plotted
+        /// route, so any row currently showing "Targeted" no longer reflects reality. Not
+        /// name-targeted at all (NavRouteClear carries no system name of its own) - unconditionally
+        /// clears every row's "Targeted" status via RouteSequencer.ClearAnyTargeted, the same
+        /// Icon-reverting behaviour a Targeted event whose system isn't found in the route already
+        /// gets. The event's SystemName is meaningless for this kind and should be ignored/empty.
+        /// </summary>
+        TargetCleared
     }
 }
