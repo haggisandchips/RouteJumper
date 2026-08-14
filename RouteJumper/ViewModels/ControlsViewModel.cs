@@ -43,6 +43,16 @@ namespace RouteJumper.ViewModels
         private const string DefaultNextSystemTestOverride = "Sol";
         private const string DefaultTritiumLoopsTestOverride = "1";
 
+        /// <summary>
+        /// 4:45 - Cooldown's own real window is a full 5 minutes (SPEC §5.7), and the Engineer's
+        /// refuel is triggered right around when it starts (§4.7); capping the *script's own*
+        /// estimated run time comfortably inside that window (see CapLoopsToFitTimeBudget) is
+        /// what keeps a refuel from still being mid-script when the Captain's own next plot comes
+        /// due and cancels it out from under itself - which "panic mode" (§4.7) now treats as a
+        /// hard stop, not something to shrug off.
+        /// </summary>
+        private const int MaxRefuelScriptDurationMs = (4 * 60 + 45) * 1000;
+
         private const string SampleScriptsUrl = "https://haggisandchips.github.io/RouteJumper/macro-scripting.html#sample-scripts";
 
         private readonly AppSettingsStore _settings;
@@ -316,16 +326,28 @@ namespace RouteJumper.ViewModels
             _stepInstructions.Count == 0 ? string.Empty : $"Next: {DescribeInstruction(_stepInstructions[_stepIndex])}";
 
         /// <summary>
-        /// Non-null while a closeable banner should be shown explaining why playback stopped
-        /// unexpectedly (currently: the target window lost focus mid-script - see MacroPlayer's
-        /// PlaybackAbortedException). Never set for an ordinary user-initiated Stop, which isn't
-        /// an error.
+        /// Non-null while a closeable banner should be shown explaining why playback (or an
+        /// Auto Pilot-driven action built on top of it) stopped unexpectedly - the target window
+        /// losing focus mid-script (see MacroPlayer's PlaybackAbortedException), or Auto Pilot's
+        /// own "panic mode" (SPEC §4.7) reporting via <see cref="ReportPlaybackError"/>. Never set
+        /// for an ordinary user-initiated Stop, which isn't an error.
         /// </summary>
         public string? PlaybackErrorMessage
         {
             get => _playbackErrorMessage;
             private set => SetProperty(ref _playbackErrorMessage, value);
         }
+
+        /// <summary>
+        /// Shows the same closeable playback-error banner RunPlaybackAsync uses for
+        /// PlaybackAbortedException, with an arbitrary message - used by AutoPilotController's
+        /// "panic mode" (SPEC §4.7: the Captain's macro finished without a jump ever being
+        /// plotted, or the Engineer's finished without the carrier's fuel depot being
+        /// replenished) so that failure is reported through the exact same visible, dismissible,
+        /// tab-independent channel a macro playback failure already is, rather than a separate
+        /// message the user might not notice.
+        /// </summary>
+        public void ReportPlaybackError(string message) => PlaybackErrorMessage = message;
 
         /// <summary>
         /// Options (§6.1): the delay AutoPilotController applies around a row's Cooldown, on top
@@ -692,11 +714,17 @@ namespace RouteJumper.ViewModels
         /// Always resolves {NEXT_SYSTEM}/{TRITIUM_LOOPS} live (never the test-value fields below) -
         /// those exist purely so this tab's own Play/Step can be tried out without a live route or
         /// a running instance in the right cargo/fuel state; a real Auto Pilot run always needs the
-        /// real values.
+        /// real values. The returned Task completes with true once the script has genuinely run to
+        /// its end, or false if it was stopped early for any reason (a user/Auto Pilot Stop, a
+        /// *different* playback superseding this one, or PlaybackAbortedException) - see
+        /// RunPlaybackAsync. AutoPilotController's own "panic mode" (SPEC §4.7) depends on this
+        /// distinction: it must only judge whether a jump was plotted / fuel was deposited after a
+        /// macro that actually finished, never after one that was cut short for an unrelated
+        /// reason of its own.
         /// </summary>
-        public void PlayMacro(RecordedMacroViewModel macro, EliteInstanceViewModel instance) => StartPlayback(macro, instance, useTestValues: false);
+        public Task<bool> PlayMacro(RecordedMacroViewModel macro, EliteInstanceViewModel instance) => StartPlayback(macro, instance, useTestValues: false);
 
-        private void StartPlayback(RecordedMacroViewModel macro, EliteInstanceViewModel instance, bool useTestValues)
+        private Task<bool> StartPlayback(RecordedMacroViewModel macro, EliteInstanceViewModel instance, bool useTestValues)
         {
             _playbackCts?.Cancel();
             var cts = new CancellationTokenSource();
@@ -706,7 +734,7 @@ namespace RouteJumper.ViewModels
 
             Func<string?> getNextSystemName = useTestValues ? () => NextSystemTestOverride : _getNextSystemName;
             var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, getNextSystemName, AutoWaitMs);
-            _ = RunPlaybackAsync(player, macro.ScriptText, cts, useTestValues);
+            return RunPlaybackAsync(player, macro.ScriptText, cts, useTestValues);
         }
 
         /// <summary>
@@ -716,9 +744,12 @@ namespace RouteJumper.ViewModels
         /// out from under the second one). A PlaybackAbortedException - the target window losing
         /// focus mid-script, see MacroPlayer - surfaces a closeable error banner; an ordinary
         /// OperationCanceledException (the user pressed Stop, or started a different playback)
-        /// does not, since that's an intentional action, not a failure.
+        /// does not, since that's an intentional action, not a failure. Returns true only if the
+        /// script actually ran to its end - false for every other outcome (cancelled, superseded,
+        /// or aborted on focus loss) - see PlayMacro's own doc comment for why callers need this
+        /// distinction rather than just "did it throw".
         /// </summary>
-        private async Task RunPlaybackAsync(MacroPlayer player, string scriptText, CancellationTokenSource cts, bool useTestValues)
+        private async Task<bool> RunPlaybackAsync(MacroPlayer player, string scriptText, CancellationTokenSource cts, bool useTestValues)
         {
             try
             {
@@ -734,19 +765,22 @@ namespace RouteJumper.ViewModels
                 // needs this rescan at all - see ResolveTritiumLoopsAsync.
                 if (ReferencesTritiumLoops(scriptText))
                 {
-                    var loops = await ResolveTritiumLoopsAsync(useTestValues);
+                    var loops = await ResolveTritiumLoopsAsync(scriptText, useTestValues);
                     cts.Token.ThrowIfCancellationRequested();
                     scriptToPlay = SubstituteTritiumLoops(scriptText, loops);
                 }
 
                 await player.PlayAsync(scriptToPlay, cts.Token);
+                return true;
             }
             catch (OperationCanceledException)
             {
+                return false;
             }
             catch (PlaybackAbortedException ex)
             {
                 PlaybackErrorMessage = ex.Message;
+                return false;
             }
             finally
             {
@@ -864,7 +898,9 @@ namespace RouteJumper.ViewModels
             {
                 if (ReferencesTritiumLoops(EditingMacro?.ScriptText))
                 {
-                    await ResolveTritiumLoopsAsync(useTestValues: true);
+                    // scriptText is irrelevant here - useTestValues:true never reaches the
+                    // capping step, see ResolveTritiumLoopsAsync's own doc comment.
+                    await ResolveTritiumLoopsAsync(EditingMacro?.ScriptText ?? string.Empty, useTestValues: true);
                     cts.Token.ThrowIfCancellationRequested();
                 }
 
@@ -918,12 +954,15 @@ namespace RouteJumper.ViewModels
         /// of the test-value fields is trying a script out without a running instance in the right
         /// cargo/fuel state. False (PlayMacro only, i.e. an Auto Pilot-triggered run) rescans both
         /// this tab's own instance scan and the Roles tab's (via the _refreshRolesAsync closure)
-        /// so cargo/carrier-fuel data is current, then computes it for real - this tab's own
-        /// SelectedInstance if one happens to be selected here, otherwise the Engineer's
-        /// currently-assigned instance (the normal case for an Auto Pilot-triggered run, where
-        /// nothing is selected in this tab at all).
+        /// so cargo/carrier-fuel data is current, computes the ideal (full-refill) loop count for
+        /// real - this tab's own SelectedInstance if one happens to be selected here, otherwise
+        /// the Engineer's currently-assigned instance (the normal case for an Auto Pilot-triggered
+        /// run, where nothing is selected in this tab at all) - then caps it down (never up) so
+        /// the script itself won't overrun the real-world Cooldown window (see
+        /// CapLoopsToFitTimeBudget). <paramref name="scriptText"/> is only actually used for that
+        /// capping step (a test-value run has no real-world timing constraint to fit).
         /// </summary>
-        private async Task<int> ResolveTritiumLoopsAsync(bool useTestValues)
+        private async Task<int> ResolveTritiumLoopsAsync(string scriptText, bool useTestValues)
         {
             if (useTestValues)
             {
@@ -936,7 +975,8 @@ namespace RouteJumper.ViewModels
                 await Task.WhenAll(RefreshAsync(), _refreshRolesAsync());
 
                 var instance = SelectedInstance ?? _getEngineerInstance();
-                _lastTritiumLoops = ComputeTritiumLoops(instance);
+                var idealLoops = ComputeTritiumLoops(instance);
+                _lastTritiumLoops = CapLoopsToFitTimeBudget(scriptText, idealLoops, AutoWaitMs);
             }
 
             // EnsureStepState's cache only ever looks at raw script text, so it can't see that
@@ -971,6 +1011,58 @@ namespace RouteJumper.ViewModels
             var totalNeeded = Math.Max(0, carrierNeeded + capacity - onBoard);
 
             return (int)Math.Ceiling(totalNeeded / (double)capacity);
+        }
+
+        /// <summary>
+        /// Caps <paramref name="idealLoops"/> down (never up) so that the script's own estimated
+        /// execution time - MacroPlayer.EstimateDurationMs against the script with {TRITIUM_LOOPS}
+        /// actually substituted in, exactly what would really play - fits inside
+        /// MaxRefuelScriptDurationMs. The relationship between loop count and duration is inferred
+        /// from two data points, 1 loop and 2, and extrapolated linearly for larger counts - exact
+        /// for the standard shape this placeholder is meant for (a REPEAT {TRITIUM_LOOPS} count, or
+        /// any other single spot where the substituted integer feeds a duration/count field), since
+        /// either way each unit of the placeholder contributes the same fixed amount of time.
+        /// Deliberately never measures at 0: MacroScriptParser requires a REPEAT's count to be a
+        /// positive integer - "REPEAT 0" isn't parsed as zero iterations at all, it's silently
+        /// skipped as a malformed line, leaving its body to run once, *unguarded*, at the top
+        /// level instead - so substituting 0 in would badly mismeasure the "no loops" baseline
+        /// rather than actually representing it. Extrapolating backward from two genuinely valid
+        /// measurements (1 and 2) avoids that trap entirely.
+        ///
+        /// If a full refill's worth of loops wouldn't fit in the budget, this deliberately returns
+        /// however many loops *do* fit rather than the full amount actually needed - a gradually
+        /// depleting depot is an accepted, safe outcome: eventually a jump can no longer be
+        /// requested at all, which Auto Pilot's own "panic mode" (§4.7) already catches and stops
+        /// on. That is far preferable to running an overlong refuel script that risks still being
+        /// mid-way through when the Captain's own next plot comes due and cancels it out from under
+        /// itself - which panic mode now treats as an immediate hard stop in its own right, not
+        /// something to shrug off as probably-fine.
+        /// </summary>
+        internal static int CapLoopsToFitTimeBudget(string scriptText, int idealLoops, int autoWaitMs)
+        {
+            if (idealLoops <= 0)
+            {
+                return idealLoops;
+            }
+
+            var oneLoopMs = MacroPlayer.EstimateDurationMs(SubstituteTritiumLoops(scriptText, 1), autoWaitMs);
+            var twoLoopMs = MacroPlayer.EstimateDurationMs(SubstituteTritiumLoops(scriptText, 2), autoWaitMs);
+            var perLoopMs = twoLoopMs - oneLoopMs;
+            if (perLoopMs <= 0)
+            {
+                // {TRITIUM_LOOPS} isn't actually costing any measurable time per unit (e.g. it
+                // isn't driving a REPEAT/duration at all) - nothing meaningful to cap.
+                return idealLoops;
+            }
+
+            var baseMs = oneLoopMs - perLoopMs; // extrapolated fixed overhead outside the loop
+            if (baseMs >= MaxRefuelScriptDurationMs)
+            {
+                return 0; // not even the script's own fixed overhead fits - no loops at all
+            }
+
+            var maxLoopsThatFit = (MaxRefuelScriptDurationMs - baseMs) / perLoopMs;
+            return Math.Min(idealLoops, maxLoopsThatFit);
         }
 
         /// <summary>Substitutes the literal "{TRITIUM_LOOPS}" placeholder with loops, wherever it appears in scriptText - most usefully as a REPEAT count (e.g. "REPEAT {TRITIUM_LOOPS}"), resolved here (before parsing) rather than at play time like {NEXT_SYSTEM}/{CENTRE}, since a REPEAT's count has to be known before the script can even be parsed/flattened into steps.</summary>

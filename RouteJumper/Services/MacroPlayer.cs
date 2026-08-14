@@ -34,6 +34,9 @@ namespace RouteJumper.Services
     public sealed class MacroPlayer
     {
         private const int MaxCallDepth = 50;
+        private const int DefaultTapHoldMs = 30;
+        private const int PasteSettleDelayMs = 30;
+        private const int InitialFocusSettleDelayMs = 200;
         private const string NextSystemPlaceholder = "{NEXT_SYSTEM}";
         private const int INPUT_MOUSE = 0;
         private const int INPUT_KEYBOARD = 1;
@@ -84,7 +87,7 @@ namespace RouteJumper.Services
             var parsed = MacroScriptParser.Parse(scriptText);
 
             Win32Foreground.ForceForegroundWindow(_targetWindow);
-            await Task.Delay(200, cancellationToken); // give the window a moment to actually gain focus
+            await Task.Delay(InitialFocusSettleDelayMs, cancellationToken); // give the window a moment to actually gain focus
 
             // A separate linked token lets the focus watchdog abort playback on its own, without
             // the caller's own token (a real user Stop) appearing to have fired - RunAsync only
@@ -274,6 +277,79 @@ namespace RouteJumper.Services
         }
 
         /// <summary>
+        /// Estimates how long <paramref name="scriptText"/> would take to actually play, in
+        /// milliseconds - a *pure* mirror of RunAsync/ExecuteLeafAsync's own timing (same leaf
+        /// durations, same REPEAT/CALL recursion, same "skip AutoWaitMs when the next instruction
+        /// is itself a WAIT" rule), computed without touching any input device or the game at all.
+        /// Used by ControlsViewModel to cap {TRITIUM_LOOPS} so the Engineer's refuel script can't
+        /// run long enough to still be playing once the Captain's own next plot is due (SPEC
+        /// §6.4) - unlike <see cref="Flatten"/> (built for the editor's Step facility, which
+        /// drops WAIT instructions since there's nothing to observe from stepping a pure delay),
+        /// this keeps every WAIT's own duration, since here it's exactly the thing being measured.
+        /// </summary>
+        public static int EstimateDurationMs(string scriptText, int autoWaitMs)
+        {
+            var parsed = MacroScriptParser.Parse(scriptText);
+            return EstimateStepsMs(parsed.MainSteps, parsed.Macros, 0, autoWaitMs);
+        }
+
+        private static int EstimateStepsMs(
+            IReadOnlyList<MacroInstruction> steps,
+            IReadOnlyDictionary<string, IReadOnlyList<MacroInstruction>> macros,
+            int callDepth,
+            int autoWaitMs)
+        {
+            if (callDepth > MaxCallDepth)
+            {
+                return 0;
+            }
+
+            var totalMs = 0;
+            for (var i = 0; i < steps.Count; i++)
+            {
+                var step = steps[i];
+                switch (step)
+                {
+                    case MacroInstruction.Repeat repeat:
+                        var bodyMs = EstimateStepsMs(repeat.Body, macros, callDepth + 1, autoWaitMs);
+                        totalMs += bodyMs * Math.Max(0, repeat.Count);
+                        break;
+
+                    case MacroInstruction.Call call:
+                        if (macros.TryGetValue(call.MacroName, out var body))
+                        {
+                            totalMs += EstimateStepsMs(body, macros, callDepth + 1, autoWaitMs);
+                        }
+                        break;
+
+                    default:
+                        totalMs += EstimateLeafMs(step);
+
+                        // Same rule as RunAsync's own auto-pacing - see that method's own comment.
+                        var nextIsWait = i + 1 < steps.Count && steps[i + 1] is MacroInstruction.Wait;
+                        if (!nextIsWait && autoWaitMs > 0)
+                        {
+                            totalMs += autoWaitMs;
+                        }
+                        break;
+                }
+            }
+
+            return totalMs;
+        }
+
+        private static int EstimateLeafMs(MacroInstruction step) => step switch
+        {
+            MacroInstruction.Tap => DefaultTapHoldMs,
+            MacroInstruction.Hold hold => hold.DurationMs,
+            MacroInstruction.Click => 0, // SendClick has no delay of its own - instantaneous
+            MacroInstruction.HoldClick holdClick => holdClick.DurationMs,
+            MacroInstruction.Wait wait => wait.DurationMs,
+            MacroInstruction.Paste => PasteSettleDelayMs * 2, // SendPasteAsync's two settle delays around Ctrl+V
+            _ => 0
+        };
+
+        /// <summary>
         /// Executes exactly one leaf instruction (from <see cref="Flatten"/>) against the target
         /// window, foregrounding it fresh first - unlike PlayAsync's one-time foreground at the
         /// start of a whole script, a manual single step (SPEC §6.5's editor "Step" facility)
@@ -286,7 +362,7 @@ namespace RouteJumper.Services
         public async Task RunSingleStepAsync(MacroInstruction step, CancellationToken cancellationToken)
         {
             Win32Foreground.ForceForegroundWindow(_targetWindow);
-            await Task.Delay(200, cancellationToken);
+            await Task.Delay(InitialFocusSettleDelayMs, cancellationToken);
             await ExecuteLeafAsync(step, cancellationToken);
         }
 
@@ -308,7 +384,7 @@ namespace RouteJumper.Services
             var modifierVks = ModifierVirtualKeys(modifiers);
 
             SendKeyEvents(modifierVks, vk, keyUp: false);
-            await Task.Delay(holdMs ?? 30, cancellationToken);
+            await Task.Delay(holdMs ?? DefaultTapHoldMs, cancellationToken);
             SendKeyEvents(modifierVks, vk, keyUp: true);
         }
 
@@ -556,12 +632,12 @@ namespace RouteJumper.Services
                 return;
             }
 
-            await Task.Delay(30, cancellationToken);
+            await Task.Delay(PasteSettleDelayMs, cancellationToken);
 
             var ctrlVk = (ushort)KeyInterop.VirtualKeyFromKey(Key.LeftCtrl);
             var vVk = (ushort)KeyInterop.VirtualKeyFromKey(Key.V);
             SendKeyEvents(new[] { ctrlVk }, vVk, keyUp: false);
-            await Task.Delay(30, cancellationToken);
+            await Task.Delay(PasteSettleDelayMs, cancellationToken);
             SendKeyEvents(new[] { ctrlVk }, vVk, keyUp: true);
         }
 
