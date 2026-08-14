@@ -455,7 +455,7 @@ namespace RouteJumper.Tests.Services
             // of racing a fire-and-forget Task.Run.
             await watcher.WaitForPendingCacheSeedAsync();
 
-            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
         }
 
         [Fact]
@@ -499,8 +499,8 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
             Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
-            Assert.Equal("G (White-Yellow) Star", fake.StarTypes["Sol"]);
-            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+            Assert.Equal("G (White-Yellow)", fake.StarTypes["Sol"]);
+            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
         }
 
         [Fact]
@@ -573,8 +573,8 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
             Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
-            Assert.Equal("G (White-Yellow) Star", fake.StarTypes["Sol"]);
-            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+            Assert.Equal("G (White-Yellow)", fake.StarTypes["Sol"]);
+            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
             Assert.Empty(events); // no row-progress event - purely opportunistic cache seeding
         }
 

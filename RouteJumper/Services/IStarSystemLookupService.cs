@@ -21,7 +21,8 @@ namespace RouteJumper.Services
             IReadOnlyList<string> systemNames, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Resolves one system's main star's EDSM subType (e.g. "K (Yellow-Orange) Star"), or
+        /// Resolves one system's main star's EDSM subType (e.g. "K (Yellow-Orange)" - EDSM's own
+        /// trailing "Star" word is stripped as redundant, see EdsmStarSystemLookupService), or
         /// null if the system is unknown to EDSM, has no main star on record, or the lookup
         /// itself failed.
         /// </summary>

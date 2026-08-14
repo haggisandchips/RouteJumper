@@ -200,11 +200,12 @@ namespace RouteJumper.Services
                 }
 
                 var mainStar = stars.FirstOrDefault(b => b.IsMainStar) ?? stars[0];
-                if (mainStar.SubType is not { } subType)
+                if (mainStar.SubType is not { } rawSubType)
                 {
                     return null;
                 }
 
+                var subType = StripRedundantStarWord(rawSubType);
                 CacheStarType(systemName, subType);
                 return subType;
             }
@@ -362,6 +363,17 @@ namespace RouteJumper.Services
                 return _persistChain;
             }
         }
+
+        /// <summary>
+        /// EDSM's own `subType` values (e.g. "K (Yellow-Orange) Star") end in a literal, redundant
+        /// "Star" word - the Route tab's own column is already headed "Star Type" (§4.2), so
+        /// repeating it inside every cell's own value gains nothing. Stripped here, once, right
+        /// where EDSM's raw response is first read, so every caller (and the cache, and
+        /// StarClassNames' own local formatting, which never adds it in the first place) sees the
+        /// same "Star"-free shape regardless of which of the two sources actually resolved it.
+        /// </summary>
+        private static string StripRedundantStarWord(string subType) =>
+            subType.EndsWith(" Star", StringComparison.OrdinalIgnoreCase) ? subType[..^" Star".Length] : subType;
 
         private static string NormalizeKey(string systemName) => systemName.Trim().ToUpperInvariant();
 

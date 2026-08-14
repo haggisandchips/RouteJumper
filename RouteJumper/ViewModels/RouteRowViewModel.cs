@@ -101,7 +101,7 @@ namespace RouteJumper.ViewModels
             : string.Empty;
 
         /// <summary>
-        /// This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange) Star"), set once
+        /// This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange)"), set once
         /// by RouteRowEnrichmentService after Save/restore. Null (blank cell) until resolved, or
         /// permanently if EDSM has no record of this system at all.
         /// </summary>

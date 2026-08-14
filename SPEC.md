@@ -517,8 +517,11 @@ might pause en route rather than something either mode tracks.
   drives Icon/Status (§5.7/§8.3, CLAUDE.md) since it describes the route's
   static topology, not tracked progress.
 - **`Star Type`** is this row's own system's main star's EDSM-reported
-  type (e.g. "K (Yellow-Orange) Star"), independent of `Distance` and of
-  any origin/current position.
+  type (e.g. "K (Yellow-Orange)" - EDSM's own reported subType always
+  ends in a literal, redundant "Star" word of its own, which is dropped
+  before display/caching, since the column itself is already headed
+  "Star Type"), independent of `Distance` and of any origin/current
+  position.
 - Both populate **progressively** in the background after Save/restore -
   the table itself appears immediately with these columns blank, filling
   in over the next moments as each lookup resolves, never blocking the
@@ -549,11 +552,12 @@ might pause en route rather than something either mode tracks.
   around, e.g. escorting the carrier or running their own errands, while
   the carrier itself jumps on its own schedule):
   - `FSDTarget`'s own `StarClass` field seeds `Star Type` for whichever
-    system was just targeted, formatted to match EDSM's own naming (e.g.
-    `K` → "K (Yellow-Orange) Star") - reformatted only where that mapping
-    is well-established (main-sequence classes, neutron stars, black
-    holes, white dwarf subclasses); anything more exotic is cached as the
-    raw journal code rather than guessing at an unverified format.
+    system was just targeted, formatted to match EDSM's own naming, minus
+    its redundant trailing "Star" word (e.g. `K` → "K (Yellow-Orange)") -
+    reformatted only where that mapping is well-established (main-sequence
+    classes, neutron stars, black holes, white dwarf subclasses); anything
+    more exotic is cached as the raw journal code rather than guessing at
+    an unverified format.
   - Two independent triggers read the companion `NavRoute.json` file
     (beside the journal, the same convention every other Frontier
     companion file uses) and seed both `Distance`'s coordinates and

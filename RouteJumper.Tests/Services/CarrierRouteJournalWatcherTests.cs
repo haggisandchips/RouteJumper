@@ -192,7 +192,7 @@ namespace RouteJumper.Tests.Services
             // of racing a fire-and-forget Task.Run.
             await watcher.WaitForPendingCacheSeedAsync();
 
-            Assert.Equal("K (Yellow-Orange) Star", fake.StarTypes["Deciat"]);
+            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
             Assert.Empty(events);
         }
 

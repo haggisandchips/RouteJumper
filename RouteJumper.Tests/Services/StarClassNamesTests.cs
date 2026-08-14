@@ -6,25 +6,25 @@ namespace RouteJumper.Tests.Services
     public class StarClassNamesTests
     {
         [Theory]
-        [InlineData("O", "O (Blue) Star")]
-        [InlineData("B", "B (Blue-White) Star")]
-        [InlineData("A", "A (Blue-White) Star")]
-        [InlineData("F", "F (White) Star")]
-        [InlineData("G", "G (White-Yellow) Star")]
-        [InlineData("K", "K (Yellow-Orange) Star")]
-        [InlineData("M", "M (Red dwarf) Star")]
-        [InlineData("N", "Neutron Star")]
+        [InlineData("O", "O (Blue)")]
+        [InlineData("B", "B (Blue-White)")]
+        [InlineData("A", "A (Blue-White)")]
+        [InlineData("F", "F (White)")]
+        [InlineData("G", "G (White-Yellow)")]
+        [InlineData("K", "K (Yellow-Orange)")]
+        [InlineData("M", "M (Red dwarf)")]
+        [InlineData("N", "Neutron")]
         [InlineData("H", "Black Hole")]
         [InlineData("SupermassiveBlackHole", "Supermassive Black Hole")]
-        public void ToDisplayName_KnownClass_ReturnsEdsmStyleName(string starClass, string expected)
+        public void ToDisplayName_KnownClass_ReturnsEdsmStyleNameWithoutTheRedundantStarWord(string starClass, string expected)
         {
             Assert.Equal(expected, StarClassNames.ToDisplayName(starClass));
         }
 
         [Theory]
-        [InlineData("D", "White Dwarf (D) Star")]
-        [InlineData("DA", "White Dwarf (DA) Star")]
-        [InlineData("DQ", "White Dwarf (DQ) Star")]
+        [InlineData("D", "White Dwarf (D)")]
+        [InlineData("DA", "White Dwarf (DA)")]
+        [InlineData("DQ", "White Dwarf (DQ)")]
         public void ToDisplayName_WhiteDwarfSubclass_FollowsGenericPattern(string starClass, string expected)
         {
             Assert.Equal(expected, StarClassNames.ToDisplayName(starClass));
@@ -39,7 +39,7 @@ namespace RouteJumper.Tests.Services
         [Fact]
         public void ToDisplayName_IsCaseInsensitive()
         {
-            Assert.Equal("K (Yellow-Orange) Star", StarClassNames.ToDisplayName("k"));
+            Assert.Equal("K (Yellow-Orange)", StarClassNames.ToDisplayName("k"));
         }
     }
 }

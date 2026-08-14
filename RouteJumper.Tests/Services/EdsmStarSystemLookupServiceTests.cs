@@ -131,7 +131,7 @@ namespace RouteJumper.Tests.Services
 
             var result = await service.GetMainStarTypeAsync("Sol");
 
-            Assert.Equal("G (White-Yellow) Star", result);
+            Assert.Equal("G (White-Yellow)", result);
         }
 
         [Fact]
@@ -148,7 +148,22 @@ namespace RouteJumper.Tests.Services
 
             var result = await service.GetMainStarTypeAsync("Sol");
 
-            Assert.Equal("G (White-Yellow) Star", result);
+            Assert.Equal("G (White-Yellow)", result);
+        }
+
+        [Fact]
+        public async Task GetMainStarTypeAsync_EdsmSubTypeEndsInStar_DropsTheRedundantWord()
+        {
+            // EDSM's own "subType" always ends in a literal "Star" word - the Route tab's own
+            // column is already headed "Star Type" (§4.2), so repeating it in every cell is
+            // redundant and is stripped before caching/returning.
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, """{"name":"Sol","bodies":[{"type":"Star","subType":"K (Yellow-Orange) Star","isMainStar":true}]}""");
+
+            var result = await service.GetMainStarTypeAsync("Sol");
+
+            Assert.Equal("K (Yellow-Orange)", result);
         }
 
         [Fact]
@@ -184,7 +199,7 @@ namespace RouteJumper.Tests.Services
             var second = await service.GetMainStarTypeAsync("Sol");
 
             Assert.Single(handler.RequestedUrls);
-            Assert.Equal("G (White-Yellow) Star", second);
+            Assert.Equal("G (White-Yellow)", second);
         }
 
         [Fact]

@@ -2,17 +2,21 @@ namespace RouteJumper.Services
 {
     /// <summary>
     /// Maps a journal `StarClass` code (FSDTarget, NavRoute.json, Scan's own StarType field) to
-    /// the same human-readable format EDSM's own `subType` field uses, so a Star Type cell reads
-    /// consistently regardless of which source resolved it (see RouteRowEnrichmentService).
+    /// the same human-readable format EDSM's own `subType` field uses (with its own redundant
+    /// trailing "Star" word dropped too - see EdsmStarSystemLookupService.StripRedundantStarWord -
+    /// so a Star Type cell reads consistently regardless of which source resolved it, and the
+    /// word "Star" is never repeated a second time inside a column already headed "Star Type").
     ///
     /// The main-sequence and white-dwarf mappings below were confirmed against real EDSM API
     /// responses (O/B/A/F/G/K/M via named real systems - Altair, Bellatrix/Achenar, Procyon, and
-    /// Wolf 359 among them - each returning exactly the pattern used here; O itself follows that
-    /// same confirmed "{code} ({colour}) Star" pattern by inference, not independently confirmed).
-    /// "Neutron Star"/"Black Hole"/"Supermassive Black Hole" are unambiguous, universally-agreed
-    /// community terms (also confirmed for the latter via Sagittarius A* itself). White dwarf
-    /// subclasses (DA, DB, DQ, ...) all follow one confirmed mechanical pattern - the parenthetical
-    /// simply echoes the journal code back - so that's handled generically rather than enumerated.
+    /// Wolf 359 among them - each returning exactly the "{code} ({colour}) Star" pattern this
+    /// drops the trailing word from; O itself follows that same confirmed pattern by inference,
+    /// not independently confirmed). "Neutron"/"Black Hole"/"Supermassive Black Hole" are
+    /// unambiguous, universally-agreed community terms (the latter two confirmed for real via
+    /// Sagittarius A* itself, and neither actually contains the word "Star" to begin with).
+    /// White dwarf subclasses (DA, DB, DQ, ...) all follow one confirmed mechanical pattern - the
+    /// parenthetical simply echoes the journal code back - so that's handled generically rather
+    /// than enumerated.
     ///
     /// Anything not covered here (Wolf-Rayet variants, T Tauri, carbon stars, and other rarer
     /// exotics) falls back to the raw journal code rather than guessing at an unverified format -
@@ -22,14 +26,14 @@ namespace RouteJumper.Services
     {
         private static readonly Dictionary<string, string> KnownNames = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["O"] = "O (Blue) Star",
-            ["B"] = "B (Blue-White) Star",
-            ["A"] = "A (Blue-White) Star",
-            ["F"] = "F (White) Star",
-            ["G"] = "G (White-Yellow) Star",
-            ["K"] = "K (Yellow-Orange) Star",
-            ["M"] = "M (Red dwarf) Star",
-            ["N"] = "Neutron Star",
+            ["O"] = "O (Blue)",
+            ["B"] = "B (Blue-White)",
+            ["A"] = "A (Blue-White)",
+            ["F"] = "F (White)",
+            ["G"] = "G (White-Yellow)",
+            ["K"] = "K (Yellow-Orange)",
+            ["M"] = "M (Red dwarf)",
+            ["N"] = "Neutron",
             ["H"] = "Black Hole",
             ["SupermassiveBlackHole"] = "Supermassive Black Hole",
         };
@@ -43,7 +47,7 @@ namespace RouteJumper.Services
 
             if (starClass.StartsWith("D", StringComparison.OrdinalIgnoreCase))
             {
-                return $"White Dwarf ({starClass}) Star";
+                return $"White Dwarf ({starClass})";
             }
 
             return starClass;
