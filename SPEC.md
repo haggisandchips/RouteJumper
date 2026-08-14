@@ -1082,7 +1082,7 @@ and Controls are hidden while this tab is shown, and vice versa. A leaner
 counterpart to the Roles tab: one role instead of two (just "the tracked
 instance"), no macros, no cargo-capacity gating — Ship mode has no Auto
 Pilot to feed, so all that matters is which single running instance's own
-ship RouteJumper should passively track.
+ship ED:FC Auto Pilot should passively track.
 
 ### 8.1 Instance discovery
 Reuses §5.1's scanning mechanism verbatim — the same `EliteDangerous64.exe`

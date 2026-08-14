@@ -23,7 +23,7 @@
 
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Track" FontSize="16" FontWeight="Bold" Margin="0,0,0,8" />
-            <TextBlock Text="Pick the running instance whose ship RouteJumper should track. No roles, no macros - Ship mode is passive tracking only; you plot and fly every jump yourself."
+            <TextBlock Text="Pick the running instance whose ship ED:FC Auto Pilot should track. No roles, no macros - Ship mode is passive tracking only; you plot and fly every jump yourself."
                        Opacity="0.6"
                        FontSize="11"
                        TextWrapping="Wrap" />
