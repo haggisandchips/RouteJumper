@@ -172,9 +172,22 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
+                    <!-- Unlike the System/Status columns (DataGridTemplateColumns whose own inner
+                         TextBlock explicitly sets VerticalAlignment="Center"), a plain
+                         DataGridTextColumn's generated TextBlock has no such override by default -
+                         it stretches to the cell's full (now Status-driven, taller-than-a-line-of-
+                         text) height and draws from the top, leaving "#" sitting visibly higher
+                         than the other columns. ElementStyle targets that generated TextBlock
+                         directly to centre it the same way. -->
                     <DataGridTextColumn Header="#"
                                          Binding="{Binding Number}"
-                                         Width="40" />
+                                         Width="40">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
 
                     <!-- A DataGridTemplateColumn, not a plain DataGridTextColumn, since the
                          clipboard icon needs to appear after the System text. A bare TextBlock +
@@ -268,9 +281,32 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
+                                    <!-- Every other column's text centres on the DataGridRow's full
+                                         shared height - which this Status cell's own reserved
+                                         progress-bar row already drives taller than a bare line of
+                                         text needs, even while the bar itself is Hidden (§4.4's
+                                         reserved-space convention). Centering this TextBlock only
+                                         within Row 0's own share of that height (excluding Row 1
+                                         below it) left it sitting visibly higher than System/#.
+                                         Margin="0,8,0,0" (top only) pushes it back down by exactly
+                                         Row 1's own reserved height (margin 4 + bar height 4 = 8) -
+                                         Row 0 is Star-sized to fit its content, so this grows Row 0
+                                         by that same 8px, landing the text dead centre of the total
+                                         (original text height + 8px of new padding above + Row 1's
+                                         existing 8px below) instead of just Row 0's now-taller share
+                                         of it. A Grid.RowSpan="2" + centered alternative was tried
+                                         first - simpler on paper, but Grid's Star/RowSpan resolution
+                                         splits any added height roughly evenly above *and* below the
+                                         text, diluting most of it away from the one gap that actually
+                                         needed it (confirmed by screenshot: even an oversized 16px
+                                         margin only opened a 2-3px real gap). This explicit margin
+                                         is deterministic instead - the exact minimum needed to match
+                                         System/#'s centering while still leaving the bar its own
+                                         clear 4px gap below the text, confirmed by screenshot. -->
                                     <TextBlock Grid.Row="0"
                                                Text="{Binding StatusDisplay}"
-                                               VerticalAlignment="Center" />
+                                               VerticalAlignment="Center"
+                                               Margin="0,8,0,0" />
 
                                     <!-- IsIndeterminate shows WPF's own animated marquee in place of Value while
                                          Status is "Plotting" (RouteRowViewModel.IsIndeterminateProgress) - there's no
