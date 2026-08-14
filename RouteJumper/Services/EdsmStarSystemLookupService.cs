@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
@@ -37,6 +38,15 @@ namespace RouteJumper.Services
     /// malformed response) degrades that lookup to "unresolved" (null) rather than throwing -
     /// this is a best-effort enrichment, never something that should block or fail the Route
     /// tab's own Save.
+    ///
+    /// A resolved value is visible immediately via an in-memory cache (<see cref="_coordsMemoryCache"/>/
+    /// <see cref="_starTypeMemoryCache"/>) - every read checks memory first, falling back to
+    /// <see cref="AppSettingsStore"/> only on a miss (and back-filling memory from that DB read for
+    /// next time). Writing to disk is deliberately decoupled from both the memory update and
+    /// <see cref="DataSeeded"/> - see <see cref="EnqueuePersist"/> - so a burst of seeds (e.g. every
+    /// system in a freshly-read NavRoute.json, SPEC §4.9) updates the UI essentially instantly,
+    /// with the (comparatively slow, one-open-close-per-write) SQLite persistence trailing behind
+    /// on its own background queue rather than delaying the notification that drives it.
     /// </summary>
     public class EdsmStarSystemLookupService : IStarSystemLookupService
     {
@@ -57,6 +67,13 @@ namespace RouteJumper.Services
         private readonly HttpClient _httpClient;
         private readonly SemaphoreSlim _bodiesThrottleGate = new(1, 1);
         private DateTime _lastBodiesRequestUtc = DateTime.MinValue;
+
+        private readonly ConcurrentDictionary<string, GalacticCoordinates> _coordsMemoryCache = new();
+        private readonly ConcurrentDictionary<string, string> _starTypeMemoryCache = new();
+
+        /// <summary>Serializes background DB writes (see EnqueuePersist) into a single chain, so concurrent SQLite connections are never opened from multiple writes racing each other.</summary>
+        private readonly object _persistChainLock = new();
+        private Task _persistChain = Task.CompletedTask;
 
         public EdsmStarSystemLookupService(AppSettingsStore settings) : this(settings, SharedHttpClient)
         {
@@ -157,8 +174,7 @@ namespace RouteJumper.Services
 
         public async Task<string?> GetMainStarTypeAsync(string systemName, CancellationToken cancellationToken = default)
         {
-            var cached = _settings.GetString(StarTypeCacheKeyPrefix + NormalizeKey(systemName));
-            if (cached != null)
+            if (TryGetCachedStarType(systemName, out var cached))
             {
                 return cached;
             }
@@ -239,14 +255,23 @@ namespace RouteJumper.Services
 
         private bool TryGetCachedCoordinates(string systemName, out GalacticCoordinates? coordinates)
         {
-            var raw = _settings.GetString(CoordsCacheKeyPrefix + NormalizeKey(systemName));
+            var key = NormalizeKey(systemName);
+            if (_coordsMemoryCache.TryGetValue(key, out var memoized))
+            {
+                coordinates = memoized;
+                return true;
+            }
+
+            var raw = _settings.GetString(CoordsCacheKeyPrefix + key);
             var parts = raw?.Split('|');
             if (parts is { Length: 3 }
                 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
                 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
                 && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var z))
             {
-                coordinates = new GalacticCoordinates(x, y, z);
+                var resolved = new GalacticCoordinates(x, y, z);
+                _coordsMemoryCache[key] = resolved; // back-fill memory so the next read skips the DB
+                coordinates = resolved;
                 return true;
             }
 
@@ -254,17 +279,89 @@ namespace RouteJumper.Services
             return false;
         }
 
-        private void CacheCoordinates(string systemName, GalacticCoordinates coordinates)
+        private bool TryGetCachedStarType(string systemName, out string? starType)
         {
-            var raw = string.Join("|",
-                coordinates.X.ToString(CultureInfo.InvariantCulture),
-                coordinates.Y.ToString(CultureInfo.InvariantCulture),
-                coordinates.Z.ToString(CultureInfo.InvariantCulture));
-            _settings.SetString(CoordsCacheKeyPrefix + NormalizeKey(systemName), raw);
+            var key = NormalizeKey(systemName);
+            if (_starTypeMemoryCache.TryGetValue(key, out var memoized))
+            {
+                starType = memoized;
+                return true;
+            }
+
+            var raw = _settings.GetString(StarTypeCacheKeyPrefix + key);
+            if (raw != null)
+            {
+                _starTypeMemoryCache[key] = raw; // back-fill memory so the next read skips the DB
+                starType = raw;
+                return true;
+            }
+
+            starType = null;
+            return false;
         }
 
-        private void CacheStarType(string systemName, string starType) =>
-            _settings.SetString(StarTypeCacheKeyPrefix + NormalizeKey(systemName), starType);
+        /// <summary>
+        /// Updates the in-memory cache immediately (so a caller's very next read, or this same
+        /// resolved value flowing straight back out of the async lookup that just produced it, is
+        /// already consistent) and enqueues the actual disk write - see EnqueuePersist for why that
+        /// write deliberately isn't done inline here.
+        /// </summary>
+        private void CacheCoordinates(string systemName, GalacticCoordinates coordinates)
+        {
+            var key = NormalizeKey(systemName);
+            _coordsMemoryCache[key] = coordinates;
+
+            EnqueuePersist(() =>
+            {
+                var raw = string.Join("|",
+                    coordinates.X.ToString(CultureInfo.InvariantCulture),
+                    coordinates.Y.ToString(CultureInfo.InvariantCulture),
+                    coordinates.Z.ToString(CultureInfo.InvariantCulture));
+                _settings.SetString(CoordsCacheKeyPrefix + key, raw);
+            });
+        }
+
+        /// <summary>See CacheCoordinates's own doc comment - identical shape for the star-type cache.</summary>
+        private void CacheStarType(string systemName, string starType)
+        {
+            var key = NormalizeKey(systemName);
+            _starTypeMemoryCache[key] = starType;
+            EnqueuePersist(() => _settings.SetString(StarTypeCacheKeyPrefix + key, starType));
+        }
+
+        /// <summary>
+        /// Appends <paramref name="write"/> to a single serial chain of background DB writes -
+        /// never awaited or run inline, so a caller (in particular SeedCoordinates/SeedStarType,
+        /// called synchronously from a journal watcher's own background thread while reading
+        /// NavRoute.json - SPEC §4.9) is never blocked on disk I/O, and the in-memory cache update
+        /// + DataSeeded notification that already happened by the time this is called are never
+        /// delayed by it either. Chained (not parallelized) deliberately: AppSettingsStore opens
+        /// and closes its own SQLite connection per call, and concurrent writers would just
+        /// contend/fail against each other for no benefit - a strictly serial background queue
+        /// avoids that while still keeping every write off of whichever thread is calling in.
+        /// </summary>
+        private void EnqueuePersist(Action write)
+        {
+            lock (_persistChainLock)
+            {
+                _persistChain = _persistChain.ContinueWith(_ => write(), TaskScheduler.Default);
+            }
+        }
+
+        /// <summary>
+        /// Test-only hook: awaits the current tail of the background DB-persist queue (see
+        /// EnqueuePersist) so tests can deterministically confirm a seeded/cached value actually
+        /// reaches the database, rather than racing a fire-and-forget write. Production code never
+        /// calls this - persistence is deliberately decoupled from the in-memory cache and
+        /// DataSeeded, so nothing else in this class waits on it either.
+        /// </summary>
+        internal Task WaitForPendingPersistAsync()
+        {
+            lock (_persistChainLock)
+            {
+                return _persistChain;
+            }
+        }
 
         private static string NormalizeKey(string systemName) => systemName.Trim().ToUpperInvariant();
 

@@ -251,5 +251,58 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(1, raised);
         }
+
+        [Fact]
+        public void SeedCoordinates_DataSeededFiresBeforeWaitingForPersist_ProvingItIsNotBlockedOnTheDbWrite()
+        {
+            // The whole point of decoupling persistence (EnqueuePersist) from the in-memory
+            // cache update + notification: DataSeeded must be observable *before* anything awaits
+            // the persist queue draining - if the write were still inline, this ordering wouldn't
+            // be distinguishable from the write itself being what's slow.
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+            var raised = 0;
+            service.DataSeeded += (_, _) => raised++;
+
+            service.SeedCoordinates("Sol", new GalacticCoordinates(1, 2, 3));
+
+            Assert.Equal(1, raised); // already fired - no persist was awaited
+        }
+
+        [Fact]
+        public async Task SeedCoordinates_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance()
+        {
+            // Proves the deferred write (EnqueuePersist) actually reaches disk, not just memory -
+            // a second service instance against the same directory has no in-memory cache of its
+            // own, so it can only see the value if it was genuinely persisted (mirrors a real app
+            // restart, SPEC §7's "restored... indefinitely" cache row).
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            service.SeedCoordinates("Sol", new GalacticCoordinates(1, 2, 3));
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, freshHandler) = Create(dir);
+            var result = await freshService.GetCoordinatesAsync(new[] { "Sol" });
+
+            Assert.Equal(new GalacticCoordinates(1, 2, 3), result["Sol"]);
+            Assert.Empty(freshHandler.RequestedUrls); // resolved from disk, no network call needed
+        }
+
+        [Fact]
+        public async Task SeedStarType_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            service.SeedStarType("Sol", "G (White-Yellow) Star");
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, freshHandler) = Create(dir);
+            var result = await freshService.GetMainStarTypeAsync("Sol");
+
+            Assert.Equal("G (White-Yellow) Star", result);
+            Assert.Empty(freshHandler.RequestedUrls);
+        }
     }
 }
