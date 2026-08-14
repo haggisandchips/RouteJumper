@@ -37,6 +37,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
 | Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit, Preferences (voice/volume/test), About (§3.6), Check for Updates (§3.7), and a Ship Mode toggle, and an always-visible mute button | |
 | **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
+| | Proper on-screen credit for third-party data sources the app queries (EDSM today, §4.9; likely Spansh or others in future) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet |
 | Material Design styling | |
 
 ---
