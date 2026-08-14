@@ -98,6 +98,18 @@ namespace RouteJumper.Sequencing
             var targetIndex = FindTargetIndex(rows, e.Kind, e.SystemName);
             if (targetIndex < 0)
             {
+                // A Targeted event whose system isn't in the route at all (e.g. the CMDR manually
+                // targeted an off-route system, then plotted a multi-jump in-game route to
+                // somewhere else entirely - the new FSDTarget for that route's first hop won't
+                // match any row) means whatever row was previously shown as "Targeted" no longer
+                // reflects where the ship is actually pointed. Clear that stale Status rather than
+                // leaving it stuck - see ClearAnyTargeted's own doc comment for why the row's Icon
+                // (still the correct next system to reach) is left untouched.
+                if (e.Kind == RowEventKind.Targeted)
+                {
+                    ClearAnyTargeted(rows);
+                }
+
                 return;
             }
 
@@ -193,8 +205,10 @@ namespace RouteJumper.Sequencing
         /// CooldownElapsed is processed, regardless of whether that specific call found a row to
         /// clear - a route's very last row never gets a Cooldown to clear at all, but a deferred
         /// Targeted should still flush once its own CooldownElapsed timer fires). A safe no-op if
-        /// nothing was deferred, or if the deferred system name no longer matches any row (e.g. a
-        /// manual "Set next system" override ran in the meantime).
+        /// nothing was deferred. If the deferred system name doesn't match any row (e.g. a manual
+        /// "Set next system" override ran in the meantime, or the held-back target was itself an
+        /// off-route system - see ClearAnyTargeted), any stale "Targeted" Status is cleared the
+        /// same way the immediate (non-deferred) path does.
         /// </summary>
         private void FlushDeferredTargeted(IReadOnlyList<RouteRowViewModel> rows)
         {
@@ -209,6 +223,32 @@ namespace RouteJumper.Sequencing
             if (targetIndex >= 0)
             {
                 SetTargeted(rows[targetIndex]);
+            }
+            else
+            {
+                ClearAnyTargeted(rows);
+            }
+        }
+
+        /// <summary>
+        /// Clears Status back to blank on whichever row currently shows "Targeted" - there is at
+        /// most one at a time, the same single-row invariant ApplyCooldownElapsed/
+        /// ApplyJumpCancelled rely on for their own searches. Icon is deliberately left untouched
+        /// (unlike Reset): the row is still genuinely the next system the route expects to reach,
+        /// even though the CMDR's most recent FSDTarget no longer points at it - only the stale
+        /// "Targeted" label is wrong, not the row's own place in the route. A safe no-op if no row
+        /// is currently showing it.
+        /// </summary>
+        private static void ClearAnyTargeted(IReadOnlyList<RouteRowViewModel> rows)
+        {
+            foreach (var row in rows)
+            {
+                if (row.Status == "Targeted")
+                {
+                    row.Status = string.Empty;
+                    row.PhaseEndUtc = null;
+                    return;
+                }
             }
         }
 

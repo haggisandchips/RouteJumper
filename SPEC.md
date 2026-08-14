@@ -1137,7 +1137,15 @@ carrier, with a different event vocabulary and different timing:
   cycle actually finishes (`Cooldown` clears), then applied to whichever
   row is genuinely current at that point. This also naturally covers a
   CMDR manually re-targeting mid-jump out of habit, not just the game's
-  own automatic behaviour.
+  own automatic behaviour. If the targeted system doesn't match any row
+  at all — e.g. the CMDR manually targeted an off-route system, realised
+  it was too far for one jump, and plotted a multi-jump in-game route to
+  somewhere else instead, whose own first-hop `FSDTarget` names an
+  intermediate system the pasted route never mentions — whichever row was
+  previously showing `Targeted` is cleared back to blank rather than left
+  stuck showing a target the ship is no longer actually pointed at; its
+  icon is left alone, since it's still genuinely the next system the
+  route expects to reach.
 - **`Jumping`**: `StartJump` with `JumpType` `"Hyperspace"` sets Status to
   `Jumping`, immediately — `"Supercharge"` (an in-system neutron/
   white-dwarf FSD boost that doesn't change system) is ignored. Unlike
@@ -1545,12 +1553,18 @@ outright the instant Ship mode is switched on.
     journal data that `FSDJump` alone fires too early for Cooldown
     timing. "Auto Copy To Clipboard" is unaffected by this and still
     fires immediately off the live `FSDJump` line itself.
-57. Unassigning the tracked instance (explicitly, or because its process
+57. An `FSDTarget` naming a system that isn't in the route at all clears
+    whichever row was previously showing `Targeted` back to blank rather
+    than leaving it stuck - e.g. targeting an off-route system, then
+    plotting a multi-jump in-game route elsewhere whose own first-hop
+    `FSDTarget` names an intermediate system the pasted route never
+    mentions. The cleared row's icon is left as the current row.
+58. Unassigning the tracked instance (explicitly, or because its process
     stops running) leaves the route table exactly as displayed, with no
     forced reset. Switching away from Ship mode behaves the same way;
     switching back (or reassigning) always re-derives progress from a
     fresh reset-and-catch-up.
-58. The tracking mode and tracked instance (by FID) both survive an app
+59. The tracking mode and tracked instance (by FID) both survive an app
     restart with no manual reconfiguration required, restoring in Ship
     mode with the same instance re-tracked (once it's running again) if
     that's how the app was left.

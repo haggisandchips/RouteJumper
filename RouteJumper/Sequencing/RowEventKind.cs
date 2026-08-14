@@ -29,6 +29,14 @@ namespace RouteJumper.Sequencing
         /// RouteSequencer.FlushDeferredTargeted) - by which point the route has settled and the
         /// right row is unambiguous. This also naturally covers a CMDR manually re-targeting
         /// mid-jump out of habit, not just the game's own automatic behaviour.
+        ///
+        /// If the targeted system doesn't match any row at all - e.g. the CMDR manually targeted
+        /// an off-route system, realised it was too far for one jump, and plotted a multi-jump
+        /// in-game route to somewhere else instead, whose own first-hop FSDTarget names an
+        /// intermediate system the pasted route never mentions - whatever row was previously
+        /// showing "Targeted" no longer reflects reality and is cleared back to blank (see
+        /// RouteSequencer.ClearAnyTargeted). Its Icon is left alone: that row is still genuinely
+        /// the next system the route expects to reach, only the stale "Targeted" label was wrong.
         /// </summary>
         Targeted,
 

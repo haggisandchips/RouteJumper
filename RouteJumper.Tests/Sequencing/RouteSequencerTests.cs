@@ -121,6 +121,55 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
+        public void Targeted_SystemNotInRoute_ClearsExistingTargetedStatusButLeavesIconInProgress()
+        {
+            // Real-world scenario: the CMDR manually targets an off-route system, realises it's
+            // too far for one jump, and plots a multi-jump in-game route to somewhere else
+            // instead - the new route's own first-hop FSDTarget names an intermediate system the
+            // pasted route never mentions at all. The row previously shown "Targeted" must not be
+            // left stuck showing a target the ship is no longer actually pointed at.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            trigger.Fire(RowEventKind.Targeted, "Sol");
+            Assert.Equal("Targeted", rows[0].Status);
+
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System");
+
+            Assert.Equal(string.Empty, rows[0].Status);
+            // Still the correct next system to reach - only the stale label was wrong.
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+        }
+
+        [Fact]
+        public void Targeted_SystemNotInRoute_NoRowCurrentlyTargeted_IsNoOp()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System");
+
+            Assert.All(rows, r =>
+            {
+                Assert.Equal(RowIcon.None, r.Icon);
+                Assert.Equal(string.Empty, r.Status);
+            });
+        }
+
+        [Fact]
+        public void Targeted_DeferredSystemNotInRoute_ClearsExistingTargetedOnceFlushed()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Targeted";
+            rows[1].Icon = RowIcon.InProgress;
+            rows[1].Status = "Jumping"; // holds the Targeted event back until CooldownElapsed fires
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System"); // deferred
+
+            trigger.Fire(RowEventKind.CooldownElapsed, "Deciat");
+
+            Assert.Equal(string.Empty, rows[0].Status);
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+        }
+
+        [Fact]
         public void Reset_ClearsAnyDeferredTargeted()
         {
             var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
