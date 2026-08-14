@@ -357,8 +357,9 @@ the whole route reaches Complete or Auto Pilot is stopped:
   `Plotting` is the one row status not driven by anything in the
   journal - Auto Pilot sets it itself, since there is no journal event
   to react to yet at that point; if the macro never results in a real
-  jump request (closed the wrong panel, game unresponsive, ...) the row
-  is left showing `Plotting` indefinitely rather than guessing.
+  jump request (closed the wrong panel, game unresponsive, ...) "panic
+  mode" reacts to it - see below - rather than leaving the row stuck
+  showing `Plotting` forever with nothing telling the CMDR why.
 - If it *is* showing `Cooldown`, the Captain's macro instead plays once
   Cooldown clears (§5.7) plus the configured Auto Pilot delay (Controls
   tab Options, §6.1) — not immediately on clearing, since the game's own
@@ -403,12 +404,47 @@ the whole route reaches Complete or Auto Pilot is stopped:
   at a time, so if the Engineer's refuel is still playing when the
   Captain's own plot fires (or vice versa), starting the new one cancels
   whichever was still running, the same as it would for two manual Plays.
+- **Panic mode**: deliberately paranoid, since the failure mode it exists
+  to prevent is a CMDR who's stopped paying close attention (the whole
+  point of Auto Pilot) while it keeps blindly sending the fleet carrier
+  further and further away on the strength of a macro that silently
+  isn't doing what it's supposed to - potentially thousands of light-years
+  past where the CMDR could easily catch up to it again. So *anything*
+  unexpected panics, rather than only the specific case it happened to be
+  first noticed in:
+  - A macro that doesn't run all the way to its own end, for *any*
+    reason - including being cancelled/superseded by a *different* Auto
+    Pilot trigger (the point above: Captain's plot and Engineer's refuel
+    share one playback channel and can cancel each other) - panics
+    immediately. A script cut off mid-way can leave the game in front of
+    an unknown panel with an unknown selection; there is no safe
+    assumption to make about what any *further* automated input would do
+    against that unknown state, so nothing is even attempted.
+  - **Captain's plot**: even a macro that *does* run to completion still
+    panics unless the row has actually left `Plotting` behind - i.e. a
+    real `CarrierJumpRequest` was actually observed (§5.7).
+  - **Engineer's refuel**: even a macro that runs to completion still
+    panics unless a fresh rescan of the Engineer's own instance
+    immediately afterward - never just whatever was last known, since the
+    deposit that just happened is exactly what that rescan needs to pick
+    up - shows a *strictly higher* carrier fuel level (§5.3) than right
+    before the macro started. No exception for a depot that was already
+    believed full, or a fuel level that wasn't known at all beforehand: a
+    real jump always consumes some fuel, so a depot that isn't confirmed
+    to have gone up is itself the anomaly worth surfacing (most likely
+    meaning the jump never actually happened at all), not a benign case
+    to wave through.
+  - Any of the above stops Auto Pilot the same way reaching the end of
+    the route does (below), and reports what went wrong via the same
+    closeable, tab-independent warning banner a manual macro's own
+    playback failure already uses (§6.5) - visible regardless of which
+    tab is currently showing, dismissed the same way.
 - Auto Pilot stops itself automatically once every row reaches Complete
-  (flipping its label back to "Auto Pilot"), and also if Captain (or, if
+  (flipping its label back to "Auto Pilot"), also if Captain (or, if
   assigned, Engineer) stops meeting Auto Pilot's own requirements (§4.2)
   partway through a run - a role or macro selection changing out from
   under an active run halts it immediately rather than continuing
-  regardless.
+  regardless - and also on either panic-mode failure above.
 - A `CarrierJumpCancelled` (§5.7) reverting a row's `Status` back to
   blank does not, on its own, cause a further macro play for that same
   row - Auto Pilot only ever plays the Captain's macro once per row it
@@ -1008,6 +1044,26 @@ CALL refuel
   Pilot trigger risks the target window's actual in-game state drifting
   from what the script assumes by the time it finally starts sending
   input.
+
+  That resolved value is then itself capped down (never up) so the
+  Engineer's refuel script can't take longer than 4 minutes 45 seconds to
+  actually play — Cooldown's own real window is a full 5 minutes (§5.7),
+  and the refuel is triggered right around when it starts (§4.7); this
+  margin is what keeps a refuel from still being mid-script when the
+  Captain's own next plot comes due and cancels it out from under itself,
+  which Auto Pilot's "panic mode" (§4.7) now treats as an immediate hard
+  stop. The cap is derived by estimating the script's own execution time
+  (every leaf instruction's duration, `AutoWaitMs` pacing between them,
+  `REPEAT`/`CALL` expanded exactly as playback itself would) at 1 loop
+  and at 2, extrapolating linearly for larger counts — exact for the
+  standard `REPEAT {TRITIUM_LOOPS}` shape this placeholder is meant for,
+  since each additional loop costs the same fixed amount of time. If a
+  full refill's worth of loops wouldn't fit even so, this deliberately
+  plays however many loops *do* fit rather than the full amount actually
+  needed — a gradually depleting depot is an accepted, safe outcome:
+  eventually a jump can no longer be requested at all, which panic mode
+  already catches and stops on, rather than ever risking an overlong
+  refuel script colliding with the Captain's own next plot.
 
   For a **manual Play or Step** started from this tab, the CMDR rescan
   above never happens at all — the placeholder resolves directly to the
@@ -1795,3 +1851,25 @@ outright the instant Ship mode is switched on.
     a fresh, not-yet-acted-on target correctly applies *both*: the
     arrived-at row (and everything before it) becomes Complete, and the
     targeted row (wherever it is in the route) shows `Targeted`.
+68. Panic mode: a Captain's plot or Engineer's refuel macro that doesn't
+    run all the way to its own end — for any reason, including being
+    cancelled/superseded by the *other* Auto Pilot trigger, not just an
+    outright failure of its own — stops Auto Pilot immediately and shows
+    a closeable banner, without waiting to see whether the real-world
+    result happened anyway. Even a macro that *does* run to completion
+    still stops Auto Pilot and shows the equivalent banner unless: for
+    the Captain's plot, the row has actually left `Plotting` (a real
+    `CarrierJumpRequest` was observed); for the Engineer's refuel, a
+    fresh rescan of their instance immediately afterward shows a
+    strictly higher carrier fuel level than right before the macro
+    started — with no exception for a depot already believed full or a
+    fuel level not known at all beforehand; both are themselves treated
+    as suspicious rather than skipped.
+69. An Auto Pilot-triggered resolution of `{TRITIUM_LOOPS}` never resolves
+    to a value whose script would take longer than 4 minutes 45 seconds
+    to actually play, even when the CMDR's own cargo/fuel data implies a
+    larger, full-refill loop count — estimated from the script's own
+    instructions (leaf durations, `AutoWaitMs` pacing, `REPEAT`/`CALL`
+    expansion) rather than assumed. A manual Play/Step's own
+    **Test {TRITIUM_LOOPS}** value (§6.1) is never capped this way, since
+    it carries no real-world timing constraint of its own.

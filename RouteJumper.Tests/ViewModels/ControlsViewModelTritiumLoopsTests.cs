@@ -1,3 +1,4 @@
+using RouteJumper.Services;
 using RouteJumper.ViewModels;
 using Xunit;
 
@@ -97,6 +98,73 @@ namespace RouteJumper.Tests.ViewModels
             // even if it somehow exceeded 1000.
             var instance = Instance(cargoCapacity: 100, currentTritium: 0, carrierFuelLevel: 1200);
             Assert.Equal(1, ControlsViewModel.ComputeTritiumLoops(instance)); // ceil((0+100-0)/100) = 1, own hold still needs topping off
+        }
+    }
+
+    /// <summary>
+    /// CapLoopsToFitTimeBudget (SPEC §6.4) - caps the "ideal" loop count down so the refuel
+    /// script's own estimated execution time (MacroPlayer.EstimateDurationMs) fits inside the
+    /// real-world Cooldown window, rather than risking still being mid-script when the Captain's
+    /// own next plot comes due and cancels it - which Auto Pilot's "panic mode" (§4.7) now treats
+    /// as an immediate hard stop.
+    /// </summary>
+    public class ControlsViewModelCapLoopsToFitTimeBudgetTests
+    {
+        private const string RepeatScript = "REPEAT {TRITIUM_LOOPS}\n    UP\n    WAIT 1000\nEND";
+
+        [Fact]
+        public void ZeroIdealLoops_ReturnsZeroWithoutEstimatingAnything()
+        {
+            // A script that would throw/misbehave if ever actually estimated proves this path
+            // short-circuits before touching the script at all.
+            var capped = ControlsViewModel.CapLoopsToFitTimeBudget("REPEAT {TRITIUM_LOOPS}\n UP\nEND", idealLoops: 0, autoWaitMs: 0);
+
+            Assert.Equal(0, capped);
+        }
+
+        [Fact]
+        public void WellWithinBudget_ReturnsIdealLoopsUnchanged()
+        {
+            var capped = ControlsViewModel.CapLoopsToFitTimeBudget(RepeatScript, idealLoops: 5, autoWaitMs: 0);
+
+            Assert.Equal(5, capped);
+        }
+
+        [Fact]
+        public void FarExceedsBudget_CapsDownToExactlyWhatFits()
+        {
+            const int autoWaitMs = 0;
+            var perLoopMs = MacroPlayer.EstimateDurationMs(RepeatScript.Replace("{TRITIUM_LOOPS}", "1"), autoWaitMs);
+            var expectedCap = 285_000 / perLoopMs; // 4:45, integer division = floor
+
+            var capped = ControlsViewModel.CapLoopsToFitTimeBudget(RepeatScript, idealLoops: 10_000, autoWaitMs);
+
+            Assert.Equal(expectedCap, capped);
+            Assert.True(capped < 10_000);
+            // The capped script must genuinely fit - and one more loop must not.
+            Assert.True(MacroPlayer.EstimateDurationMs(RepeatScript.Replace("{TRITIUM_LOOPS}", capped.ToString()), autoWaitMs) <= 285_000);
+            Assert.True(MacroPlayer.EstimateDurationMs(RepeatScript.Replace("{TRITIUM_LOOPS}", (capped + 1).ToString()), autoWaitMs) > 285_000);
+        }
+
+        [Fact]
+        public void EvenZeroLoopsWouldNotFit_ReturnsZero()
+        {
+            // The script's own fixed overhead (outside the REPEAT) alone already exceeds budget.
+            var hugeFixedOverhead = "WAIT 999999\nREPEAT {TRITIUM_LOOPS}\n    UP\nEND";
+
+            var capped = ControlsViewModel.CapLoopsToFitTimeBudget(hugeFixedOverhead, idealLoops: 50, autoWaitMs: 0);
+
+            Assert.Equal(0, capped);
+        }
+
+        [Fact]
+        public void PlaceholderNotDrivingAnyTimingCost_ReturnsIdealLoopsUnchanged()
+        {
+            // {TRITIUM_LOOPS} present, but not feeding anything that affects estimated duration
+            // (e.g. only ever appears in a comment) - nothing meaningful to cap against.
+            var capped = ControlsViewModel.CapLoopsToFitTimeBudget("# {TRITIUM_LOOPS}\nUP", idealLoops: 7, autoWaitMs: 0);
+
+            Assert.Equal(7, capped);
         }
     }
 }

@@ -20,9 +20,14 @@ namespace RouteJumper.ViewModels
     /// Pilot (Route tab §4.2) by playing the Captain's selected macro (Roles tab §5.5) to plot
     /// each jump, and the Engineer's (if assigned) to refuel once each Cooldown starts, both
     /// through ControlsViewModel.PlayMacro - none of the tab ViewModels reference each other directly;
-    /// this class is the only place that does. Also owns the single AppSettingsStore both tabs
-    /// persist to/restore from, and the single AppConfigStore both Roles' and Controls' own
-    /// independent EliteInstanceScanner instances read the journal folder from.
+    /// this class is the only place that does. RolesViewModel.RefreshAsync is also passed
+    /// directly to AutoPilotController (not routed through ControlsViewModel) so its "panic mode"
+    /// (§4.7) can rescan for a fresh carrier fuel reading after the Engineer's macro finishes;
+    /// RouteViewModel.StopAutoPilot is passed twice - once as the "route completed" stop, once as
+    /// the "panic" stop - since both are the same underlying action from Auto Pilot's own
+    /// perspective, just reached for different reasons. Also owns the single AppSettingsStore
+    /// both tabs persist to/restore from, and the single AppConfigStore both Roles' and Controls'
+    /// own independent EliteInstanceScanner instances read the journal folder from.
     /// </summary>
     public class MainViewModel : ObservableObject
     {
@@ -109,8 +114,11 @@ namespace RouteJumper.ViewModels
                 () => RolesViewModel.EngineerMacro,
                 () => RolesViewModel.EngineerInstance,
                 () => ControlsViewModel.AutoPilotDelayMs,
-                (macro, instance) => ControlsViewModel.PlayMacro(macro, instance),
+                ControlsViewModel.PlayMacro,
+                RolesViewModel.RefreshAsync,
                 RouteViewModel.StopAutoPilot,
+                RouteViewModel.StopAutoPilot,
+                ControlsViewModel.ReportPlaybackError,
                 SpeechAnnouncer.Speak,
                 routeEventTrigger);
             RouteViewModel.AutoPilotRunningChanged += (_, running) =>

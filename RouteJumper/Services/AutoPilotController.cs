@@ -46,6 +46,34 @@ namespace RouteJumper.Services
     /// time - "Plotting in 30 seconds"/"Plotting in 5 seconds" before the Captain's macro plays,
     /// and the same wording with "Refueling" before the Engineer's - see
     /// AnnounceBeforeTrigger.
+    ///
+    /// "Panic mode": deliberately paranoid, by design - the failure mode this exists to prevent
+    /// is a CMDR who's stopped paying close attention (that's the whole point of Auto Pilot)
+    /// while it keeps blindly sending a fleet carrier further and further from wherever the CMDR
+    /// actually is, potentially thousands of light-years past where anyone could easily catch up
+    /// to it, on the strength of a macro that silently isn't doing what it's supposed to. So
+    /// *anything* unexpected panics - Auto Pilot stops itself
+    /// (<see cref="_stopAutoPilot"/>) and reports why via <see cref="_reportError"/> (the same
+    /// closeable, tab-independent banner a manual macro's own playback failure already uses,
+    /// ControlsViewModel.PlaybackErrorMessage) - rather than ever guessing that "probably fine"
+    /// is good enough and continuing an already-suspect automated run:
+    /// - A macro that doesn't run all the way to its own end - for *any* reason, including being
+    ///   cancelled/superseded by a *different* Auto Pilot trigger (Captain's plot and Engineer's
+    ///   refuel share one playback channel and can cancel each other, SPEC §4.7) - panics
+    ///   immediately, without waiting to see whether the real-world result happened to occur
+    ///   anyway. A script cut off mid-way can leave the game in front of an unknown panel with
+    ///   an unknown selection - there is no safe assumption about what a *further* macro's own
+    ///   keypresses would do to that unknown state, so nothing further is attempted at all.
+    /// - Captain's plot: even a macro that *does* run to completion still panics unless the row
+    ///   has actually left "Plotting" - i.e. a real CarrierJumpRequest was observed (see
+    ///   TriggerCaptainPlotAsync).
+    /// - Engineer's refuel: even a macro that runs to completion still panics unless a fresh
+    ///   rescan (<see cref="_refreshInstances"/>) - never just whatever was last known - shows a
+    ///   *strictly higher* carrier fuel level than right before the macro started (see
+    ///   TriggerEngineerRefuelAsync). No exception for "the depot was probably already full" or
+    ///   "the fuel level just isn't known yet": a real jump always consumes some fuel, so a
+    ///   depot that isn't known to have gone up is itself the anomaly worth surfacing, not a
+    ///   benign case to wave through.
     /// </summary>
     public sealed class AutoPilotController
     {
@@ -58,8 +86,11 @@ namespace RouteJumper.Services
         private readonly Func<RecordedMacroViewModel?> _getEngineerMacro;
         private readonly Func<EliteInstanceViewModel?> _getEngineerInstance;
         private readonly Func<int> _getAutoPilotDelayMs;
-        private readonly Action<RecordedMacroViewModel, EliteInstanceViewModel> _playMacro;
+        private readonly Func<RecordedMacroViewModel, EliteInstanceViewModel, Task<bool>> _playMacro;
+        private readonly Func<Task> _refreshInstances;
         private readonly Action _onRouteComplete;
+        private readonly Action _stopAutoPilot;
+        private readonly Action<string> _reportError;
         private readonly Action<string> _speak;
         private readonly ManualRowEventTrigger _routeEventTrigger;
 
@@ -78,8 +109,11 @@ namespace RouteJumper.Services
             Func<RecordedMacroViewModel?> getEngineerMacro,
             Func<EliteInstanceViewModel?> getEngineerInstance,
             Func<int> getAutoPilotDelayMs,
-            Action<RecordedMacroViewModel, EliteInstanceViewModel> playMacro,
+            Func<RecordedMacroViewModel, EliteInstanceViewModel, Task<bool>> playMacro,
+            Func<Task> refreshInstances,
             Action onRouteComplete,
+            Action stopAutoPilot,
+            Action<string> reportError,
             Action<string> speak,
             ManualRowEventTrigger routeEventTrigger)
         {
@@ -90,7 +124,10 @@ namespace RouteJumper.Services
             _getEngineerInstance = getEngineerInstance;
             _getAutoPilotDelayMs = getAutoPilotDelayMs;
             _playMacro = playMacro;
+            _refreshInstances = refreshInstances;
             _onRouteComplete = onRouteComplete;
+            _stopAutoPilot = stopAutoPilot;
+            _reportError = reportError;
             _speak = speak;
             _routeEventTrigger = routeEventTrigger;
         }
@@ -292,17 +329,21 @@ namespace RouteJumper.Services
             var applyDelay = ReferenceEquals(_pendingCooldownRow, currentRow);
             _pendingCooldownRow = null;
 
-            _ = TriggerCaptainPlotAsync(currentRow.SystemText, applyDelay, _cts!.Token);
+            _ = TriggerCaptainPlotAsync(currentRow, applyDelay, _cts!.Token);
         }
 
         /// <summary>
-        /// Raises RowEventKind.Plotting for <paramref name="systemName"/> the instant the
-        /// Captain's macro actually starts playing - not before the wait above, and not on any
-        /// journal event (see RowEventKind.Plotting) - so RouteSequencer can show that row as
-        /// actively being plotted (an indeterminate cue, §4.4) rather than sitting blank while
-        /// the macro clicks through the game's UI.
+        /// Raises RowEventKind.Plotting for <paramref name="row"/> the instant the Captain's
+        /// macro actually starts playing - not before the wait above, and not on any journal
+        /// event (see RowEventKind.Plotting) - so RouteSequencer can show that row as actively
+        /// being plotted (an indeterminate cue, §4.4) rather than sitting blank while the macro
+        /// clicks through the game's UI. Panics (see the class doc comment's own "Panic mode"
+        /// section) if the macro doesn't run all the way to its own end for any reason, or if it
+        /// does but the row is still showing "Plotting" - the one Status value nothing but this
+        /// method itself ever sets, so it being unchanged means no CarrierJumpRequest was ever
+        /// actually observed for it.
         /// </summary>
-        private async Task TriggerCaptainPlotAsync(string systemName, bool applyDelay, CancellationToken cancellationToken)
+        private async Task TriggerCaptainPlotAsync(RouteRowViewModel row, bool applyDelay, CancellationToken cancellationToken)
         {
             try
             {
@@ -313,8 +354,19 @@ namespace RouteJumper.Services
 
                 if (_getCaptainMacro() is { } macro && _getCaptainInstance() is { WindowHandle: not 0 } instance)
                 {
-                    _routeEventTrigger.Fire(RowEventKind.Plotting, systemName);
-                    _playMacro(macro, instance);
+                    _routeEventTrigger.Fire(RowEventKind.Plotting, row.SystemText);
+                    var ranToCompletion = await _playMacro(macro, instance);
+
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (!ranToCompletion)
+                    {
+                        Panic($"Auto Pilot stopped: the Captain's macro for {row.SystemText} was interrupted before it finished - the game may be in an unknown state.");
+                    }
+                    else if (row.Status == "Plotting")
+                    {
+                        Panic($"Auto Pilot stopped: the Captain's macro finished, but no jump to {row.SystemText} was plotted.");
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -331,6 +383,14 @@ namespace RouteJumper.Services
         /// (after the wait) if not - CanEngageAutoPilot already requires a selected Engineer
         /// macro whenever Engineer is assigned at all, but Engineer being unassigned entirely is
         /// always valid.
+        ///
+        /// Panics if the macro doesn't run all the way to its own end for any reason, or if it
+        /// does but a fresh rescan (<see cref="_refreshInstances"/>) - never just whatever's
+        /// already cached, since the deposit that just happened is exactly what that rescan needs
+        /// to pick up - doesn't show a strictly higher carrier fuel level than right before the
+        /// macro started. No exception for a depot that was already believed full, or a fuel
+        /// level that wasn't known at all beforehand - see the class doc comment's own "Panic
+        /// mode" section for why neither is treated as a safe case to wave through.
         /// </summary>
         private async Task TriggerEngineerRefuelAsync(DateTime triggerAtUtc, CancellationToken cancellationToken)
         {
@@ -344,13 +404,43 @@ namespace RouteJumper.Services
 
                 if (_getEngineerMacro() is { } macro && _getEngineerInstance() is { WindowHandle: not 0 } instance)
                 {
-                    _playMacro(macro, instance);
+                    var fuelBefore = instance.CarrierFuelLevel;
+                    var ranToCompletion = await _playMacro(macro, instance);
+
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (!ranToCompletion)
+                    {
+                        Panic("Auto Pilot stopped: the Engineer's macro was interrupted before it finished - the game may be in an unknown state.");
+                        return;
+                    }
+
+                    await _refreshInstances();
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var fuelAfter = _getEngineerInstance()?.CarrierFuelLevel;
+                    if (fuelBefore is not { } before || fuelAfter is not { } after || after <= before)
+                    {
+                        Panic("Auto Pilot stopped: the Engineer's macro finished, but the carrier's fuel depot was not replenished.");
+                    }
                 }
             }
             catch (OperationCanceledException)
             {
                 // Auto Pilot was stopped while waiting - nothing to do.
             }
+        }
+
+        /// <summary>
+        /// Stops Auto Pilot and reports why - shared by both panic checks above. Deliberately
+        /// separate from _onRouteComplete (the same underlying "turn Auto Pilot off" action from
+        /// the caller's perspective, but a materially different reason from the user's) so the
+        /// call site at each panic reads as what it is, not as a disguised success.
+        /// </summary>
+        private void Panic(string message)
+        {
+            _reportError(message);
+            _stopAutoPilot();
         }
 
         /// <summary>

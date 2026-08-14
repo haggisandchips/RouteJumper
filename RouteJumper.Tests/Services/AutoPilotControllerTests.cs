@@ -11,7 +11,7 @@ namespace RouteJumper.Tests.Services
     {
         private static readonly DateTime NowUtc = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        private static EliteInstanceViewModel Instance() => new(
+        private static EliteInstanceViewModel Instance(int? carrierFuelLevel = null) => new(
             processId: 1,
             commanderName: "Jameson",
             fid: "F1",
@@ -29,7 +29,7 @@ namespace RouteJumper.Tests.Services
             carrierBody: null,
             journalFilePath: null,
             carrierId: null,
-            carrierFuelLevel: null);
+            carrierFuelLevel: carrierFuelLevel);
 
         /// <summary>
         /// Exercises the real EvaluateAndMaybeTrigger/TriggerCaptainPlotAsync path end to end
@@ -58,8 +58,11 @@ namespace RouteJumper.Tests.Services
                 () => null,
                 () => null,
                 () => 0,
-                (m, _) => playedMacros.Add(m),
+                (m, _) => { playedMacros.Add(m); return Task.FromResult(true); },
+                () => Task.CompletedTask,
                 () => { },
+                () => { },
+                _ => { },
                 _ => { },
                 trigger);
 
@@ -76,6 +79,326 @@ namespace RouteJumper.Tests.Services
             // same synchronous block, so both having happened is enough to know the order held.
             Assert.Contains(received, e => e.Kind == RowEventKind.Plotting && e.SystemName == "Sol");
             Assert.Single(playedMacros);
+        }
+
+        // ===================== Panic mode (SPEC §4.7) =====================
+
+        /// <summary>A RouteSequencer attached to the same trigger AutoPilotController fires RowEventKind.Plotting through - without this, "Plotting" never actually lands on the row, the same way it wouldn't in production wiring (MainViewModel attaches one for real).</summary>
+        private static ManualRowEventTrigger TriggerWithSequencerAttached(IReadOnlyList<RouteRowViewModel> rows)
+        {
+            var trigger = new ManualRowEventTrigger();
+            var sequencer = new RouteSequencer();
+            sequencer.SetRows(rows);
+            sequencer.AttachRowTrigger(trigger);
+            return trigger;
+        }
+
+        [Fact]
+        public async Task CaptainPlot_MacroCompletesButRowNeverReachesPlotted_PanicsAndStopsAutoPilot()
+        {
+            var row = new RouteRowViewModel { SystemText = "Sol", Icon = RowIcon.InProgress };
+            var rows = new ObservableCollection<RouteRowViewModel>(new[] { row });
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var stopped = false;
+            string? reportedError = null;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => macro,
+                () => Instance(),
+                () => null,
+                () => null,
+                () => 0,
+                (_, _) => Task.FromResult(true), // the macro "completes" but never advances row.Status
+                () => Task.CompletedTask,
+                () => { },
+                () => stopped = true,
+                msg => reportedError = msg,
+                _ => { },
+                TriggerWithSequencerAttached(rows));
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(stopped);
+            Assert.NotNull(reportedError);
+            Assert.Contains("Sol", reportedError);
+        }
+
+        [Fact]
+        public async Task CaptainPlot_RowReachedPlottedBeforeMacroFinished_DoesNotPanic()
+        {
+            var row = new RouteRowViewModel { SystemText = "Sol", Icon = RowIcon.InProgress };
+            var rows = new ObservableCollection<RouteRowViewModel>(new[] { row });
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var stopped = false;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => macro,
+                () => Instance(),
+                () => null,
+                () => null,
+                () => 0,
+                (_, _) =>
+                {
+                    // Simulates journal tracking (CarrierJumpRequest) catching up while the macro
+                    // was still finishing its last few housekeeping steps.
+                    row.Status = "Plotted";
+                    return Task.FromResult(true);
+                },
+                () => Task.CompletedTask,
+                () => { },
+                () => stopped = true,
+                _ => { },
+                _ => { },
+                TriggerWithSequencerAttached(rows));
+
+            controller.Start();
+            await Task.Delay(200); // give a wrongly-firing panic a chance to happen
+
+            Assert.False(stopped);
+        }
+
+        [Fact]
+        public async Task CaptainPlot_MacroDidNotRunToCompletion_PanicsAndStopsAutoPilot()
+        {
+            // Deliberately paranoid: a macro cut short for *any* reason (cancelled/superseded by
+            // a different Auto Pilot trigger, an ordinary Stop mid-script, focus loss, ...) can
+            // leave the game in front of an unknown panel with an unknown selection - there's no
+            // safe assumption to make about that, so this panics immediately rather than waiting
+            // to see whether the jump happened to get plotted anyway.
+            var row = new RouteRowViewModel { SystemText = "Sol", Icon = RowIcon.InProgress };
+            var rows = new ObservableCollection<RouteRowViewModel>(new[] { row });
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var stopped = false;
+            string? reportedError = null;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => macro,
+                () => Instance(),
+                () => null,
+                () => null,
+                () => 0,
+                (_, _) => Task.FromResult(false), // never reached the end
+                () => Task.CompletedTask,
+                () => { },
+                () => stopped = true,
+                msg => reportedError = msg,
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(stopped);
+            Assert.NotNull(reportedError);
+        }
+
+        /// <summary>Builds a two-row route whose first row is already "Jumping" with a past PhaseEndUtc, so EvaluateAndMaybeTrigger schedules (and, with a zero Auto Pilot delay, immediately fires) the Engineer's refuel for it.</summary>
+        private static ObservableCollection<RouteRowViewModel> RowsWithJumpingFirstRow() => new(new[]
+        {
+            new RouteRowViewModel
+            {
+                SystemText = "Sol",
+                Icon = RowIcon.InProgress,
+                Status = "Jumping",
+                PhaseEndUtc = DateTime.UtcNow.AddSeconds(-10)
+            },
+            new RouteRowViewModel { SystemText = "Deciat" }
+        });
+
+        [Fact]
+        public async Task EngineerRefuel_MacroCompletesButFuelUnchanged_PanicsAndStopsAutoPilot()
+        {
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            EliteInstanceViewModel currentEngineerInstance = Instance(carrierFuelLevel: 500);
+            var refreshed = false;
+            var stopped = false;
+            string? reportedError = null;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => currentEngineerInstance,
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () =>
+                {
+                    refreshed = true;
+                    currentEngineerInstance = Instance(carrierFuelLevel: 500); // rescanned, but unchanged
+                    return Task.CompletedTask;
+                },
+                () => { },
+                () => stopped = true,
+                msg => reportedError = msg,
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(refreshed);
+            Assert.True(stopped);
+            Assert.NotNull(reportedError);
+            Assert.Contains("fuel depot", reportedError);
+        }
+
+        [Fact]
+        public async Task EngineerRefuel_MacroCompletesAndFuelIncreased_DoesNotPanic()
+        {
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            EliteInstanceViewModel currentEngineerInstance = Instance(carrierFuelLevel: 500);
+            var stopped = false;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => currentEngineerInstance,
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () =>
+                {
+                    currentEngineerInstance = Instance(carrierFuelLevel: 620); // genuinely increased
+                    return Task.CompletedTask;
+                },
+                () => { },
+                () => stopped = true,
+                _ => { },
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+            await Task.Delay(200);
+
+            Assert.False(stopped);
+        }
+
+        [Fact]
+        public async Task EngineerRefuel_DepotAlreadyFullBeforehand_StillPanicsBecauseFuelDidNotIncrease()
+        {
+            // Deliberately paranoid: a real jump always consumes some fuel, so a depot that was
+            // already believed full (TRITIUM_LOOPS would have resolved to 0 for this run) is
+            // itself the anomaly - most likely evidence the jump never actually happened - not a
+            // benign "nothing to do" case to wave through.
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var refreshed = false;
+            var stopped = false;
+            string? reportedError = null;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => Instance(carrierFuelLevel: 1000), // already full
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () => { refreshed = true; return Task.CompletedTask; },
+                () => { },
+                () => stopped = true,
+                msg => reportedError = msg,
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(refreshed);
+            Assert.True(stopped);
+            Assert.NotNull(reportedError);
+        }
+
+        [Fact]
+        public async Task EngineerRefuel_FuelLevelUnknownBeforehand_StillPanics()
+        {
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var stopped = false;
+            string? reportedError = null;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => Instance(carrierFuelLevel: null), // never seen before
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () => Task.CompletedTask,
+                () => { },
+                () => stopped = true,
+                msg => reportedError = msg,
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(stopped);
+            Assert.NotNull(reportedError);
+        }
+
+        [Fact]
+        public async Task EngineerRefuel_MacroDidNotRunToCompletion_PanicsWithoutEvenRescanning()
+        {
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var refreshed = false;
+            var stopped = false;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => Instance(carrierFuelLevel: 500),
+                () => 0,
+                (_, _) => Task.FromResult(false), // never reached the end
+                () => { refreshed = true; return Task.CompletedTask; },
+                () => { },
+                () => stopped = true,
+                _ => { },
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(stopped);
+            Assert.False(refreshed); // no point rescanning - the game's state is already unknown
         }
 
         [Fact]
