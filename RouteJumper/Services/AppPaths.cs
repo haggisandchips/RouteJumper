@@ -5,7 +5,7 @@ using Velopack.Sources;
 namespace RouteJumper.Services
 {
     /// <summary>
-    /// Resolves the %LocalAppData% folder RouteJumper stores its own state in - shared by
+    /// Resolves the %LocalAppData% folder ED:FC Auto Pilot stores its own state in - shared by
     /// <see cref="AppConfigStore"/> and <see cref="AppSettingsStore"/> so both land in the same
     /// place. Appends ".Dev" whenever this isn't a real Velopack install (dotnet run/F5, or a
     /// local publish) - see <see cref="UpdateManager.IsInstalled"/> - so local development

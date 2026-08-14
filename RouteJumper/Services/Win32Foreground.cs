@@ -10,7 +10,7 @@ namespace RouteJumper.Services
     /// system only lets a process set the foreground window unconditionally if that process is
     /// already the foreground process, was itself launched by the current foreground process, or
     /// (among a couple of other narrow cases) is the process that most recently received an
-    /// input event. RouteJumper is normally none of those relative to whatever the user was just
+    /// input event. ED:FC Auto Pilot is normally none of those relative to whatever the user was just
     /// doing (e.g. clicking Play while some other window has focus), so a direct call frequently
     /// fails silently - the target's taskbar button just flashes instead of the window actually
     /// coming to front - and the caller has no reliable way to tell the difference from here.
@@ -18,7 +18,7 @@ namespace RouteJumper.Services
     /// Sending one harmless, zero-motion synthetic mouse move via SendInput immediately before
     /// SetForegroundWindow satisfies that last condition ("received the last input event")
     /// without moving the cursor or clicking anything, letting the follow-up call succeed even
-    /// when RouteJumper itself isn't currently focused.
+    /// when ED:FC Auto Pilot itself isn't currently focused.
     /// </summary>
     public static class Win32Foreground
     {

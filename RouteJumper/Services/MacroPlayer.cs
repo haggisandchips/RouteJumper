@@ -277,7 +277,7 @@ namespace RouteJumper.Services
         /// Executes exactly one leaf instruction (from <see cref="Flatten"/>) against the target
         /// window, foregrounding it fresh first - unlike PlayAsync's one-time foreground at the
         /// start of a whole script, a manual single step (SPEC §6.5's editor "Step" facility)
-        /// needs this every call, since the user's own click on RouteJumper's own Step button
+        /// needs this every call, since the user's own click on ED:FC Auto Pilot's own Step button
         /// will itself have taken focus away from the target in between steps. Deliberately no
         /// focus-loss watchdog here (unlike PlayAsync) - a single step is short enough that
         /// losing focus mid-instruction isn't a realistic concern the way it is across a whole
