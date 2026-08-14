@@ -34,7 +34,7 @@ namespace RouteJumper.Services
         }
 
         /// <summary>
-        /// The folder RouteJumper scans for Elite Dangerous journal files (`Journal.*.log`).
+        /// The folder ED:FC Auto Pilot scans for Elite Dangerous journal files (`Journal.*.log`).
         /// Defaults to Frontier's own standard location, written into a freshly-created
         /// `routejumper.conf` the first time this is read if the file doesn't exist yet; blank
         /// or missing thereafter also falls back to the same default, so a file that exists but
@@ -66,7 +66,7 @@ namespace RouteJumper.Services
                 {
                     File.WriteAllLines(_configPath, new[]
                     {
-                        "# RouteJumper configuration - safe to hand-edit while the app is closed",
+                        "# ED:FC Auto Pilot configuration - safe to hand-edit while the app is closed",
                         "# (or running - config is re-read on every Roles tab refresh).",
                         $"{JournalDirectoryKey}={DefaultJournalDirectory}"
                     });

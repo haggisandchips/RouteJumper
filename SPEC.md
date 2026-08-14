@@ -1,4 +1,4 @@
-# RouteJumper — Application Specification
+# ED:FC Auto Pilot — Application Specification
 
 **Version:** 2.0
 **Platform:** Windows desktop, WPF, .NET 8, MVVM
@@ -7,9 +7,9 @@
 
 ## 1. Purpose
 
-RouteJumper is a desktop utility for Elite Dangerous fleet carrier owners. A user
+ED:FC Auto Pilot is a desktop utility for Elite Dangerous fleet carrier owners. A user
 pastes a list of star systems (one per line) to form a route. Once a Captain's
-game instance is assigned on the Roles tab, RouteJumper watches that commander's
+game instance is assigned on the Roles tab, ED:FC Auto Pilot watches that commander's
 journal file and automatically tracks the carrier's progress along the route,
 updating each row's status as the carrier plots, jumps, arrives, and cools down.
 
@@ -111,7 +111,7 @@ See §6.
   copyright/license line. A single **Close** button dismisses it.
 
 ### 3.7 Automatic updates
-- On every launch, RouteJumper silently checks the project's GitHub
+- On every launch, ED:FC Auto Pilot silently checks the project's GitHub
   Releases for a newer version (via Velopack); if one exists, it's
   downloaded in the background and applied on the *next* normal exit
   rather than interrupting the current session. This check, and the
@@ -303,7 +303,7 @@ See §7.
   by clicking a row — shows a small clipboard icon directly after its
   `System` text (§4.2). At most one row shows it at a time. It disappears
   the instant the system clipboard's contents actually change, for any
-  reason, including an application other than RouteJumper overwriting it —
+  reason, including an application other than ED:FC Auto Pilot overwriting it —
   detected via a real Windows clipboard-change notification, not polling.
 
 ### 4.7 Auto Pilot execution
@@ -384,7 +384,7 @@ the whole route reaches Complete or Auto Pilot is stopped:
 
 ### 4.8 Spoken announcements
 - Ahead of each of the two triggers §4.7 describes - the Captain's plot
-  and the Engineer's refuel - RouteJumper speaks a lead-time announcement
+  and the Engineer's refuel - ED:FC Auto Pilot speaks a lead-time announcement
   through the OS's speech engine (voice/volume from the Preferences
   dialog, §3.5): "Plotting in 30 seconds" 30 seconds before the
   Captain's macro is due to play, then "Plotting in 5 seconds" 5 seconds
@@ -541,7 +541,7 @@ See §7.
 
 ### 5.7 Journal-driven route updates
 
-Once Captain is assigned, RouteJumper watches that commander's journal file
+Once Captain is assigned, ED:FC Auto Pilot watches that commander's journal file
 for `CarrierJumpRequest`/`CarrierLocation` events belonging to their own
 fleet carrier (filtered by `CarrierID` and `CarrierType == "FleetCarrier"`,
 so a shared squadron carrier's events are never mistaken for the
@@ -764,7 +764,7 @@ foreground (the same as Play does before playback - see §6.3), then
 starts capturing keyboard and mouse input system-wide, filtered to only
 the moments the target instance's window is foreground (input while some
 other window is focused is not recorded - including, after that initial
-foregrounding, input directed back at RouteJumper's own window). Pressing
+foregrounding, input directed back at ED:FC Auto Pilot's own window). Pressing
 **Stop** ends capture and turns it into a new named macro (§6.5). Only one
 recording can be active at a time.
 
@@ -834,7 +834,7 @@ CALL refuel
   into steps.
 
   For an **Auto Pilot-triggered run** of a script that actually contains
-  this placeholder, RouteJumper first refreshes CMDR info for every
+  this placeholder, ED:FC Auto Pilot first refreshes CMDR info for every
   running instance — the same rescan the Roles and Controls tabs' own
   Refresh buttons do — then resolves the placeholder against whichever
   instance the value should reflect: this tab's own selected instance
@@ -947,7 +947,7 @@ without leaving the editor, e.g. to try out an edit immediately:
   to observe from single-stepping a pure delay, so it would only cost an
   extra click for no visible effect. Since the target instance's
   window won't generally still be foreground after the user's own click
-  back on RouteJumper to press Step again, each step re-foregrounds it
+  back on ED:FC Auto Pilot to press Step again, each step re-foregrounds it
   first, the same as Play does once at the very start of a whole script.
   Reaching the end wraps back to the beginning, so the same script can be
   stepped through repeatedly; editing the script text restarts stepping
@@ -1251,7 +1251,7 @@ rather than internal app state like the table below.
     next one, except when that instruction was the script's last one or
     the next one is a `WAIT`.
 38. Before an Auto Pilot-triggered run of a script whose text contains
-    `{TRITIUM_LOOPS}`, RouteJumper rescans CMDR info and resolves it to
+    `{TRITIUM_LOOPS}`, ED:FC Auto Pilot rescans CMDR info and resolves it to
     the number of full ship-loads of tritium this tab's own selected
     instance (or, with none selected, the currently-assigned Engineer)
     still needs to fill its carrier's fuel depot to 1000t and top off its
