@@ -60,26 +60,32 @@
 
                 <!-- Switches between Fleet Carrier mode (Roles/Controls tabs, Auto Pilot) and
                      Ship mode (Track tab, no automation) - see MainViewModel.ApplyMode. A pair of
-                     mutually-exclusive choice chips (same RadioButton GroupName), centred in the
-                     toolbar strip (this middle column stretches; File/mute stay Auto-sized either
-                     side of it), always visible regardless of which tab is active. -->
+                     mutually-exclusive choice chips (same RadioButton GroupName), Fleet Carrier
+                     first since it's the default mode, centred in the toolbar strip (this middle
+                     column stretches; File/mute stay Auto-sized either side of it), always visible
+                     regardless of which tab is active. No "Mode" label - which chip is selected
+                     already makes that obvious. Each chip's own ToolTip explains what switching to
+                     it does, but only while it's the "other" (not-currently-selected) chip -
+                     ToolTipService.IsEnabled is bound to the opposite of that chip's own
+                     IsChecked, since the currently-active mode needs no explanation of what
+                     choosing it would do. -->
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center">
-                    <TextBlock Text="Mode"
-                               Opacity="0.6"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0" />
-                    <RadioButton Content="Ship"
-                                 GroupName="TrackingMode"
-                                 Style="{StaticResource MaterialDesignChoiceChipSecondaryRadioButton}"
-                                 IsChecked="{Binding IsShipMode, Mode=TwoWay}"
-                                 Margin="0,0,4,0" />
                     <RadioButton Content="Fleet Carrier"
                                  GroupName="TrackingMode"
-                                 Style="{StaticResource MaterialDesignChoiceChipSecondaryRadioButton}"
-                                 IsChecked="{Binding IsShipMode, Mode=TwoWay, Converter={StaticResource InverseBooleanConverter}}" />
+                                 Style="{StaticResource MaterialDesignChoiceChipPrimaryRadioButton}"
+                                 IsChecked="{Binding IsShipMode, Mode=TwoWay, Converter={StaticResource InverseBooleanConverter}}"
+                                 ToolTip="Track a Fleet Carrier's progress via a Captain's journal, with optional Auto Pilot automation."
+                                 ToolTipService.IsEnabled="{Binding IsShipMode}"
+                                 Margin="0,0,4,0" />
+                    <RadioButton Content="Ship"
+                                 GroupName="TrackingMode"
+                                 Style="{StaticResource MaterialDesignChoiceChipPrimaryRadioButton}"
+                                 IsChecked="{Binding IsShipMode, Mode=TwoWay}"
+                                 ToolTip="Passively track your own ship along a manually-flown route - no automation, you plot and fly every jump yourself."
+                                 ToolTipService.IsEnabled="{Binding IsShipMode, Converter={StaticResource InverseBooleanConverter}}" />
                 </StackPanel>
 
                 <!-- Silences Auto Pilot's spoken plot/refuel announcements (SpeechAnnouncer.Speak) -

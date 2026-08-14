@@ -295,21 +295,25 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <StackPanel Grid.Row="2"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Right"
-                        Margin="0,10,0,0">
-                <Button Content="Edit"
-                        Command="{Binding EditCommand}"
-                        Width="90"
-                        Padding="4"
-                        Margin="0,0,8,0" />
+            <!-- Auto Pilot pinned to the far left and Edit to the far right of the same Grid
+                 (not a right-aligned StackPanel, which the two used to share) - Ship mode hides
+                 Auto Pilot entirely (ShowAutoPilotButton), and a StackPanel would have let Edit
+                 slide sideways into the gap it left behind. Each button now anchors to its own
+                 side independently, so Edit's position never moves when Auto Pilot's visibility
+                 changes with the tracking mode. -->
+            <Grid Grid.Row="2" Margin="0,10,0,0">
                 <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
                         Command="{Binding AutoPilotCommand}"
                         Visibility="{Binding ShowAutoPilotButton, Converter={StaticResource BoolToVisibilityConverter}}"
+                        HorizontalAlignment="Left"
                         Width="90"
                         Padding="4" />
-            </StackPanel>
+                <Button Content="Edit"
+                        Command="{Binding EditCommand}"
+                        HorizontalAlignment="Right"
+                        Width="90"
+                        Padding="4" />
+            </Grid>
         </Grid>
 
     </Grid>
