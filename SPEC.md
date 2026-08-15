@@ -468,7 +468,11 @@ the whole route reaches Complete or Auto Pilot is stopped:
     immediately. A script cut off mid-way can leave the game in front of
     an unknown panel with an unknown selection; there is no safe
     assumption to make about what any *further* automated input would do
-    against that unknown state, so nothing is even attempted.
+    against that unknown state, so nothing is even attempted. This
+    matters because if a macro doesn't complete normally, it's likely
+    the game isn't in the right state for the start of the next one -
+    Auto Pilot shouldn't keep plotting jumps if the game had somehow
+    ended up with Auto Launch already clicked, for instance.
   - **Captain's plot**: even a macro that *does* run to completion still
     panics unless the row has actually left `Plotting` behind - i.e. a
     real `CarrierJumpRequest` was actually observed (§5.7).

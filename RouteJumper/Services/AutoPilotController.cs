@@ -64,7 +64,10 @@ namespace RouteJumper.Services
     ///   immediately, without waiting to see whether the real-world result happened to occur
     ///   anyway. A script cut off mid-way can leave the game in front of an unknown panel with
     ///   an unknown selection - there is no safe assumption about what a *further* macro's own
-    ///   keypresses would do to that unknown state, so nothing further is attempted at all.
+    ///   keypresses would do to that unknown state, so nothing further is attempted at all. This
+    ///   matters because if a macro doesn't complete normally, the game likely isn't in the right
+    ///   state for the start of the next one - Auto Pilot shouldn't keep plotting jumps if the
+    ///   game had somehow ended up with Auto Launch already clicked, for instance.
     /// - Captain's plot: even a macro that *does* run to completion still panics unless the row
     ///   has actually left "Plotting" - i.e. a real CarrierJumpRequest was observed (see
     ///   TriggerCaptainPlotAsync).

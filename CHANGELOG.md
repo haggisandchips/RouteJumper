@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to ED:FC Auto Pilot are documented in this file.
+All notable changes to ED:FC Auto Pilot are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
@@ -149,7 +149,7 @@ and this project follows [Semantic Versioning](https://semver.org/).
   announcements several real minutes of lead time to work with instead
   of only the short Auto Pilot delay itself.
 - The app's own display name (Explorer's file Properties, Task Manager,
-  and Velopack's Start Menu shortcut) is now "ED:FC Auto Pilot",
+  and Velopack's Start Menu shortcut) is now "ED:FC Auto Pilot",
   matching the main window's own title/taskbar text.
 - Renamed the exe itself (`RouteJumper.exe` → `EDFCAutoPilot.exe`), the
   `%LocalAppData%` settings folder (`RouteJumper` → `EDFCAutoPilot`),

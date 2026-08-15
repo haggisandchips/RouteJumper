@@ -2,9 +2,9 @@
 title: User Guide
 ---
 
-# ED:FC Auto Pilot User Guide
+# ED:FC Auto Pilot User Guide
 
-This page covers what ED:FC Auto Pilot does, how each tab works, where its
+This page covers what ED:FC Auto Pilot does, how each tab works, where its
 data lives, and how to troubleshoot common issues. For installing the
 app and the fastest path to a working Auto Pilot setup, see the
 [README](https://github.com/haggisandchips/RouteJumper#readme). For the
@@ -16,16 +16,16 @@ running tests, and cutting releases, see [Development](development.md).
 
 ## What it does
 
-ED:FC Auto Pilot has two mutually exclusive tracking modes, switched via a
+ED:FC Auto Pilot has two mutually exclusive tracking modes, switched via a
 **Fleet Carrier / Ship** toggle beside the menu bar:
 
 - **Fleet Carrier mode** (the default) — paste a route, assign a
-  Captain's running game instance, and ED:FC Auto Pilot tracks the
+  Captain's running game instance, and ED:FC Auto Pilot tracks the
   carrier's progress against that commander's journal, with an optional
   **Auto Pilot** that drives the whole route itself.
 - **Ship mode** — for a solo commander flying their own hand-plotted
   route (e.g. from a neutron-highway planner): paste the route, assign
-  your own running instance on the **Track** tab, and ED:FC Auto Pilot
+  your own running instance on the **Track** tab, and ED:FC Auto Pilot
   tracks your ship's progress the same way — purely passively, since
   there's no automation for a route you're flying yourself.
 
@@ -122,10 +122,11 @@ Pilot immediately and shows a banner explaining why, rather than
 guessing "probably fine", if a plot/refuel macro is interrupted for any
 reason, if the Captain's macro finishes but no jump request actually
 followed, or if the Engineer's macro finishes but a fresh check doesn't
-show the carrier's fuel level having actually gone up. The failure mode
-this exists to prevent is Auto Pilot quietly sending the carrier further
-and further away on the strength of a macro that's silently stopped
-working.
+show the carrier's fuel level having actually gone up. This is important
+because if a macro does not complete normally it is likely the game is
+not in the right state for the start of the next macro. We wouldn't want
+to continue plotting jumps if the game had somehow clicked Auto Launch,
+would we 🙂.
 
 ### Roles tab
 
@@ -134,7 +135,7 @@ process as a card (commander name, cargo, current location, fleet
 carrier name/location/fuel, window position/monitor), refreshed on
 launch and on demand via **Refresh**.
 
-- Assign **Captain** to the instance whose journal ED:FC Auto Pilot should
+- Assign **Captain** to the instance whose journal ED:FC Auto Pilot should
   track — this resets the route and replays that commander's journal
   history to catch it up to the carrier's real current status in one
   step.
@@ -157,12 +158,12 @@ tab does, but with just commander name, current location, and journal
 filename (no cargo/carrier fields, since they're not relevant here).
 
 - A single **Track** button per card assigns/unassigns that instance as
-  the one ED:FC Auto Pilot follows — assigning resets the route and
+  the one ED:FC Auto Pilot follows — assigning resets the route and
   replays that instance's own ship journal to catch it up to your
   current status, the same reset-then-replay principle Captain
   assignment uses in Fleet Carrier mode.
 - There's no macro automation at all in Ship mode — you plot and fly
-  every jump yourself, and ED:FC Auto Pilot just watches and reflects
+  every jump yourself, and ED:FC Auto Pilot just watches and reflects
   progress. Switching to Ship mode hides Roles/Controls and the Route
   tab's Auto Pilot button entirely (and stops any Auto Pilot run
   already in progress, if you switch mid-route).
@@ -204,7 +205,7 @@ Pilot (and manual playback) is built from.
 ## Logs
 
 **Help > Logs** opens a live, non-modal viewer for the same background
-logging ED:FC Auto Pilot does throughout a session — HTTP requests to
+logging ED:FC Auto Pilot does throughout a session — HTTP requests to
 EDSM, journal-driven row transitions, role/track assignment, Auto Pilot
 triggers and panic-mode stops, macro recording/playback, update checks,
 and persistence failures. It's the first place to look when something
@@ -226,7 +227,7 @@ doesn't seem right and you want to know what the app actually saw/did.
 
 ## Data & configuration locations
 
-ED:FC Auto Pilot stores its own state in `%LocalAppData%\EDFCAutoPilot\`:
+ED:FC Auto Pilot stores its own state in `%LocalAppData%\EDFCAutoPilot\`:
 
 | File | Contents |
 |---|---|
@@ -244,11 +245,11 @@ defaults on a fresh launch).
 ## Troubleshooting
 
 Start with **Help > Logs** (see [Logs](#logs) above) for most issues — it
-shows what ED:FC Auto Pilot actually saw and did in real time, which is
+shows what ED:FC Auto Pilot actually saw and did in real time, which is
 usually the fastest way to tell "the journal doesn't have the event I
 expected" apart from "the app saw it but didn't react the way I expected".
 
-- **"No running Elite Dangerous instances found."** — ED:FC Auto Pilot only
+- **"No running Elite Dangerous instances found."** — ED:FC Auto Pilot only
   detects `EliteDangerous64.exe` processes; make sure the game is
   actually running (not just the launcher), then click **Refresh**.
 - **Journal file shows "Not found" for a running instance** — the
@@ -263,7 +264,7 @@ expected" apart from "the app saw it but didn't react the way I expected".
   above) once EDSM has confirmed it has nothing, so a permanently-missing
   system isn't hit on every single Save.
 - **A macro doesn't seem to do anything in-game** (Fleet Carrier mode) —
-  ED:FC Auto Pilot sends real synthesized input (`SendInput`), which only
+  ED:FC Auto Pilot sends real synthesized input (`SendInput`), which only
   reaches whichever window currently has focus; don't touch the
   mouse/keyboard yourself while a macro plays, and make sure the target
   game window isn't minimized.
