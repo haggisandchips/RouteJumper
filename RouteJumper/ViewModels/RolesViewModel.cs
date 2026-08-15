@@ -500,6 +500,8 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
+            Log.Info("Roles", $"Captain journal watch started for {instance.CommanderName} ({instance.JournalFilePath}).");
+
             var dispatcher = Application.Current.Dispatcher;
             _captainWatcher = new CarrierRouteJournalWatcher(
                 instance.JournalFilePath,
@@ -521,7 +523,13 @@ namespace RouteJumper.ViewModels
 
         private void StopCaptainWatch()
         {
-            _captainWatcher?.Dispose();
+            if (_captainWatcher is null)
+            {
+                return;
+            }
+
+            Log.Info("Roles", "Captain journal watch stopped.");
+            _captainWatcher.Dispose();
             _captainWatcher = null;
         }
     }

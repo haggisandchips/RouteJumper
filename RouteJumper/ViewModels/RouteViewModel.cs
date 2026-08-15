@@ -547,6 +547,7 @@ namespace RouteJumper.ViewModels
             }
 
             var nextRow = Rows[arrivedIndex + 1];
+            Log.Info("Route", $"Auto-copied \"{nextRow.SystemText}\" to clipboard (arrived at \"{e.SystemName}\").");
             Clipboard.SetText(nextRow.SystemText);
             MarkRowAsClipboardSource(nextRow);
         }

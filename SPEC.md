@@ -2016,12 +2016,18 @@ outright the instant Ship mode is switched on.
 ## 12. Logging
 
 A background, non-blocking logging facility used throughout the app to
-record significant events for diagnosis - outbound HTTP requests, journal-
-driven row transitions, role/track assignment, Auto Pilot triggers and
-panic-mode stops, macro recording/playback, update checks, and persistence
-failures. Two independent sinks receive every logged entry: a durable,
-date-stamped file (always written to, whether or not the Logs window is
-open) and the Logs window itself (§3.8, only while it's open).
+record significant events for diagnosis - outbound HTTP requests, every
+journal event either watcher actually *acts on* (a row transition, an
+opportunistic Distance/Star Type cache seed from FSDTarget/NavRoute.json,
+`CarrierStats`), journal-watch start/stop, role/track assignment, "Auto
+Copy To Clipboard" firing, Auto Pilot triggers and panic-mode stops, macro
+recording/playback, update checks, and persistence failures. Each such
+line carries only the fields that specific action actually used (e.g. the
+targeted system name and resolved star type for an FSDTarget seed - never
+the event's full raw JSON), not a generic dump of the journal line. Two
+independent sinks receive every logged entry: a durable, date-stamped file
+(always written to, whether or not the Logs window is open) and the Logs
+window itself (§3.8, only while it's open).
 
 - **Never on the hot path**: logging a line only ever enqueues it onto an
   in-memory queue - never disk I/O, never blocking, on the thread that

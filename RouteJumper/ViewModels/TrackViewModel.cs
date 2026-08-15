@@ -292,6 +292,8 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
+            Log.Info("Track", $"Ship journal watch started for {instance.CommanderName} ({instance.JournalFilePath}).");
+
             var dispatcher = Application.Current.Dispatcher;
             _shipWatcher = new ShipRouteJournalWatcher(
                 instance.JournalFilePath,
@@ -303,7 +305,13 @@ namespace RouteJumper.ViewModels
 
         private void StopWatch()
         {
-            _shipWatcher?.Dispose();
+            if (_shipWatcher is null)
+            {
+                return;
+            }
+
+            Log.Info("Track", "Ship journal watch stopped.");
+            _shipWatcher.Dispose();
             _shipWatcher = null;
         }
     }

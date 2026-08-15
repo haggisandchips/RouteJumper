@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using RouteJumper.Models;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
 {
@@ -33,7 +34,9 @@ namespace RouteJumper.Services
 
             if (fsdTargetRoot.TryGetProperty("StarClass", out var scEl) && scEl.GetString() is { } starClass)
             {
-                lookupService.SeedStarType(targetSystem, StarClassNames.ToDisplayName(starClass));
+                var starType = StarClassNames.ToDisplayName(starClass);
+                Log.Info("Journal", $"FSDTarget seeded star type for \"{targetSystem}\": {starType}.");
+                lookupService.SeedStarType(targetSystem, starType);
             }
 
             // Present only while a multi-jump in-game route is actively plotted - its presence
@@ -76,6 +79,7 @@ namespace RouteJumper.Services
                     return;
                 }
 
+                var seededCount = 0;
                 foreach (var entry in route.EnumerateArray())
                 {
                     if (!entry.TryGetProperty("StarSystem", out var nameEl) || nameEl.GetString() is not { } systemName)
@@ -89,6 +93,7 @@ namespace RouteJumper.Services
                     {
                         var pos = posEl.EnumerateArray().Select(e => e.GetDouble()).ToArray();
                         lookupService.SeedCoordinates(systemName, new GalacticCoordinates(pos[0], pos[1], pos[2]));
+                        seededCount++;
                     }
 
                     if (entry.TryGetProperty("StarClass", out var classEl) && classEl.GetString() is { } starClass)
@@ -96,9 +101,19 @@ namespace RouteJumper.Services
                         lookupService.SeedStarType(systemName, StarClassNames.ToDisplayName(starClass));
                     }
                 }
+
+                // One summary line, not one per system - a plotted neutron highway can easily
+                // name dozens of systems in a single NavRoute.json, and only the count (what this
+                // pass actually accomplished) is useful here; each individual system's own
+                // resolved value is already visible via the Route tab itself.
+                Log.Info("Journal", $"NavRoute.json seeded {seededCount} system(s).");
             }
             catch (IOException)
             {
+                // Expected/transient - e.g. the game is mid-write to the file right now. Not
+                // logged: the next qualifying FSDTarget/NavRoute line simply tries again, and this
+                // can happen often enough during active route (re)plotting that logging every miss
+                // would just be noise, not a real diagnostic signal.
             }
             catch (JsonException)
             {
