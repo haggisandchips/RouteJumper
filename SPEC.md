@@ -35,7 +35,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | Persistence of route text, window bounds, Captain/Engineer role assignment, tracking mode, and tracked instance (§7) | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
-| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit, Preferences (voice/volume/test), About (§3.6), Check for Updates (§3.7), and a Ship Mode toggle, and an always-visible mute button | |
+| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Preferences (voice/volume/test, plus an update-check opt-out) and Exit, a Help menu with Logs (§3.8), Check for Updates (§3.7), and About (§3.6), a Fleet Carrier/Ship mode toggle, and an always-visible mute button | |
 | **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
 | | Proper on-screen credit for third-party data sources the app queries (EDSM today, §4.9; likely Spansh or others in future) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet |
 | Material Design styling | |
@@ -74,25 +74,11 @@ automation, since the CMDR must plot and fly every jump themselves.
 ### 3.3 Controls tab
 See §6.
 
-### 3.4 Menu bar and mute button
+### 3.4 Menu bar, mode toggle, and mute button
 - A `Menu` sits above the tab area, visible regardless of which tab is
   active, with two top-level entries, **File** and **Help**:
   - **File**:
     - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
-    - **Check for Updates** manually triggers the same download-and-
-      apply-on-next-exit check already run silently on every launch
-      (§3.7) - the only difference is that this one reports what it found
-      via a message box, since it's an explicit request rather than a
-      background check. Disabled while a check it started is still in
-      flight, to avoid stacking concurrent checks.
-    - **Ship Mode** is a checkable item toggling between Fleet Carrier mode
-      (unchecked, the default) and Ship mode (checked) - see §8. Toggling it
-      swaps which tabs are visible (§3.1), shows/hides and force-stops the
-      Route tab's Auto Pilot button (§4.2), and switches which of Roles'
-      Captain-journal watcher or Track's ship-journal watcher is actually
-      running - exactly one is ever active at a time. Persisted immediately;
-      restored at startup, defaulting to Fleet Carrier mode until first
-      changed.
     - **Exit** closes the main window (which persists its bounds as normal,
       §7, and ends the app).
   - **Help**:
@@ -101,7 +87,25 @@ See §6.
       of the app rather than blocking it; a second click while it's
       already open brings the existing window to the front instead of
       opening a duplicate.
+    - **Check for Updates** manually triggers the same download-and-
+      apply-on-next-exit check already run silently on every launch
+      (§3.7, when enabled - this manual check always runs regardless of
+      that setting) - the only difference is that this one reports what
+      it found via a message box, since it's an explicit request rather
+      than a background check. Disabled while a check it started is
+      still in flight, to avoid stacking concurrent checks.
     - **About** opens the About dialog (§3.6) as a modal window.
+- Between the menu and the mute button, centred in the same toolbar strip
+  (not a menu item of its own), a pair of mutually-exclusive **Fleet
+  Carrier / Ship** choice chips toggles between Fleet Carrier mode
+  (selected by default) and Ship mode - see §8. Switching it swaps which
+  tabs are visible (§3.1), shows/hides and force-stops the Route tab's
+  Auto Pilot button (§4.2), and switches which of Roles' Captain-journal
+  watcher or Track's ship-journal watcher is actually running - exactly
+  one is ever active at a time. Persisted immediately; restored at
+  startup, defaulting to Fleet Carrier mode until first changed. Each
+  chip's own tooltip explains what switching to it does, shown only for
+  whichever chip is *not* currently selected.
 - Beside the menu, right-aligned and equally always-visible, a single
   icon button mutes/unmutes the spoken announcements described in §4.8 -
   its icon swaps between a plain speaker and a crossed-out one to reflect
@@ -111,8 +115,9 @@ See §6.
 
 ### 3.5 Preferences dialog
 - A modal dialog (File > Preferences…) for the spoken announcements' own
-  voice and volume - the mute toggle itself lives only on the main window
-  (§3.4), not duplicated here.
+  voice and volume, plus the automatic-update-check opt-out below - the
+  mute toggle itself lives only on the main window (§3.4), not duplicated
+  here.
 - **Voice**: a dropdown of every voice installed on the machine (via the
   OS speech engine), shown under a cleaned-up display name — the
   "Microsoft " prefix Windows' stock voices all share is stripped, and a
@@ -125,13 +130,17 @@ See §6.
 - **Test** (icon button): speaks a fixed sample phrase through the
   currently-selected voice/volume - always audible, even while muted.
 - **Volume**: a slider, 0-100.
-- Every change to Voice/Volume is saved immediately (§7), the same
-  "edits save as they're made" convention the Controls tab's own Options
-  section already uses - **Close** is purely a "done for now" navigation
-  action, not a distinct save step.
+- **Automatically check for updates on startup**: a checkbox, checked by
+  default, gating only the *silent* startup check (§3.7) - unchecking it
+  has no effect on Help > Check for Updates, which is an explicit,
+  on-demand request and always runs regardless of this setting.
+- Every change (Voice/Volume/the update-check checkbox) is saved
+  immediately (§7), the same "edits save as they're made" convention the
+  Controls tab's own Options section already uses - **Close** is purely a
+  "done for now" navigation action, not a distinct save step.
 
 ### 3.6 About dialog
-- A modal dialog (File > About), purely informational, with no
+- A modal dialog (Help > About), purely informational, with no
   persisted state of its own: the app icon, the product name "ED:FC
   Auto Pilot", the installed version (§3.7) or "Development build" for
   an unpackaged run, a one-line description, the same fan-made/not-
@@ -147,14 +156,22 @@ See §6.
   version it reports on the About dialog (§3.6), both no-op for an
   unpackaged run (`dotnet run`/F5) - only a real Velopack-installed
   copy has a version to check or report.
-- File > **Check for Updates** (§3.4) runs the identical check on
+- This silent check can be turned off entirely via the Preferences
+  dialog's own "Automatically check for updates on startup" checkbox
+  (§3.5, on by default) - unchecking it skips the check on every
+  subsequent launch until re-enabled. Persisted immediately, checked
+  fresh on every launch before the check would otherwise run.
+- Help > **Check for Updates** (§3.4) runs the identical check on
   demand and reports the outcome via a message box: already
   up to date, a new version was downloaded (and will install on next
   exit, same as the silent check), automatic updates aren't available
   for this build (unpackaged run), or the check itself failed (e.g. no
   network) - the last of these is the one case a failure is surfaced to
   the user at all, since the silent startup check never reports
-  anything either way.
+  anything either way. This manual check is never gated by the
+  Preferences checkbox above - it always runs when clicked, since it's
+  an explicit request rather than the automatic behaviour that setting
+  controls.
 
 ### 3.8 Logs window
 - A **non-modal** window (Help > Logs, §3.4) that live-tails the same
@@ -1321,6 +1338,7 @@ the table below.
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 | Announcement voice, volume, muted (§3.4, §3.5) | Every change | App startup, falling back to the engine's own default voice, 100 volume, and unmuted until first changed |
+| Automatic update check enabled (§3.5, §3.7) | Every change | Checked fresh on every launch, before the silent check would otherwise run - falling back to enabled until first changed |
 | Tracking mode (Fleet Carrier/Ship, §3.4) | Every toggle | App startup, falling back to Fleet Carrier mode until first changed |
 | Tracked instance, by commander FID (§8.2) | Assigned/explicitly unassigned | Every Track tab refresh, while currently unassigned in memory |
 
@@ -1826,18 +1844,19 @@ outright the instant Ship mode is switched on.
     stays that way (Auto Pilot does not play the macro again for it)
     until the real CarrierJumpRequest arrives and moves it to "Plotted",
     even if that takes an indeterminate amount of time.
-50. File > **About** opens a modal dialog showing the app icon, "ED:FC
+50. Help > **About** opens a modal dialog showing the app icon, "ED:FC
     Auto Pilot", its installed version (or "Development build" for an
-    unpackaged run), and the fan-made/not-affiliated disclaimer. File >
+    unpackaged run), and the fan-made/not-affiliated disclaimer. Help >
     **Check for Updates** runs an on-demand version of the same check
-    already run silently on every launch, and reports the outcome
-    (up to date / downloaded, installs on next exit / not available for
-    this build / check failed) via a message box.
-51. File > **Ship Mode** is a checkable toggle, unchecked (Fleet Carrier
-    mode) by default. Checking it immediately hides the Roles and
+    already run silently on every launch (when enabled, criterion 77),
+    always regardless of that setting, and reports the outcome (up to
+    date / downloaded, installs on next exit / not available for this
+    build / check failed) via a message box.
+51. The **Fleet Carrier / Ship** toolbar toggle (§3.4) defaults to Fleet
+    Carrier selected. Selecting Ship immediately hides the Roles and
     Controls tabs, shows the Track tab, and hides the Route tab's Auto
-    Pilot button; unchecking it reverses all three. The toggle state
-    persists across a restart.
+    Pilot button; selecting Fleet Carrier again reverses all three. The
+    toggle state persists across a restart.
 52. Switching to Ship Mode while Auto Pilot is engaged stops it outright
     (button reverts to hidden, not just re-locked) rather than leaving a
     macro silently playing in the background.
@@ -1969,8 +1988,8 @@ outright the instant Ship mode is switched on.
     expansion) rather than assumed. A manual Play/Step's own
     **Test {TRITIUM_LOOPS}** value (§6.1) is never capped this way, since
     it carries no real-world timing constraint of its own.
-70. File > Help shows **Logs** above **About**; clicking About still opens
-    the same modal dialog it always has (§3.6), now reached from Help
+70. The **Help** menu shows **Logs** above **About**; clicking About still
+    opens the same modal dialog it always has (§3.6), now reached from Help
     instead of File.
 71. Help > Logs opens a non-modal window (§3.8) that starts empty and
     shows only entries logged from that point on; a significant event
@@ -2010,6 +2029,14 @@ outright the instant Ship mode is switched on.
     before the cooldown lapses (a later successful EDSM lookup once it
     does, or a local journal-derived seed) is queried normally again from
     that point on, with its recorded cooldown cleared immediately.
+77. Help > **Check for Updates** replaces the old File-menu location for
+    that item (File now holds only Preferences and Exit - the Fleet
+    Carrier/Ship mode toggle was never a menu item to begin with, §3.4);
+    the Preferences dialog's "Automatically check for updates on startup"
+    checkbox, checked by default, persists immediately and is restored on
+    every launch. Unchecking it silently skips the automatic startup
+    check on every later launch until re-checked; Help > Check for
+    Updates itself is unaffected either way and always runs when clicked.
 
 ---
 

@@ -166,15 +166,15 @@ namespace RouteJumper
         private void OnExitClick(object sender, RoutedEventArgs e) => Close();
 
         /// <summary>
-        /// Opens the modal Preferences dialog, bound directly to the shared SpeechAnnouncer - a
-        /// modal dialog is inherently a view-layer concern (same carve-out as the
-        /// window-placement/clipboard-monitoring code elsewhere in this file), so it's opened
-        /// here rather than via a ViewModel command.
+        /// Opens the modal Preferences dialog, bound directly to the shared SpeechAnnouncer/
+        /// UpdatePreferences - a modal dialog is inherently a view-layer concern (same carve-out
+        /// as the window-placement/clipboard-monitoring code elsewhere in this file), so it's
+        /// opened here rather than via a ViewModel command.
         /// </summary>
         private void OnPreferencesClick(object sender, RoutedEventArgs e)
         {
             var mainViewModel = (MainViewModel)DataContext;
-            new PreferencesWindow(mainViewModel.SpeechAnnouncer) { Owner = this }.ShowDialog();
+            new PreferencesWindow(mainViewModel.SpeechAnnouncer, mainViewModel.UpdatePreferences) { Owner = this }.ShowDialog();
         }
 
         /// <summary>Opens the modal About dialog (icon, name, version, disclaimer) - same view-layer carve-out as the Preferences dialog above.</summary>

@@ -37,7 +37,19 @@ namespace RouteJumper
 
             Exit += OnExit;
 
-            _ = UpdateService.CheckForUpdatesAsync();
+            // A fresh AppSettingsStore, not a shared instance - MainViewModel's own (also
+            // AppSettingsStore-backed) UpdatePreferences hasn't been constructed yet at this
+            // point (MainWindow/its DataContext don't exist until base.OnStartup shows the
+            // StartupUri window) - both just read/write the same underlying SQLite row, so
+            // there's nothing to keep in sync between the two instances.
+            if (new UpdatePreferences(new AppSettingsStore()).AutoCheckEnabled)
+            {
+                _ = UpdateService.CheckForUpdatesAsync();
+            }
+            else
+            {
+                Log.Info("Update", "Silent startup check skipped - disabled in Preferences.");
+            }
         }
 
         private void OnExit(object? sender, ExitEventArgs e)

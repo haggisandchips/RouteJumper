@@ -52,6 +52,7 @@ namespace RouteJumper.ViewModels
             var routeEventTrigger = new ManualRowEventTrigger();
 
             SpeechAnnouncer = new SpeechAnnouncer(_settings, new SapiSpeechEngine());
+            UpdatePreferences = new UpdatePreferences(_settings);
 
             // One shared instance across all three ViewModels below - not just each defaulting to
             // its own (which would still share the same underlying on-disk cache via AppSettingsStore
@@ -177,6 +178,9 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Owns spoken-announcement voice/volume/mute state - bound directly by MainWindow's mute button and the Preferences dialog.</summary>
         public SpeechAnnouncer SpeechAnnouncer { get; }
+
+        /// <summary>Owns whether the silent startup update check (§3.7) runs at all - bound directly by the Preferences dialog's own "Updates" section.</summary>
+        public UpdatePreferences UpdatePreferences { get; }
 
         /// <summary>
         /// File &gt; Ship Mode toggle (a checkable MenuItem binds directly to this). Switches

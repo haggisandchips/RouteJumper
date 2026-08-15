@@ -50,12 +50,12 @@
                 <Menu Grid.Column="0" Background="Transparent">
                     <MenuItem Header="_File">
                         <MenuItem Header="_Preferences…" Click="OnPreferencesClick" />
-                        <MenuItem Header="Check for _Updates" Click="OnCheckForUpdatesClick" />
                         <Separator />
                         <MenuItem Header="E_xit" Click="OnExitClick" />
                     </MenuItem>
                     <MenuItem Header="_Help">
                         <MenuItem Header="_Logs" Click="OnLogsClick" />
+                        <MenuItem Header="Check for _Updates" Click="OnCheckForUpdatesClick" />
                         <MenuItem Header="_About" Click="OnAboutClick" />
                     </MenuItem>
                 </Menu>

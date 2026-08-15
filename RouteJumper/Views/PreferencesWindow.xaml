@@ -15,10 +15,11 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        d:DesignHeight="220" d:DesignWidth="420">
+        d:DesignHeight="260" d:DesignWidth="420">
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -80,7 +81,18 @@
                        HorizontalAlignment="Right" />
         </Grid>
 
-        <StackPanel Grid.Row="2"
+        <!-- Whether App.xaml.cs's silent startup update check (§3.7) runs at all - File/Help >
+             Check for Updates itself always runs regardless, since that's an explicit request,
+             not the background check this controls. Bound via RelativeSource, not DataContext
+             (which stays SpeechAnnouncer for every control above), since this is a different
+             ViewModel (PreferencesWindow.UpdatePreferences) - see this window's own code-behind. -->
+        <CheckBox Grid.Row="2"
+                  Margin="0,0,0,16"
+                  Content="Automatically check for updates on startup"
+                  IsChecked="{Binding UpdatePreferences.AutoCheckEnabled, RelativeSource={RelativeSource AncestorType=Window}}"
+                  AutomationProperties.Name="Automatically check for updates on startup" />
+
+        <StackPanel Grid.Row="3"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right">
             <Button Content="Close"
