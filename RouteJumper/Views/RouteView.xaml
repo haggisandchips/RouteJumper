@@ -239,8 +239,12 @@
                     <!-- Leg distance, previous row -> this row (row 1's "previous" is wherever the
                          CMDR's own ship was when the route was last saved) - see
                          RouteRowViewModel.Distance's own doc comment. Resolved asynchronously
-                         against EDSM after Save/restore; blank until resolved (or permanently, if
-                         EDSM has no coordinates for one of the two systems involved). Same
+                         against EDSM after Save/restore; blank while still resolving, or while
+                         blocked only by a neighboring row's own missing data. Once this row's own
+                         coordinates are confirmed unavailable from EDSM, DistanceDisplay switches
+                         to small, light "Plot needed" text instead (SPEC §4.9) - the DataTrigger
+                         below supplies the smaller/muted styling for that placeholder text only,
+                         leaving a real resolved distance at the column's normal text style. Same
                          ElementStyle centering fix as "#" above - a plain DataGridTextColumn's
                          generated TextBlock doesn't auto-center against Status's taller row
                          height. -->
@@ -251,20 +255,37 @@
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                                 <Setter Property="VerticalAlignment" Value="Center" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDistancePlaceholder}" Value="True">
+                                        <Setter Property="FontSize" Value="10" />
+                                        <Setter Property="Opacity" Value="0.6" />
+                                        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
                     <!-- This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange)
-                         Star") - resolved the same way/timing as Distance above, and blank under
-                         the same conditions. -->
+                         Star") - resolved the same way/timing as Distance above. While this row's
+                         own coordinates are known but star type specifically isn't, StarTypeDisplay
+                         shows small, light "Target needed" text instead (SPEC §4.9) - a single
+                         FSDTarget is enough to fix that, no full route plot required, unlike
+                         Distance's "Plot needed". -->
                     <DataGridTextColumn Header="Star Type"
-                                         Binding="{Binding StarType}"
+                                         Binding="{Binding StarTypeDisplay}"
                                          Width="150"
                                          MinWidth="100">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                                 <Setter Property="VerticalAlignment" Value="Center" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsStarTypePlaceholder}" Value="True">
+                                        <Setter Property="FontSize" Value="10" />
+                                        <Setter Property="Opacity" Value="0.6" />
+                                        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
                             </Style>
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>

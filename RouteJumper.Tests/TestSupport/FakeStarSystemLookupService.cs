@@ -59,6 +59,12 @@ namespace RouteJumper.Tests.TestSupport
             return StarTypes.TryGetValue(systemName, out var type) ? type : null;
         }
 
+        public bool TryGetCachedCoordinates(string systemName, out GalacticCoordinates? coordinates) =>
+            Coordinates.TryGetValue(systemName, out coordinates);
+
+        public bool TryGetCachedStarType(string systemName, out string? starType) =>
+            StarTypes.TryGetValue(systemName, out starType);
+
         public event EventHandler? DataSeeded;
 
         public void SeedCoordinates(string systemName, GalacticCoordinates coordinates)

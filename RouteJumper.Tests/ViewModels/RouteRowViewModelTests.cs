@@ -199,6 +199,111 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void DistanceDisplay_OwnCoordinatesUnavailable_ShowsPlotNeeded()
+        {
+            var row = new RouteRowViewModel { OwnCoordinatesState = EdsmLookupState.Unavailable };
+
+            Assert.True(row.IsDistancePlaceholder);
+            Assert.Equal("Plot needed", row.DistanceDisplay);
+        }
+
+        [Fact]
+        public void DistanceDisplay_ResolvedDistanceTakesPrecedenceOverPlaceholder()
+        {
+            var row = new RouteRowViewModel
+            {
+                OwnCoordinatesState = EdsmLookupState.Resolved,
+                Distance = 12.3
+            };
+
+            Assert.False(row.IsDistancePlaceholder);
+            Assert.Equal("12.3 ly", row.DistanceDisplay);
+        }
+
+        [Fact]
+        public void StarTypeDisplay_CoordinatesResolvedButStarTypeUnavailable_ShowsTargetNeeded()
+        {
+            var row = new RouteRowViewModel
+            {
+                OwnCoordinatesState = EdsmLookupState.Resolved,
+                OwnStarTypeState = EdsmLookupState.Unavailable
+            };
+
+            Assert.True(row.IsStarTypePlaceholder);
+            Assert.Equal("Target needed", row.StarTypeDisplay);
+        }
+
+        [Fact]
+        public void StarTypeDisplay_CoordinatesUnavailable_NeverShowsTargetNeeded()
+        {
+            // Coordinates unavailable is Distance's "Plot needed" case - Star Type doesn't get
+            // its own separate callout, since plotting a route fixes both.
+            var row = new RouteRowViewModel
+            {
+                OwnCoordinatesState = EdsmLookupState.Unavailable,
+                OwnStarTypeState = EdsmLookupState.Unavailable
+            };
+
+            Assert.False(row.IsStarTypePlaceholder);
+            Assert.Equal(string.Empty, row.StarTypeDisplay);
+        }
+
+        [Fact]
+        public void StarTypeDisplay_Resolved_ShowsTheStarType()
+        {
+            var row = new RouteRowViewModel
+            {
+                OwnCoordinatesState = EdsmLookupState.Resolved,
+                OwnStarTypeState = EdsmLookupState.Resolved,
+                StarType = "K (Yellow-Orange)"
+            };
+
+            Assert.False(row.IsStarTypePlaceholder);
+            Assert.Equal("K (Yellow-Orange)", row.StarTypeDisplay);
+        }
+
+        [Fact]
+        public void OwnCoordinatesState_Change_RaisesPlaceholderAndDisplayPropertyChanged()
+        {
+            var row = new RouteRowViewModel();
+            var raised = new List<string?>();
+            row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            row.OwnCoordinatesState = EdsmLookupState.Unavailable;
+
+            Assert.Contains(nameof(RouteRowViewModel.OwnCoordinatesState), raised);
+            Assert.Contains(nameof(RouteRowViewModel.IsDistancePlaceholder), raised);
+            Assert.Contains(nameof(RouteRowViewModel.DistanceDisplay), raised);
+        }
+
+        [Fact]
+        public void OwnStarTypeState_Change_RaisesPlaceholderAndDisplayPropertyChanged()
+        {
+            var row = new RouteRowViewModel { OwnCoordinatesState = EdsmLookupState.Resolved };
+            var raised = new List<string?>();
+            row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            row.OwnStarTypeState = EdsmLookupState.Unavailable;
+
+            Assert.Contains(nameof(RouteRowViewModel.OwnStarTypeState), raised);
+            Assert.Contains(nameof(RouteRowViewModel.IsStarTypePlaceholder), raised);
+            Assert.Contains(nameof(RouteRowViewModel.StarTypeDisplay), raised);
+        }
+
+        [Fact]
+        public void StarType_Change_AlsoRaisesStarTypeDisplayChanged()
+        {
+            var row = new RouteRowViewModel();
+            var raised = new List<string?>();
+            row.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+            row.StarType = "K (Yellow-Orange)";
+
+            Assert.Contains(nameof(RouteRowViewModel.StarType), raised);
+            Assert.Contains(nameof(RouteRowViewModel.StarTypeDisplay), raised);
+        }
+
+        [Fact]
         public void SettingIcon_RaisesPropertyChanged()
         {
             var row = new RouteRowViewModel();

@@ -635,6 +635,63 @@ namespace RouteJumper.Tests.ViewModels
             });
         }
 
+        [Fact]
+        public void DataSeeded_CacheHit_UpdatesRowInstantlyWithoutWaitingForTheDebouncedFullPass()
+        {
+            // Proves the latency fix: a value that's already fully resolvable from cache the
+            // moment DataSeeded fires updates right away (well under the 500ms debounce interval)
+            // via ApplyCachedValues, rather than waiting for RefreshEnrichment's own debounced full
+            // pass to eventually reach it.
+            StaThread.Run(() =>
+            {
+                using var dir = new TempDirectory();
+                var fake = new FakeStarSystemLookupService();
+                var vm = Create(dir, starSystemLookupService: fake);
+                vm.RouteText = "Sol";
+                vm.SaveCommand.Execute(null);
+                Assert.Null(vm.Rows[0].StarType);
+                var callCountBeforeSeed = fake.StarTypeCallOrder.Count;
+
+                fake.SeedStarType("Sol", "G (White-Yellow) Star");
+
+                // A short window, well short of the 500ms debounce interval - if the row only
+                // updated via the debounced full pass, this would time out.
+                PumpDispatcherUntil(() => vm.Rows[0].StarType != null, timeoutMs: 150);
+
+                Assert.Equal("G (White-Yellow) Star", vm.Rows[0].StarType);
+                // No further GetMainStarTypeAsync call yet - this was a pure cache read, not a
+                // fresh lookup through the slower path.
+                Assert.Equal(callCountBeforeSeed, fake.StarTypeCallOrder.Count);
+            });
+        }
+
+        [Fact]
+        public void DataSeeded_RowBelowAnUncachedRow_UpdatesImmediatelyEvenWhileThatRowsLookupIsStillPending()
+        {
+            // Direct regression test for the reported complaint: the row a CMDR is actually
+            // watching shouldn't have to wait behind an unrelated row's still-pending lookup in
+            // PopulateStarTypesAsync's own sequential, table-order sweep.
+            StaThread.Run(() =>
+            {
+                using var dir = new TempDirectory();
+                var fake = new FakeStarSystemLookupService();
+                var vm = Create(dir, starSystemLookupService: fake);
+                // Row A's own star-type lookup is gated so it never resolves during this test -
+                // simulates an unrelated row still being worked on by the slower, sequential full
+                // pass that Save() already kicked off.
+                fake.StarTypeGates["A"] = new TaskCompletionSource();
+                vm.RouteText = "A\nB";
+                vm.SaveCommand.Execute(null);
+
+                fake.SeedStarType("B", "TypeB"); // row B's own system seeded directly, e.g. via FSDTarget
+
+                PumpDispatcherUntil(() => vm.Rows[1].StarType != null, timeoutMs: 150);
+
+                Assert.Equal("TypeB", vm.Rows[1].StarType);
+                Assert.Null(vm.Rows[0].StarType); // row A's own lookup is still gated/pending
+            });
+        }
+
         /// <summary>
         /// Runs a nested Dispatcher message loop on the calling thread (which must already have
         /// one - see StaThread.Run + a DispatcherTimer constructed on this same thread, as

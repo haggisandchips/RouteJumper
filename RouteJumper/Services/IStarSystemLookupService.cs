@@ -47,6 +47,19 @@ namespace RouteJumper.Services
         void SeedStarType(string systemName, string starType);
 
         /// <summary>
+        /// Peeks the in-memory/DB cache for a system's coordinates without making a network call
+        /// or mutating anything - unlike GetCoordinatesAsync, this never triggers an EDSM lookup
+        /// on a miss. Returns false if not yet resolved (which - since only positive results are
+        /// ever cached - doesn't distinguish "never looked up" from "looked up and EDSM has no
+        /// record"). Lets a caller apply an already-resolved value instantly and synchronously -
+        /// see RouteRowEnrichmentService.ApplyCachedValues.
+        /// </summary>
+        bool TryGetCachedCoordinates(string systemName, out GalacticCoordinates? coordinates);
+
+        /// <summary>Same contract as TryGetCachedCoordinates, for star type.</summary>
+        bool TryGetCachedStarType(string systemName, out string? starType);
+
+        /// <summary>
         /// Raised whenever SeedCoordinates/SeedStarType writes new data - not raised by an
         /// ordinary GetCoordinatesAsync/GetMainStarTypeAsync resolution, since a caller already
         /// sees those results directly as part of its own in-flight call. This is what lets

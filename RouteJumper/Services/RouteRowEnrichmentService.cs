@@ -68,7 +68,16 @@ namespace RouteJumper.Services
             }
             catch (Exception)
             {
-                return; // best-effort - every row's Distance simply stays null
+                // Best-effort - every row's Distance simply stays null. The whole batch failed
+                // (e.g. network down), so every row's own state is unknowable from this pass -
+                // marked Unavailable rather than left Resolving, so a genuinely offline session
+                // doesn't leave every row looking like it's still silently loading forever.
+                foreach (var row in rows)
+                {
+                    row.OwnCoordinatesState = EdsmLookupState.Unavailable;
+                }
+
+                return;
             }
 
             var from = originSystemName is { Length: > 0 } && coordinates.TryGetValue(originSystemName, out var originCoords)
@@ -80,6 +89,7 @@ namespace RouteJumper.Services
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var to = coordinates.TryGetValue(row.SystemText, out var rowCoords) ? rowCoords : null;
+                row.OwnCoordinatesState = to.HasValue ? EdsmLookupState.Resolved : EdsmLookupState.Unavailable;
                 row.Distance = from.HasValue && to.HasValue ? from.Value.DistanceTo(to.Value) : null;
                 from = to;
             }
@@ -104,6 +114,7 @@ namespace RouteJumper.Services
                 if (resolved.TryGetValue(row.SystemText, out var cachedType))
                 {
                     row.StarType = cachedType;
+                    row.OwnStarTypeState = cachedType is null ? EdsmLookupState.Unavailable : EdsmLookupState.Resolved;
                     continue;
                 }
 
@@ -123,6 +134,50 @@ namespace RouteJumper.Services
 
                 resolved[row.SystemText] = starType;
                 row.StarType = starType;
+                row.OwnStarTypeState = starType is null ? EdsmLookupState.Unavailable : EdsmLookupState.Resolved;
+            }
+        }
+
+        /// <summary>
+        /// Applies whatever Distance/Star Type values are already resolvable purely from
+        /// IStarSystemLookupService's cache - no network calls, so (unlike PopulateAsync) this
+        /// never suspends on an await and is safe to call synchronously and immediately, e.g. from
+        /// RouteViewModel's DataSeeded handler, ahead of and independent of the slower debounced
+        /// PopulateAsync catch-all. Mirrors PopulateDistancesAsync's own chain logic exactly, minus
+        /// the EDSM fallback - a row this can't resolve (an uncached neighbor breaking the distance
+        /// chain, or a system genuinely not yet seeded/looked up) is simply left as-is for that
+        /// later pass to finish, not touched here. Never sets a row's OwnCoordinatesState/
+        /// OwnStarTypeState to Unavailable itself - a cache miss here doesn't distinguish "still
+        /// resolving" from "confirmed unavailable"; only a completed PopulateAsync pass (which
+        /// actually calls EDSM) can make that determination.
+        /// </summary>
+        public void ApplyCachedValues(IReadOnlyList<RouteRowViewModel> rows, string? originSystemName)
+        {
+            GalacticCoordinates? from = originSystemName is { Length: > 0 }
+                && _lookup.TryGetCachedCoordinates(originSystemName, out var originCoords)
+                ? originCoords
+                : null;
+
+            foreach (var row in rows)
+            {
+                var haveTo = _lookup.TryGetCachedCoordinates(row.SystemText, out var to);
+                if (haveTo)
+                {
+                    row.OwnCoordinatesState = EdsmLookupState.Resolved;
+                }
+
+                if (from.HasValue && haveTo && to.HasValue)
+                {
+                    row.Distance = from.Value.DistanceTo(to.Value);
+                }
+
+                from = haveTo ? to : null;
+
+                if (_lookup.TryGetCachedStarType(row.SystemText, out var starType))
+                {
+                    row.StarType = starType;
+                    row.OwnStarTypeState = EdsmLookupState.Resolved;
+                }
             }
         }
     }

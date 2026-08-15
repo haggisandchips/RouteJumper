@@ -254,7 +254,7 @@ namespace RouteJumper.Services
             }
         }
 
-        private bool TryGetCachedCoordinates(string systemName, out GalacticCoordinates? coordinates)
+        public bool TryGetCachedCoordinates(string systemName, out GalacticCoordinates? coordinates)
         {
             var key = NormalizeKey(systemName);
             if (_coordsMemoryCache.TryGetValue(key, out var memoized))
@@ -280,7 +280,7 @@ namespace RouteJumper.Services
             return false;
         }
 
-        private bool TryGetCachedStarType(string systemName, out string? starType)
+        public bool TryGetCachedStarType(string systemName, out string? starType)
         {
             var key = NormalizeKey(systemName);
             if (_starTypeMemoryCache.TryGetValue(key, out var memoized))

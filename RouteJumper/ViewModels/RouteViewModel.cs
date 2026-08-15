@@ -73,11 +73,11 @@ namespace RouteJumper.ViewModels
             // marshalled onto this DispatcherTimer's own captured dispatcher (the thread that
             // constructed this ViewModel - the UI thread in production) before touching it, rather
             // than Application.Current.Dispatcher - which would be null in a headless test host
-            // that never starts a real WPF Application. The timer itself debounces: one
-            // NavRoute.json read seeds many systems in a tight loop, and a full RefreshEnrichment()
-            // per seed would be wasteful - Stop+Start on every DataSeeded restarts the countdown,
-            // so a burst collapses into one refresh shortly after it quiets down, not one per
-            // system.
+            // that never starts a real WPF Application. The timer itself debounces the slower
+            // EDSM-lookup catch-all: one NavRoute.json read seeds many systems in a tight loop, and
+            // a full RefreshEnrichment() per seed would be wasteful - Stop+Start on every
+            // DataSeeded restarts the countdown, so a burst collapses into one full pass shortly
+            // after it quiets down, not one per system.
             _dataSeededDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
             {
                 Interval = TimeSpan.FromMilliseconds(500)
@@ -89,6 +89,17 @@ namespace RouteJumper.ViewModels
             };
             lookupService.DataSeeded += (_, _) => _dataSeededDebounceTimer.Dispatcher.BeginInvoke(() =>
             {
+                // Applied immediately, ahead of and independent from the debounce below: any
+                // row whose Distance/Star Type is already resolvable purely from cache updates
+                // right now, without waiting on the debounce or on PopulateAsync's own sequential
+                // row-order sweep. This is what lets the one row a CMDR plotted a whole in-game
+                // route just to look up (SPEC §4.9 - that system is, by construction, the *last*
+                // one seeded in the burst) update the instant its NavRoute.json entry is cached,
+                // rather than waiting out every unrelated row above it in the table first. The
+                // debounced RefreshEnrichment below still owns the remaining, genuinely uncached
+                // lookups.
+                _enrichmentService.ApplyCachedValues(Rows, _getOriginSystemName());
+
                 _dataSeededDebounceTimer.Stop();
                 _dataSeededDebounceTimer.Start();
             });

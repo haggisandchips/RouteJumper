@@ -529,6 +529,26 @@ might pause en route rather than something either mode tracks.
   fails outright (offline, EDSM unreachable, etc.) - simply leaves that
   cell blank permanently, rather than blocking, freezing, retrying
   forever, or showing a guess.
+- Since `Distance` is chained (previous row → this row), a row whose own
+  coordinates are genuinely unavailable from EDSM also blanks the *next*
+  row's `Distance`, even though that next row's own data may be perfectly
+  fine. To make the true culprit obvious at a glance rather than requiring
+  the CMDR to cross-reference `Star Type` or guess, `Distance` shows small,
+  light "Plot needed" text in place of a blank cell whenever *this row's
+  own* coordinates are confirmed unavailable from EDSM this session -
+  never for a row whose `Distance` is merely blank because the row before
+  it (or, for row 1, the CMDR's own origin position, not row 1's own
+  system) is the actual problem. `Star Type` shows "Target needed" the
+  same way whenever this row's own coordinates are known but its star type
+  specifically isn't - a single `FSDTarget` (no full route plot needed) is
+  enough to fix that, the faster, more direct remedy compared to
+  `Distance`'s own "Plot needed" fix. Neither placeholder replaces a cell
+  that's still mid-resolution (no completed lookup pass has covered it
+  yet), which stays plain blank exactly as before. Both are purely a UI
+  signal, recomputed fresh on every completed enrichment pass and never
+  persisted - a system confirmed unavailable this session can still
+  resolve on the very next pass, exactly as the retry rule below already
+  allows.
 - Once resolved, a system's coordinates/star type are cached locally
   indefinitely (§7) and never queried again - a second Save/restore
   referencing the same system name reuses the cached value instantly. An
@@ -586,10 +606,14 @@ might pause en route rather than something either mode tracks.
   only at the next Save/restore - a system resolved via `FSDTarget`/
   `NavRoute.json` moments after the table was last populated (e.g. mid-
   session, not just on app launch) updates that row's cell within the
-  next second or so, without requiring an app restart. Debounced: a
-  single `NavRoute.json` read can seed many systems in a tight loop, which
-  collapses into one refresh shortly after the burst quiets down rather
-  than one per system.
+  next second or so, without requiring an app restart. A row whose value
+  is already fully resolvable from the local cache at the moment of
+  seeding updates immediately, independent of any debounce - since the
+  value is already known, there's nothing to wait on. Only the *remaining*
+  work - genuinely uncached rows that still need an EDSM lookup - is
+  debounced: a single `NavRoute.json` read can seed many systems in a
+  tight loop, which collapses into one such catch-up pass shortly after
+  the burst quiets down rather than one per system.
 
 ---
 

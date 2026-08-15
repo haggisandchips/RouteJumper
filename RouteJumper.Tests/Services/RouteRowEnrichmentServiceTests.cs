@@ -127,5 +127,134 @@ namespace RouteJumper.Tests.Services
 
             await service.PopulateAsync(Array.Empty<RouteRowViewModel>(), "Sol");
         }
+
+        [Fact]
+        public async Task PopulateAsync_UnresolvedMidRouteSystem_OnlyTheCulpritRowIsMarkedUnavailable()
+        {
+            // The exact reported bug: row X's own coordinates are unresolved, which blanks its
+            // OWN Distance and cascades into row X+1's Distance too - but only row X's own data is
+            // actually the problem. Row X+1's OwnCoordinatesState must stay Resolved (its own
+            // system is fine) so it never shows the "Plot needed" placeholder that belongs to X.
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["A"] = new GalacticCoordinates(3, 4, 0);
+            // "X" deliberately has no entry - the genuine culprit.
+            fake.Coordinates["B"] = new GalacticCoordinates(10, 10, 10);
+            var rows = new[] { Row("A"), Row("X"), Row("B") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            await service.PopulateAsync(rows, "Sol");
+
+            Assert.Equal(EdsmLookupState.Resolved, rows[0].OwnCoordinatesState);
+            Assert.False(rows[0].IsDistancePlaceholder);
+
+            Assert.Equal(EdsmLookupState.Unavailable, rows[1].OwnCoordinatesState); // X: the true culprit
+            Assert.True(rows[1].IsDistancePlaceholder);
+
+            Assert.Equal(EdsmLookupState.Resolved, rows[2].OwnCoordinatesState); // B: own data fine
+            Assert.Null(rows[2].Distance); // still blank, blocked by X
+            Assert.False(rows[2].IsDistancePlaceholder); // but NOT the culprit - no placeholder
+        }
+
+        [Fact]
+        public async Task PopulateAsync_Row1BlockedByUnresolvedOrigin_NoPlaceholderShown()
+        {
+            var fake = new FakeStarSystemLookupService();
+            // Origin deliberately unresolved - row 1's own system is fine.
+            fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
+            var rows = new[] { Row("A") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            await service.PopulateAsync(rows, originSystemName: "UnknownOrigin");
+
+            Assert.Null(rows[0].Distance);
+            Assert.Equal(EdsmLookupState.Resolved, rows[0].OwnCoordinatesState);
+            Assert.False(rows[0].IsDistancePlaceholder);
+        }
+
+        [Fact]
+        public async Task PopulateAsync_CoordinatesKnownButStarTypeUnresolved_ShowsTargetNeededPlaceholder()
+        {
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
+            // No StarTypes entry for "A" - coordinates resolved, star type is not.
+            var rows = new[] { Row("A") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            await service.PopulateAsync(rows, originSystemName: null);
+
+            Assert.Equal(EdsmLookupState.Resolved, rows[0].OwnCoordinatesState);
+            Assert.Equal(EdsmLookupState.Unavailable, rows[0].OwnStarTypeState);
+            Assert.True(rows[0].IsStarTypePlaceholder);
+            Assert.Equal("Target needed", rows[0].StarTypeDisplay);
+        }
+
+        [Fact]
+        public async Task PopulateAsync_CoordinatesUnresolved_DoesNotFlagStarTypeAsPlaceholderToo()
+        {
+            // Per design: when coordinates are missing, Distance shows "Plot needed" but Star
+            // Type is left exactly as-is (no piggyback "Target needed") - plotting a route fixes
+            // both via the same NavRoute.json seeding, so Star Type doesn't need its own callout.
+            var fake = new FakeStarSystemLookupService();
+            // Neither Coordinates nor StarTypes has an entry for "X".
+            var rows = new[] { Row("X") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            await service.PopulateAsync(rows, originSystemName: null);
+
+            Assert.True(rows[0].IsDistancePlaceholder);
+            Assert.False(rows[0].IsStarTypePlaceholder);
+        }
+
+        [Fact]
+        public void ApplyCachedValues_CacheHit_AppliesInstantlyWithNoNetworkCall()
+        {
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["A"] = new GalacticCoordinates(3, 4, 0);
+            fake.StarTypes["A"] = "K (Yellow-Orange)";
+            var rows = new[] { Row("A") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            service.ApplyCachedValues(rows, "Sol");
+
+            Assert.Equal(5.0, rows[0].Distance!.Value, precision: 6);
+            Assert.Equal("K (Yellow-Orange)", rows[0].StarType);
+            Assert.Equal(EdsmLookupState.Resolved, rows[0].OwnCoordinatesState);
+            Assert.Equal(EdsmLookupState.Resolved, rows[0].OwnStarTypeState);
+            Assert.Empty(fake.StarTypeCallOrder); // pure cache read - GetMainStarTypeAsync never called
+        }
+
+        [Fact]
+        public void ApplyCachedValues_UncachedRowBreaksChain_DoesNotSkipOverTheGap()
+        {
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            // "X" deliberately not cached - row 2's leg can't be computed across the gap.
+            fake.Coordinates["B"] = new GalacticCoordinates(10, 10, 10);
+            var rows = new[] { Row("X"), Row("B") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            service.ApplyCachedValues(rows, "Sol");
+
+            Assert.Null(rows[0].Distance);
+            Assert.Null(rows[1].Distance); // not incorrectly chained from Sol, skipping over X
+        }
+
+        [Fact]
+        public void ApplyCachedValues_UncachedRow_NeverMarksUnavailable()
+        {
+            // A cache miss in ApplyCachedValues doesn't distinguish "still resolving" from
+            // "confirmed unavailable" - only a completed PopulateAsync pass (which actually calls
+            // EDSM) may set Unavailable. ApplyCachedValues must leave existing state untouched.
+            var fake = new FakeStarSystemLookupService();
+            var rows = new[] { Row("Unseeded") };
+            var service = new RouteRowEnrichmentService(fake);
+
+            service.ApplyCachedValues(rows, originSystemName: null);
+
+            Assert.Equal(EdsmLookupState.Resolving, rows[0].OwnCoordinatesState);
+            Assert.Equal(EdsmLookupState.Resolving, rows[0].OwnStarTypeState);
+        }
     }
 }
