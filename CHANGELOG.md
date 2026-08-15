@@ -7,6 +7,71 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Ship mode**: a toggle beside the menu bar switching between Fleet
+  Carrier mode (the default) and a leaner, purely passive Ship mode for
+  a solo commander flying their own hand-plotted route (e.g. from a
+  neutron-highway planner) — no macro automation at all, just the same
+  row-by-row progress tracking, against your own ship's journal instead
+  of a Captain's. Adds a new **Track** tab (a single-instance
+  counterpart to Roles) shown only in Ship mode; Roles/Controls and the
+  Route tab's Auto Pilot button are hidden while it's active.
+- Route tab **`Distance`** and **`Star Type`** columns, populated in the
+  background against [EDSM](https://www.edsm.net) — leg distance between
+  each row (and from your current position to row 1), and each row's own
+  system's main star type. A system EDSM has no coordinates for shows
+  "Plot needed" instead of a blank cell (or "Target needed" if only the
+  star type is missing), so the actual gap is obvious rather than a
+  knock-on effect of the row before it.
+- Auto Pilot **panic mode**: stops itself immediately and shows a
+  closeable banner if a plot/refuel macro is interrupted for any reason,
+  if the Captain's macro finishes without a real jump request following,
+  or if the Engineer's macro finishes without the carrier's fuel level
+  actually having gone up on a fresh check — rather than risking the
+  carrier jumping further and further away on the strength of a macro
+  that's silently stopped working. A `{TRITIUM_LOOPS}` resolution is now
+  also capped so the Engineer's refuel script can never take long enough
+  to still be playing when the Captain's own next plot comes due.
+- Background app logging: a rolling, date-stamped log file
+  (`%LocalAppData%\EDFCAutoPilot\Logs\`) plus a live, non-modal **Help >
+  Logs** viewer (with a "Wrap text" option), covering HTTP requests to
+  EDSM, journal-driven row transitions, role/track assignment, Auto
+  Pilot triggers and panic-mode stops, macro recording/playback, update
+  checks, and persistence failures. Housekeeping (retention days, and
+  per-file/total size caps) is configurable in `routejumper.conf`.
+- A **Help** menu, holding Logs, Check for Updates, and About (the
+  latter two moved out of File).
+- A Preferences checkbox to turn off the silent startup update check
+  entirely — Help > Check for Updates always still works on demand
+  regardless.
+
+### Changed
+
+- EDSM coordinate and star-type lookups are now resolved together in a
+  single request per batch of systems, retiring the separate, more
+  heavily-throttled per-system endpoint star type used to need. A
+  system EDSM confirms has no record of isn't queried again for a
+  configurable cooldown (`EdsmUnresolvedRetryHours` in
+  `routejumper.conf`, default 12 hours) — in memory for the rest of the
+  session, and on disk so the cooldown survives a restart too.
+- EDSM cache writes to disk no longer block the in-memory cache
+  update/UI notification that drives the Route tab's live-refresh — a
+  burst of seeds (e.g. reading a freshly-plotted `NavRoute.json`)
+  updates the table essentially instantly, with the (comparatively slow)
+  database write trailing behind on its own background queue.
+
+### Fixed
+
+- Ship mode: a genuinely live-tailed `FSDTarget` naming a system not in
+  the pasted route could leave a stale `Targeted` row icon stuck showing
+  instead of clearing it.
+- Route tab: the `Status`/`#` column headers could render sitting above
+  the `System` column instead of aligned with it.
+- `Star Type` values no longer repeat the redundant trailing "Star" word
+  EDSM's own data already ends in (e.g. "K (Yellow-Orange)" instead of
+  "K (Yellow-Orange) Star").
+
 ## [1.3.0] - 2026-08-13
 
 ### Added

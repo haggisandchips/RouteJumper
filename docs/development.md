@@ -27,16 +27,17 @@ dotnet test RouteJumper.Tests/RouteJumper.Tests.csproj
 RouteJumper.sln
 RouteJumper/                    The application
   App.xaml(.cs)
-  MainWindow.xaml(.cs)          Window shell, File menu, startup placement, clipboard-change hook
+  MainWindow.xaml(.cs)          Window shell, menu bar, mode toggle, startup placement, clipboard-change hook
   Common/                       ICommand implementations, ObservableObject base, clipboard helper
   Models/                       Small data types (ControlAction, RowIcon, RecordedMacro, ...)
-  ViewModels/                   One ViewModel per tab, plus per-row/per-item ViewModels
-  Sequencing/                   The route-progress engine
-  Services/                     Journal parsing/watching, macro parser/player, settings/config
-                                 stores, process/window scanning, key-binding formatting,
-                                 speech synthesis
+  ViewModels/                   One ViewModel per tab (Route/Roles/Controls/Track), plus per-row/per-item ViewModels
+  Sequencing/                   The route-progress engine (event-driven, no hardcoded delays - see CLAUDE.md)
+  Services/                     Journal parsing/watching (Fleet Carrier + Ship mode), EDSM lookups,
+                                 macro parser/player, settings/config stores, process/window scanning,
+                                 key-binding formatting, speech synthesis
+  Services/Logging/              Background file logging (Log, FileLogSink) and HTTP request logging
   Converters/                   WPF IValueConverters
-  Views/                        XAML for each tab, plus the Preferences dialog
+  Views/                        XAML for each tab, plus the Preferences/About/Logs windows
   Resources/                    App icon
 RouteJumper.Tests/               xUnit unit test suite, mirroring the layout above
 ```

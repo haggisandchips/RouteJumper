@@ -10,11 +10,16 @@ route to completion itself, playing back a recorded macro to plot each
 jump (and, with an Engineer assigned, another to refuel the carrier)
 without you touching the keyboard.
 
+A **Ship mode** toggle switches to a leaner, purely passive alternative
+for a solo commander flying their own hand-plotted route (e.g. from a
+neutron-highway planner) — no automation, just the same row-by-row
+progress tracking against your own ship's journal.
+
 This is a fan-made tool and is not affiliated with or endorsed by
 Frontier Developments plc. Elite Dangerous is a trademark of Frontier
 Developments plc.
 
-📖 **For everything beyond installation — the three tabs, macro
+📖 **For everything beyond installation — both tracking modes, macro
 scripting, sample scripts, data locations, development, and
 troubleshooting — see the full
 [ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).**
@@ -67,6 +72,11 @@ for running the test suite, the project layout, and cutting releases.
 ---
 
 ## Quick Start
+
+This is the Fleet Carrier + Auto Pilot flow (the default mode). For Ship
+mode's simpler, passive-tracking-only setup, see the
+[Track tab section](https://haggisandchips.github.io/RouteJumper/#track-tab)
+in the docs.
 
 1. **Route tab** — paste your route (one system per line) and click
    **Save**.

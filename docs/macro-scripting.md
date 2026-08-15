@@ -28,7 +28,7 @@ and the editor work in the app itself.
 | `PASTE <text>` | Sets the clipboard to `<text>` and sends Ctrl+V |
 | `{NEXT_SYSTEM}` | Placeholder inside a `PASTE`, resolved at play time to the Route tab's current next system |
 | `REPEAT <n>` … `END` | Repeats its body `n` times (nestable) |
-| `{TRITIUM_LOOPS}` | Placeholder usable anywhere a number is expected (most often `REPEAT {TRITIUM_LOOPS}`) — resolved to how many full ship-loads of tritium are still needed to top off the carrier's fuel depot and the ship's own hold |
+| `{TRITIUM_LOOPS}` | Placeholder usable anywhere a number is expected (most often `REPEAT {TRITIUM_LOOPS}`) — resolved to how many full ship-loads of tritium are still needed to top off the carrier's fuel depot and the ship's own hold, capped (during an Auto Pilot-triggered run only) so the script can never take longer than 4m45s to play, however many loops the CMDR's cargo/fuel actually implies |
 | `MACRO <name>` … `END` | Defines a named, reusable sub-routine (top level only) |
 | `CALL <name>` | Invokes a macro defined with `MACRO` |
 | `# comment` | Ignored, like a blank line |
