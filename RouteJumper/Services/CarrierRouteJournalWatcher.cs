@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using RouteJumper.Sequencing;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
 {
@@ -115,8 +116,22 @@ namespace RouteJumper.Services
         {
             _journalPath = journalPath;
             _carrierId = carrierId;
-            _onRowEvent = onRowEvent;
-            _onCarrierStatsObserved = onCarrierStatsObserved;
+
+            // Wrapped once here, so every row event this class raises is logged uniformly
+            // regardless of which of the several call sites below (FirePlotted, ScheduleRowEvent,
+            // ProcessLine's own direct calls, StartAsync's catch-up) actually fired it.
+            _onRowEvent = (kind, systemName, isLive, phaseEndUtc) =>
+            {
+                Log.Info("Journal", $"Carrier {kind} \"{systemName}\"{(isLive ? "" : " (catch-up)")}");
+                onRowEvent(kind, systemName, isLive, phaseEndUtc);
+            };
+
+            _onCarrierStatsObserved = () =>
+            {
+                Log.Info("Journal", "Carrier CarrierStats observed live - refreshing Roles tab.");
+                onCarrierStatsObserved();
+            };
+
             _starSystemLookupService = starSystemLookupService;
         }
 

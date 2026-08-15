@@ -1,4 +1,5 @@
 using System.IO;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
 {
@@ -18,6 +19,13 @@ namespace RouteJumper.Services
     public class AppConfigStore
     {
         private const string JournalDirectoryKey = "JournalDirectory";
+        private const string LogRetentionDaysKey = "LogRetentionDays";
+        private const string LogMaxFileSizeMbKey = "LogMaxFileSizeMB";
+        private const string LogMaxTotalSizeMbKey = "LogMaxTotalSizeMB";
+
+        private const int DefaultLogRetentionDays = 7;
+        private const int DefaultLogMaxFileSizeMb = 10;
+        private const int DefaultLogMaxTotalSizeMb = 100;
 
         private readonly string _configPath;
 
@@ -55,6 +63,23 @@ namespace RouteJumper.Services
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Saved Games", "Frontier Developments", "Elite Dangerous");
 
+        /// <summary>How many days' worth of Logs\routejumper-*.log files FileLogSink keeps before deleting them - hand-editable here like JournalDirectory, "can revisit these later" defaults per SPEC.</summary>
+        public int LogRetentionDays => ReadIntOrDefault(LogRetentionDaysKey, DefaultLogRetentionDays);
+
+        /// <summary>Per-file size cap (MB) before FileLogSink rolls to a new segment for the same day.</summary>
+        public int LogMaxFileSizeMb => ReadIntOrDefault(LogMaxFileSizeMbKey, DefaultLogMaxFileSizeMb);
+
+        /// <summary>Total size cap (MB) across every log file - FileLogSink deletes the oldest files (never the one currently being written to) once exceeded.</summary>
+        public int LogMaxTotalSizeMb => ReadIntOrDefault(LogMaxTotalSizeMbKey, DefaultLogMaxTotalSizeMb);
+
+        private int ReadIntOrDefault(string key, int defaultValue)
+        {
+            var values = ReadOrCreateDefault();
+            return values.TryGetValue(key, out var raw) && int.TryParse(raw, out var parsed) && parsed > 0
+                ? parsed
+                : defaultValue;
+        }
+
         private Dictionary<string, string> ReadOrCreateDefault()
         {
             if (!File.Exists(_configPath))
@@ -68,14 +93,21 @@ namespace RouteJumper.Services
                     {
                         "# ED:FC Auto Pilot configuration - safe to hand-edit while the app is closed",
                         "# (or running - config is re-read on every Roles tab refresh).",
-                        $"{JournalDirectoryKey}={DefaultJournalDirectory}"
+                        $"{JournalDirectoryKey}={DefaultJournalDirectory}",
+                        "# Log housekeeping (Logs\\routejumper-*.log) - takes effect within the next 30",
+                        "# minutes, or on the next log file rollover, without a restart required.",
+                        $"{LogRetentionDaysKey}={DefaultLogRetentionDays}",
+                        $"{LogMaxFileSizeMbKey}={DefaultLogMaxFileSizeMb}",
+                        $"{LogMaxTotalSizeMbKey}={DefaultLogMaxTotalSizeMb}"
                     });
                 }
-                catch (IOException)
+                catch (IOException ex)
                 {
+                    Log.Warn("Config", "Could not create routejumper.conf - falling back to defaults.", ex);
                 }
-                catch (UnauthorizedAccessException)
+                catch (UnauthorizedAccessException ex)
                 {
+                    Log.Warn("Config", "Could not create routejumper.conf - falling back to defaults.", ex);
                 }
 
                 return new Dictionary<string, string> { [JournalDirectoryKey] = DefaultJournalDirectory };
@@ -101,11 +133,13 @@ namespace RouteJumper.Services
                     values[trimmed[..separatorIndex].Trim()] = trimmed[(separatorIndex + 1)..].Trim();
                 }
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                Log.Warn("Config", "Could not read routejumper.conf - falling back to defaults.", ex);
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                Log.Warn("Config", "Could not read routejumper.conf - falling back to defaults.", ex);
             }
 
             return values;

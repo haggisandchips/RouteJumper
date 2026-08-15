@@ -1,3 +1,4 @@
+using RouteJumper.Services.Logging;
 using Velopack;
 using Velopack.Sources;
 
@@ -48,30 +49,39 @@ namespace RouteJumper.Services
             }
         }
 
+        private const string Category = "Update";
+
         private static async Task<UpdateCheckOutcome> CheckForUpdatesCoreAsync()
         {
+            Log.Info(Category, "Checking for updates.");
+
             try
             {
                 var manager = new UpdateManager(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
                 if (!manager.IsInstalled)
                 {
+                    Log.Info(Category, "Skipped - not a packaged (Velopack-installed) build.");
                     return UpdateCheckOutcome.NotInstalled;
                 }
 
                 var newVersion = await manager.CheckForUpdatesAsync();
                 if (newVersion == null)
                 {
+                    Log.Info(Category, "Already up to date.");
                     return UpdateCheckOutcome.UpToDate;
                 }
 
+                Log.Info(Category, "A newer version is available - downloading.");
                 await manager.DownloadUpdatesAsync(newVersion);
+                Log.Info(Category, "Update downloaded - will be applied on next exit.");
                 manager.WaitExitThenApplyUpdates(newVersion);
                 return UpdateCheckOutcome.UpdateDownloaded;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Update checks are best-effort against an external service (offline, GitHub
                 // outage, rate limiting, etc.) - never let a failed check affect the running app.
+                Log.Warn(Category, "Update check failed.", ex);
                 return UpdateCheckOutcome.Error;
             }
         }

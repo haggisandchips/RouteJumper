@@ -1,0 +1,74 @@
+<Window x:Class="RouteJumper.Views.LogsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Style="{StaticResource MaterialDesignWindow}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{materialDesign:MaterialDesignFont}"
+        Title="ED:FC Auto Pilot — Logs"
+        Width="820" Height="520"
+        WindowStartupLocation="CenterOwner"
+        d:DesignHeight="520" d:DesignWidth="820">
+
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Live-only view: shows nothing until an entry is logged while this window is open
+             (LogsWindow.xaml.cs subscribes to Log.EntryLogged on construction, unsubscribes on
+             Closed) - the durable record is the on-disk file this mirrors, not this window. -->
+        <Border Grid.Row="0"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="1">
+            <TextBox x:Name="LogTextBox"
+                     IsReadOnly="True"
+                     IsReadOnlyCaretVisible="True"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     TextWrapping="NoWrap"
+                     AcceptsReturn="True"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="6" />
+        </Border>
+
+        <Grid Grid.Row="1" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Off by default (matches the TextBox's own NoWrap/Auto-horizontal-scroll default
+                 above) - not persisted, same "starts fresh every open" convention the rest of
+                 this window already follows (SPEC §3.8). -->
+            <CheckBox Grid.Column="0"
+                      x:Name="WrapTextCheckBox"
+                      Content="Wrap text"
+                      VerticalAlignment="Center"
+                      Checked="OnWrapTextChanged"
+                      Unchecked="OnWrapTextChanged" />
+
+            <StackPanel Grid.Column="2"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button Content="Clear"
+                        Padding="10,4"
+                        Click="OnClearClick" />
+                <Button Content="Close"
+                        Padding="10,4"
+                        Margin="8,0,0,0"
+                        IsCancel="True"
+                        Click="OnCloseClick" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

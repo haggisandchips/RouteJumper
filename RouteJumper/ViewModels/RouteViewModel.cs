@@ -6,6 +6,7 @@ using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.ViewModels
 {
@@ -341,6 +342,7 @@ namespace RouteJumper.ViewModels
             IsSaved = true;
             _lastSavedRouteText = RouteText;
             _settings.SetString(RouteTextSettingKey, RouteText);
+            Log.Info("Route", $"Route saved - {Rows.Count} row(s).");
             RouteSaved?.Invoke(this, EventArgs.Empty);
 
             TriggerEnrichment();
@@ -579,6 +581,8 @@ namespace RouteJumper.ViewModels
             {
                 return;
             }
+
+            Log.Info("Route", $"Set next system - row {targetIndex + 1} (\"{targetRow.SystemText}\") is now current.");
 
             for (var i = 0; i < Rows.Count; i++)
             {

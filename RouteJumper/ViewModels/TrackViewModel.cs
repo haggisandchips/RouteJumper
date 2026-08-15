@@ -3,6 +3,7 @@ using System.Windows;
 using RouteJumper.Common;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.ViewModels
 {
@@ -239,6 +240,7 @@ namespace RouteJumper.ViewModels
 
             if (instance.IsTracked)
             {
+                Log.Info("Track", $"Tracking stopped for {instance.CommanderName}.");
                 instance.IsTracked = false;
                 _trackedProcessId = null;
                 _settings.SetString(TrackedFidSettingKey, string.Empty);
@@ -254,6 +256,7 @@ namespace RouteJumper.ViewModels
                 }
             }
 
+            Log.Info("Track", $"Tracking assigned to {instance.CommanderName} - resetting route and replaying their journal.");
             instance.IsTracked = true;
             _trackedProcessId = instance.ProcessId;
             if (IsRealFid(instance.Fid))

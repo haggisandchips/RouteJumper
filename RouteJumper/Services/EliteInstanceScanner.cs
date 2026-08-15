@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using RouteJumper.Services.Logging;
 using RouteJumper.ViewModels;
 
 namespace RouteJumper.Services
@@ -33,6 +34,7 @@ namespace RouteJumper.Services
             using var processes = new ProcessList(Process.GetProcessesByName(ProcessName));
             if (processes.Items.Count == 0)
             {
+                Log.Debug("Scan", "No running Elite Dangerous instances found.");
                 return Array.Empty<EliteInstanceViewModel>();
             }
 
@@ -53,6 +55,7 @@ namespace RouteJumper.Services
                 results.Add(BuildInstanceInfo(process, journalPath));
             }
 
+            Log.Debug("Scan", $"Found {results.Count} running Elite Dangerous instance(s).");
             return results;
         }
 

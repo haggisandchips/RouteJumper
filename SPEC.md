@@ -76,25 +76,32 @@ See §6.
 
 ### 3.4 Menu bar and mute button
 - A `Menu` sits above the tab area, visible regardless of which tab is
-  active, with a single top-level **File** entry:
-  - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
-  - **Check for Updates** manually triggers the same download-and-
-    apply-on-next-exit check already run silently on every launch
-    (§3.7) - the only difference is that this one reports what it found
-    via a message box, since it's an explicit request rather than a
-    background check. Disabled while a check it started is still in
-    flight, to avoid stacking concurrent checks.
-  - **About** opens the About dialog (§3.6) as a modal window.
-  - **Ship Mode** is a checkable item toggling between Fleet Carrier mode
-    (unchecked, the default) and Ship mode (checked) - see §8. Toggling it
-    swaps which tabs are visible (§3.1), shows/hides and force-stops the
-    Route tab's Auto Pilot button (§4.2), and switches which of Roles'
-    Captain-journal watcher or Track's ship-journal watcher is actually
-    running - exactly one is ever active at a time. Persisted immediately;
-    restored at startup, defaulting to Fleet Carrier mode until first
-    changed.
-  - **Exit** closes the main window (which persists its bounds as normal,
-    §7, and ends the app).
+  active, with two top-level entries, **File** and **Help**:
+  - **File**:
+    - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
+    - **Check for Updates** manually triggers the same download-and-
+      apply-on-next-exit check already run silently on every launch
+      (§3.7) - the only difference is that this one reports what it found
+      via a message box, since it's an explicit request rather than a
+      background check. Disabled while a check it started is still in
+      flight, to avoid stacking concurrent checks.
+    - **Ship Mode** is a checkable item toggling between Fleet Carrier mode
+      (unchecked, the default) and Ship mode (checked) - see §8. Toggling it
+      swaps which tabs are visible (§3.1), shows/hides and force-stops the
+      Route tab's Auto Pilot button (§4.2), and switches which of Roles'
+      Captain-journal watcher or Track's ship-journal watcher is actually
+      running - exactly one is ever active at a time. Persisted immediately;
+      restored at startup, defaulting to Fleet Carrier mode until first
+      changed.
+    - **Exit** closes the main window (which persists its bounds as normal,
+      §7, and ends the app).
+  - **Help**:
+    - **Logs** opens the non-modal Logs window (§3.8) - unlike Preferences/
+      About, this stays open (and keeps live-updating) alongside the rest
+      of the app rather than blocking it; a second click while it's
+      already open brings the existing window to the front instead of
+      opening a duplicate.
+    - **About** opens the About dialog (§3.6) as a modal window.
 - Beside the menu, right-aligned and equally always-visible, a single
   icon button mutes/unmutes the spoken announcements described in §4.8 -
   its icon swaps between a plain speaker and a crossed-out one to reflect
@@ -148,6 +155,30 @@ See §6.
   network) - the last of these is the one case a failure is surfaced to
   the user at all, since the silent startup check never reports
   anything either way.
+
+### 3.8 Logs window
+- A **non-modal** window (Help > Logs, §3.4) that live-tails the same
+  logging stream §12 describes - the on-disk, date-stamped log file is
+  the durable record; this window is a live, in-memory view on top of
+  it, nothing more. Non-modal deliberately: it stays open and
+  live-updating while the rest of the app is used normally, rather than
+  blocking interaction with it the way Preferences/About do.
+- Opens **empty** - it shows only entries logged while it's actually
+  open, not anything logged earlier in the session or in a previous
+  file. Closing it and reopening it (from the same or a later session)
+  starts blank again every time; it retains nothing of its own across
+  a close. A **Clear** button empties the currently-visible text without
+  affecting the on-disk file.
+- A **Wrap text** checkbox, off by default (unwrapped, matching a raw log
+  file's own layout - one line per entry, scroll right to see the rest),
+  switches long lines to wrap within the window's own width instead -
+  the horizontal scrollbar is hidden while wrapped, since there's
+  nothing left for it to scroll. Session-only, like the rest of this
+  window's own state - always starts back at its default (off) on a
+  fresh open.
+- A **Close** button dismisses it. Owned by the main window, so it
+  closes automatically alongside it - it holds no state worth keeping
+  open past that point.
 
 ---
 
@@ -1239,8 +1270,9 @@ than the app failing to start.
 
 A separate, deliberately hand-editable `routejumper.conf` sits beside the
 database (see §5.2) for configuration a user might reasonably want to
-change directly in a text editor — currently just the journal folder —
-rather than internal app state like the table below.
+change directly in a text editor — the journal folder, plus the log
+housekeeping settings §12 describes — rather than internal app state like
+the table below.
 
 | What | Persisted when | Restored when |
 |---|---|---|
@@ -1902,3 +1934,101 @@ outright the instant Ship mode is switched on.
     expansion) rather than assumed. A manual Play/Step's own
     **Test {TRITIUM_LOOPS}** value (§6.1) is never capped this way, since
     it carries no real-world timing constraint of its own.
+70. File > Help shows **Logs** above **About**; clicking About still opens
+    the same modal dialog it always has (§3.6), now reached from Help
+    instead of File.
+71. Help > Logs opens a non-modal window (§3.8) that starts empty and
+    shows only entries logged from that point on; a significant event
+    logged anywhere in the app (a role assignment, a journal-driven row
+    transition, an Auto Pilot trigger, a macro record/play, an HTTP
+    request to EDSM, ...) appears in it within about a second, without
+    blocking whatever the CMDR is doing on another tab. Closing it and
+    reopening it shows a blank window again, even within the same
+    session.
+72. Every log line - written to file, or shown in the Logs window - is
+    timestamped and carries a level and a category (§12). Logging never
+    measurably slows down route tracking, Auto Pilot, or macro playback -
+    a log call itself never performs file I/O on the calling thread.
+73. The log file directory (`%LocalAppData%\EDFCAutoPilot\Logs`) contains
+    one date-stamped file per day, tailable from a separate process (e.g.
+    `Get-Content -Wait`) with new lines appearing within about a second of
+    being logged. A file that grows past the configured per-file size cap
+    rolls to a new, numbered segment for the same day rather than growing
+    unbounded.
+74. Housekeeping (retention days / per-file size cap / total size cap, all
+    configurable in `routejumper.conf`, defaulting to 7 days / 10MB / 100MB)
+    keeps the Logs folder bounded automatically, without requiring the
+    CMDR to delete old files by hand - deleting the oldest files first
+    once the total size cap is exceeded, and never deleting the file
+    currently being written to.
+
+---
+
+## 12. Logging
+
+A background, non-blocking logging facility used throughout the app to
+record significant events for diagnosis - outbound HTTP requests, journal-
+driven row transitions, role/track assignment, Auto Pilot triggers and
+panic-mode stops, macro recording/playback, update checks, and persistence
+failures. Two independent sinks receive every logged entry: a durable,
+date-stamped file (always written to, whether or not the Logs window is
+open) and the Logs window itself (§3.8, only while it's open).
+
+- **Never on the hot path**: logging a line only ever enqueues it onto an
+  in-memory queue - never disk I/O, never blocking, on the thread that
+  calls it. This matters most for the event-driven Sequencing/ engine
+  (CLAUDE.md's non-negotiable rule) and for macro playback, where input
+  timing matters - logging must never become a source of the kind of
+  delay CLAUDE.md already forbids reintroducing there. A single
+  background writer drains the queue and does the actual file I/O.
+- **Format**: each line is `yyyy-MM-dd HH:mm:ss.fff [LEVEL ] Category:
+  message`, e.g. `2026-08-15 09:05:03.250 [INFO ] Http: -> GET
+  https://www.edsm.net/api-v1/systems?...`. Levels are Debug/Info/Warn/
+  Error; Warn/Error entries may carry an exception's type and message.
+  Categories group related events (`Http`, `Journal`, `AutoPilot`,
+  `Roles`, `Track`, `Route`, `Macro`, `Update`, `Settings`, `Config`,
+  `Scan`, `App`).
+- **HTTP requests**: every outbound HTTP request this app makes directly
+  (currently EDSM's coordinate/star-type lookups, §4.9 - the app's only
+  direct HttpClient usage) is logged on both the way out (method + URL)
+  and the way back (status code + elapsed time), or as a warning if it
+  fails outright. Velopack's own internal update-check HTTP calls aren't
+  individually visible this way (Velopack owns its own HTTP stack with no
+  logging seam) - those are covered instead by an Info/Warn line around
+  each update check's own start/outcome (§3.7).
+- **File** (`%LocalAppData%\EDFCAutoPilot\Logs\routejumper-yyyy-MM-dd.log`,
+  or `.Dev` for an unpackaged run, same convention as `routejumper.db`/
+  `routejumper.conf`, §7): one file per calendar day, opened for append
+  with a share mode that allows a separate process to read it
+  concurrently (e.g. tailing it with `Get-Content -Wait` or similar) -
+  the background writer flushes after draining whatever's currently
+  queued, so a concurrent tail sees new lines with minimal lag without
+  paying a flush's cost on every single line during a burst. A file that
+  crosses the configured per-file size cap mid-day rolls to a new,
+  numbered segment (`routejumper-yyyy-MM-dd.2.log`, `.3.log`, ...) rather
+  than growing without bound.
+- **Housekeeping**: keeps the Logs folder bounded automatically, using
+  three settings read from `routejumper.conf` (§5.2's own file, the same
+  hand-editable, `Key=Value` convention `JournalDirectory` already uses -
+  written with their defaults into a freshly-created config file, and
+  re-read periodically, not just once at startup, so a hand-edit takes
+  effect without an app restart):
+
+  | Key | Default | Meaning |
+  |---|---|---|
+  | `LogRetentionDays` | `7` | Files last written this many days ago or older are deleted |
+  | `LogMaxFileSizeMB` | `10` | Per-file cap before rolling to a new numbered segment |
+  | `LogMaxTotalSizeMB` | `100` | Total cap across every log file - oldest files are deleted first once exceeded |
+
+  Housekeeping runs at startup, whenever the writer rolls to a new file
+  (a new day, or a size-triggered rollover), and periodically in the
+  background - never against the file currently being written to.
+- **Logs window** (§3.8): a live, in-memory mirror of the same entries,
+  for as long as it's open - never the durable record itself, and never
+  required for anything to be logged (the file sink runs regardless of
+  whether this window has ever been opened).
+- Logging failures (e.g. a permissions issue creating the Logs folder or
+  writing a file) degrade to "this entry wasn't written to disk" rather
+  than crashing the app or interrupting whatever triggered the log call -
+  the same "nothing persisted rather than a hard failure" philosophy
+  `AppSettingsStore`/`AppConfigStore` already use for their own I/O (§7).

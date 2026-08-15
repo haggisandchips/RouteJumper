@@ -3,6 +3,7 @@ using System.Windows;
 using RouteJumper.Common;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.ViewModels
 {
@@ -397,6 +398,7 @@ namespace RouteJumper.ViewModels
 
             if (instance.IsCaptain)
             {
+                Log.Info("Roles", $"Captain unassigned from {instance.CommanderName}.");
                 instance.IsCaptain = false;
                 _captainProcessId = null;
                 _settings.SetString(CaptainFidSettingKey, string.Empty);
@@ -413,6 +415,7 @@ namespace RouteJumper.ViewModels
                 }
             }
 
+            Log.Info("Roles", $"Captain assigned to {instance.CommanderName} - resetting route and replaying their journal.");
             instance.IsCaptain = true;
             _captainProcessId = instance.ProcessId;
             if (IsRealFid(instance.Fid))
@@ -451,6 +454,7 @@ namespace RouteJumper.ViewModels
 
             if (instance.IsEngineer)
             {
+                Log.Info("Roles", $"Engineer unassigned from {instance.CommanderName}.");
                 instance.IsEngineer = false;
                 _engineerProcessId = null;
                 _settings.SetString(EngineerFidSettingKey, string.Empty);
@@ -471,6 +475,7 @@ namespace RouteJumper.ViewModels
                 }
             }
 
+            Log.Info("Roles", $"Engineer assigned to {instance.CommanderName}.");
             instance.IsEngineer = true;
             _engineerProcessId = instance.ProcessId;
             if (IsRealFid(instance.Fid))

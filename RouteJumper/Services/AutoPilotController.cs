@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
+using RouteJumper.Services.Logging;
 using RouteJumper.ViewModels;
 
 namespace RouteJumper.Services
@@ -140,6 +141,7 @@ namespace RouteJumper.Services
                 return;
             }
 
+            Log.Info("AutoPilot", "Auto Pilot engaged.");
             _isRunning = true;
             _captainTriggeredForRow = null;
             _pendingCooldownRow = null;
@@ -163,6 +165,7 @@ namespace RouteJumper.Services
                 return;
             }
 
+            Log.Info("AutoPilot", "Auto Pilot stopped.");
             _isRunning = false;
 
             foreach (var row in _rows)
@@ -354,6 +357,7 @@ namespace RouteJumper.Services
 
                 if (_getCaptainMacro() is { } macro && _getCaptainInstance() is { WindowHandle: not 0 } instance)
                 {
+                    Log.Info("AutoPilot", $"Playing Captain macro \"{macro.Name}\" to plot jump to {row.SystemText}.");
                     _routeEventTrigger.Fire(RowEventKind.Plotting, row.SystemText);
                     var ranToCompletion = await _playMacro(macro, instance);
 
@@ -366,6 +370,10 @@ namespace RouteJumper.Services
                     else if (row.Status == "Plotting")
                     {
                         Panic($"Auto Pilot stopped: the Captain's macro finished, but no jump to {row.SystemText} was plotted.");
+                    }
+                    else
+                    {
+                        Log.Info("AutoPilot", $"Captain macro completed - jump to {row.SystemText} plotted.");
                     }
                 }
             }
@@ -404,6 +412,7 @@ namespace RouteJumper.Services
 
                 if (_getEngineerMacro() is { } macro && _getEngineerInstance() is { WindowHandle: not 0 } instance)
                 {
+                    Log.Info("AutoPilot", $"Playing Engineer macro \"{macro.Name}\" to refuel.");
                     var fuelBefore = instance.CarrierFuelLevel;
                     var ranToCompletion = await _playMacro(macro, instance);
 
@@ -423,6 +432,10 @@ namespace RouteJumper.Services
                     {
                         Panic("Auto Pilot stopped: the Engineer's macro finished, but the carrier's fuel depot was not replenished.");
                     }
+                    else
+                    {
+                        Log.Info("AutoPilot", $"Engineer macro completed - carrier fuel {before}t -> {after}t.");
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -439,6 +452,7 @@ namespace RouteJumper.Services
         /// </summary>
         private void Panic(string message)
         {
+            Log.Warn("AutoPilot", message);
             _reportError(message);
             _stopAutoPilot();
         }

@@ -19,6 +19,7 @@ namespace RouteJumper
         private readonly AppSettingsStore _settings = new();
 
         private HwndSource? _hwndSource;
+        private LogsWindow? _logsWindow;
 
         public MainWindow()
         {
@@ -180,6 +181,32 @@ namespace RouteJumper
         private void OnAboutClick(object sender, RoutedEventArgs e)
         {
             new AboutWindow { Owner = this }.ShowDialog();
+        }
+
+        /// <summary>
+        /// Opens the non-modal Logs window (Help &gt; Logs) - unlike Preferences/About, this is
+        /// deliberately not a dialog: it needs to stay usable (and keep live-updating) while the
+        /// user keeps working the rest of the app. A second click while it's already open just
+        /// brings the existing one to the front rather than opening a duplicate. Owned by this
+        /// window so it closes automatically alongside the main window, same as any other owned
+        /// dialog here - it holds no state of its own worth keeping open past that point.
+        /// </summary>
+        private void OnLogsClick(object sender, RoutedEventArgs e)
+        {
+            if (_logsWindow is null)
+            {
+                _logsWindow = new LogsWindow { Owner = this };
+                _logsWindow.Closed += (_, _) => _logsWindow = null;
+                _logsWindow.Show();
+                return;
+            }
+
+            if (_logsWindow.WindowState == WindowState.Minimized)
+            {
+                _logsWindow.WindowState = WindowState.Normal;
+            }
+
+            _logsWindow.Activate();
         }
 
         private bool _checkingForUpdates;

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using RouteJumper.Models;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
 {
@@ -88,7 +89,10 @@ namespace RouteJumper.Services
 
         private static HttpClient CreateHttpClient()
         {
-            var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            // LoggingHttpMessageHandler wraps the real transport so every EDSM request/response
+            // (or failure) is logged (SPEC's Logging section) - see that class's own doc comment
+            // for why this is the app's only direct-HttpClient logging seam.
+            var client = new HttpClient(new LoggingHttpMessageHandler(new HttpClientHandler())) { Timeout = TimeSpan.FromSeconds(15) };
             client.DefaultRequestHeaders.UserAgent.ParseAdd("EDFCAutoPilot/1.0 (+https://github.com/haggisandchips/RouteJumper)");
             return client;
         }

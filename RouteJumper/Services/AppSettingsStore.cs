@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using Microsoft.Data.Sqlite;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
 {
@@ -40,12 +41,13 @@ namespace RouteJumper.Services
                 command.CommandText = "CREATE TABLE IF NOT EXISTS Settings (Key TEXT PRIMARY KEY, Value TEXT NOT NULL);";
                 command.ExecuteNonQuery();
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
                 // Persistence is a nice-to-have, not core functionality - if the store can't
                 // even be opened/created (e.g. a permissions issue), every Get falls back to
                 // "nothing persisted" and every Set silently no-ops, rather than the app failing
                 // to start over it.
+                Log.Warn("Settings", "Could not create/open routejumper.db - settings will not persist this session.", ex);
             }
         }
 
@@ -59,8 +61,9 @@ namespace RouteJumper.Services
                 command.Parameters.AddWithValue("$key", key);
                 return command.ExecuteScalar() as string;
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
+                Log.Warn("Settings", $"Failed to read setting \"{key}\".", ex);
                 return null;
             }
         }
@@ -78,8 +81,9 @@ namespace RouteJumper.Services
                 command.Parameters.AddWithValue("$value", value);
                 command.ExecuteNonQuery();
             }
-            catch (SqliteException)
+            catch (SqliteException ex)
             {
+                Log.Warn("Settings", $"Failed to write setting \"{key}\".", ex);
             }
         }
 

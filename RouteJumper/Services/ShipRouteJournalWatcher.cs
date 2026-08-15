@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using RouteJumper.Sequencing;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
 {
@@ -145,7 +146,16 @@ namespace RouteJumper.Services
             IStarSystemLookupService? starSystemLookupService = null)
         {
             _journalPath = journalPath;
-            _onRowEvent = onRowEvent;
+
+            // Wrapped once here, so every row event this class raises is logged uniformly
+            // regardless of which call site actually fired it - same convention as
+            // CarrierRouteJournalWatcher's own constructor.
+            _onRowEvent = (kind, systemName, isLive, phaseEndUtc) =>
+            {
+                Log.Info("Journal", $"Ship {kind} \"{systemName}\"{(isLive ? "" : " (catch-up)")}");
+                onRowEvent(kind, systemName, isLive, phaseEndUtc);
+            };
+
             _starSystemLookupService = starSystemLookupService;
         }
 
