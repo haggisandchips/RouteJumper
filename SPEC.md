@@ -39,6 +39,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
 | | Proper on-screen credit for third-party data sources the app queries (EDSM today, §4.9; likely Spansh or others in future) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet |
 | Material Design styling | |
+| Importing whatever route is currently plotted in-game ("Import Current Route", §4.10), unconditionally, in both tracking modes; trimming a saved route down to a max-500ly-per-hop series of jumps (§4.11, "Trim for FC", Fleet Carrier mode only) - both apply immediately after a Yes/No confirmation, with no in-between review step | |
 
 ---
 
@@ -256,7 +257,11 @@ one is visible at a time.
   (§5.7) gets it wrong, or the carrier is genuinely off-route.
 - Above the table, right-aligned: an **"Auto Copy To Clipboard"** toggle
   switch (§4.6). Not shown while in Edit state.
-- Below the table, right-aligned: **Edit** and **Auto Pilot** buttons.
+- Below the table: **Import Current Route**, **Trim for FC**, and **Auto
+  Pilot** left-aligned, in that order - the sequence a CMDR would actually
+  click them in (import/trim the route first, engage Auto Pilot last;
+  §4.10, §4.11 - both hidden or present per tracking mode as described
+  there), and **Edit** right-aligned.
   - **Edit** returns to Edit state with the text box's contents unchanged
     (Save never alters them) and focus restored to it. Re-clicking Save
     afterward always produces a completely fresh table — even if the text
@@ -691,6 +696,97 @@ might pause en route rather than something either mode tracks.
   debounced: a single `NavRoute.json` read can seed many systems in a
   tight loop, which collapses into one such catch-up pass shortly after
   the burst quiets down rather than one per system.
+
+### 4.10 Import Current Route
+
+- An **"Import Current Route"** button sits in Table state, leftmost of
+  the left-aligned button group (§4.2) - the sole left-hand button shown
+  in Ship mode, since Auto Pilot/Trim for FC are Fleet-Carrier-only.
+  Available unconditionally in both tracking modes, with no Captain/
+  tracked instance needing to be assigned first. Deliberately named
+  around what it does, not the underlying file - `NavRoute.json` is a
+  technical detail most CMDRs have no reason to know about.
+- Clicking it, after confirming (see below), reads `NavRoute.json`
+  directly out of the *configured journal folder* (`JournalDirectory`,
+  §5.2's own `routejumper.conf` setting) - never a specific running
+  instance's own journal path - and replaces the currently-saved route
+  with the currently in-game-plotted route, one system per line, applying
+  immediately: the same end result as if the CMDR had pasted the
+  identical list by hand and clicked Save, with no Edit-state review step
+  in between.
+- Deliberately unconditional: `NavRoute.json`, like `Status.json`/
+  `Cargo.json` (§5.2), is a per-*installation* file, not tied to any one
+  running instance - with several instances running, there's no reliable
+  way to say the file's current contents belong to *this* one rather than
+  another, so gating the button on a specific assignment would both
+  require one unnecessarily and could still be importing some other
+  instance's route regardless. The CMDR is left to judge for themselves,
+  from the imported system list itself, whether it's the route they
+  actually meant.
+- `NavRoute.json`'s own `Route` array always starts with wherever the
+  CMDR was standing when the route was plotted (their departure system),
+  not the first system they're about to jump to - that first entry is
+  deliberately skipped, since a pasted route describes systems to travel
+  *to*, and a CMDR importing this by hand would never type their own
+  current system as the route's first line either.
+- Every entry's coordinates/star type (including the skipped departure
+  entry) are seeded into the same Distance/Star Type cache §4.9 already
+  maintains, "as we go" - not because Save strictly needs it (EDSM would
+  eventually resolve the same values on its own), but because
+  `NavRoute.json` already hands over exact values for free, including any
+  procedurally-generated system EDSM has no record of at all, so the
+  route's own Distance/Star Type columns populate instantly from cache
+  the moment it's saved, rather than waiting on a fresh EDSM round trip
+  for systems that were already known.
+- **Confirmation**: since this outright replaces whatever route is
+  currently saved with no way back, clicking it first shows a plain
+  Yes/No confirmation dialog explaining what's about to happen; declining
+  leaves the current route untouched. Once confirmed, it's applied
+  unconditionally with no further dialog - including on failure (e.g. no
+  route currently plotted in-game, or `NavRoute.json` missing/unreadable):
+  the CMDR already deliberately chose to run this, so a second popup
+  would only add friction; a failure is logged (Help > Logs, §3.8) rather
+  than surfaced as its own message box.
+
+### 4.11 Trim for FC (Fleet Carrier mode)
+
+- A **"Trim for FC"** button sits in Table state, immediately after
+  Import Current Route (§4.10) and before Auto Pilot in the same
+  left-aligned group (§4.2) - **Fleet Carrier mode only** (hidden entirely
+  in Ship mode, the same as Auto Pilot itself), since it's a
+  fleet-carrier-specific planning aid: a real fleet carrier's own maximum
+  jump range is a fixed 500ly, unlike a solo ship's own range, which
+  varies by build/fuel and isn't tracked here.
+- Clicking it, after confirming (see below), collapses the currently-saved
+  route's rows down to a series of hops no longer than 500ly each,
+  dropping whichever intermediate rows aren't actually needed to stay
+  within that reach - useful for a route pasted, or imported (§4.10), with
+  many closely-spaced waypoints (e.g. a neutron-highway plotter's own
+  output), simplified down to only the systems a fleet carrier genuinely
+  needs to jump via. A greedy "farthest-reachable waypoint" walk: starting
+  from row 1 (always kept), it repeatedly advances to the farthest-along
+  row still within 500ly in a straight line of the last kept one, never
+  skipping past a genuine &gt;500ly gap between two adjacent rows (that
+  row is kept too - there's no way to skip it regardless). The route's
+  last row is always kept as well.
+- Applies **immediately** once confirmed - the same effect as if the
+  trimmed list had been pasted and Save clicked, with no Edit-state
+  review step in between. The trim itself is a deterministic, purely
+  mechanical distance calculation with nothing for the CMDR to judge or
+  second-guess once they've agreed to run it at all.
+- **Confirmation**: since this permanently discards whatever rows get
+  dropped, clicking it first shows the same kind of plain Yes/No
+  confirmation dialog Import Current Route (§4.10) uses; declining leaves
+  the route untouched. Once confirmed, it's applied with no further
+  dialog either way - including "every row was already within range,
+  nothing removed" - logged (Help > Logs) rather than surfaced as its own
+  message box.
+- Requires every row's own coordinates to already be known (§4.9's
+  Distance column, resolved via EDSM or seeded from a journal) - a route
+  with any row whose coordinates are still resolving, or confirmed
+  unavailable, can't be trimmed reliably, since a leg distance involving
+  it isn't known; this, too, is logged rather than shown as a dialog, and
+  leaves the route untouched.
 
 ---
 
@@ -2041,6 +2137,31 @@ outright the instant Ship mode is switched on.
     every launch. Unchecking it silently skips the automatic startup
     check on every later launch until re-checked; Help > Check for
     Updates itself is unaffected either way and always runs when clicked.
+78. Table state's **"Import Current Route"** button (leftmost of the
+    left-aligned group, both tracking modes, unconditionally - no
+    Captain/tracked instance needs to be assigned) shows a Yes/No
+    confirmation dialog first; declining leaves the route untouched.
+    Confirming reads `NavRoute.json` directly out of the configured
+    journal folder and replaces the saved route with every system from
+    its `Route` array *except* the first (the CMDR's own departure
+    system, not a system to travel to), applying immediately - the same
+    end result as pasting that list and clicking Save, with no Edit-state
+    review step and no further dialog either way. Every entry's own
+    coordinates/star type (including the skipped one) are seeded into the
+    Distance/Star Type cache (§4.9) along the way. With no route currently
+    plotted in-game (or `NavRoute.json` missing/unreadable), nothing
+    changes and the outcome is logged rather than shown as a dialog.
+79. In Fleet Carrier mode only, Table state's **"Trim for FC"** button
+    (immediately after Import Current Route and before Auto Pilot in the
+    same left-aligned group) shows the same kind of Yes/No confirmation first;
+    declining leaves the route untouched. Confirming collapses the saved
+    route down to a series of hops no longer than 500ly each, dropping
+    only the intermediate rows not actually needed to stay within that
+    reach, and applies it immediately (equivalent to pasting the trimmed
+    list and clicking Save, with no Edit-state review step and no further
+    dialog). Hidden entirely in Ship mode. If any row's own coordinates
+    aren't yet known, nothing is changed and the outcome is logged rather
+    than shown as a dialog.
 
 ---
 

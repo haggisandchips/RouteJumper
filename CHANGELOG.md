@@ -45,6 +45,18 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - A Preferences checkbox to turn off the silent startup update check
   entirely — Help > Check for Updates always still works on demand
   regardless.
+- Route tab **Import Current Route**: reads whatever route is currently
+  plotted in-game (`NavRoute.json`) and replaces the saved route with it
+  in one click — available in both tracking modes, with no Captain/
+  tracked instance needing to be assigned first. **Trim for FC** (Fleet
+  Carrier mode only) collapses a saved route down to a series of hops no
+  longer than 500ly each, dropping whichever intermediate systems aren't
+  actually needed to stay within a fleet carrier's real jump range — a
+  planning aid for a route pasted or imported with many closely-spaced
+  waypoints (e.g. a neutron-highway plotter's own output). Both confirm
+  via a Yes/No dialog first (each replaces/rewrites the saved route
+  outright) and then apply immediately, left-to-right in the order
+  you'd actually use them: Import Current Route, Trim for FC, Auto Pilot.
 
 ### Changed
 

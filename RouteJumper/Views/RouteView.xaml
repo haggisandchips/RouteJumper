@@ -385,19 +385,39 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <!-- Auto Pilot pinned to the far left and Edit to the far right of the same Grid
-                 (not a right-aligned StackPanel, which the two used to share) - Ship mode hides
-                 Auto Pilot entirely (ShowAutoPilotButton), and a StackPanel would have let Edit
-                 slide sideways into the gap it left behind. Each button now anchors to its own
-                 side independently, so Edit's position never moves when Auto Pilot's visibility
-                 changes with the tracking mode. -->
+            <!-- Import Current Route + Trim for FC + Auto Pilot pinned to the far left (in their
+                 own StackPanel, so each slides in right after the previous one rather than needing
+                 independent positioning) and Edit to the far right of the same Grid - left-to-right
+                 order follows the sequence a CMDR would actually click them in: import/trim the
+                 route first, then engage Auto Pilot last. Import is always visible, in both
+                 tracking modes, leftmost - it's the sole left-hand button in Ship mode, since
+                 Trim/Auto Pilot (ShowTrimButton/ShowAutoPilotButton) are both Fleet-Carrier-only.
+                 Both Import and Trim replace/rewrite the currently-saved route outright, so both
+                 confirm via a Yes/No dialog before doing anything (see RouteView.xaml.cs) - once
+                 confirmed, each applies immediately (no Edit-state detour, no follow-up dialog),
+                 since there's nothing left to review once the CMDR has already said yes. -->
             <Grid Grid.Row="2" Margin="0,10,0,0">
-                <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
-                        Command="{Binding AutoPilotCommand}"
-                        Visibility="{Binding ShowAutoPilotButton, Converter={StaticResource BoolToVisibilityConverter}}"
-                        HorizontalAlignment="Left"
-                        Width="90"
-                        Padding="4" />
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Left">
+                    <Button Content="Import Current Route"
+                            Click="OnImportFromNavRouteClick"
+                            Padding="4"
+                            Margin="0,0,8,0" />
+                    <!-- Fleet Carrier mode only (ShowTrimButton) - collapses the saved route's rows
+                         down to a series of hops no more than 500ly apart (RouteViewModel.
+                         TrimToJumpRange), a planning aid for a route pasted/imported with many
+                         closely-spaced waypoints. -->
+                    <Button Content="Trim for FC"
+                            Click="OnTrimToJumpRangeClick"
+                            Visibility="{Binding ShowTrimButton, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Padding="4"
+                            Margin="0,0,8,0" />
+                    <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
+                            Command="{Binding AutoPilotCommand}"
+                            Visibility="{Binding ShowAutoPilotButton, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Width="90"
+                            Padding="4" />
+                </StackPanel>
                 <Button Content="Edit"
                         Command="{Binding EditCommand}"
                         HorizontalAlignment="Right"

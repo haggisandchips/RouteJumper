@@ -17,11 +17,16 @@ namespace RouteJumper.ViewModels
     {
         private const string RouteTextSettingKey = "RouteText";
 
+        /// <summary>Fleet carriers' own real-world maximum jump range - the threshold TrimToJumpRange collapses the route's intermediate rows against.</summary>
+        public const double MaxCarrierJumpLightYears = 500.0;
+
         private readonly RouteSequencer _sequencer;
         private readonly AppSettingsStore _settings;
         private readonly Func<bool> _canEngageAutoPilot;
+        private readonly IStarSystemLookupService _starSystemLookupService;
         private readonly RouteRowEnrichmentService _enrichmentService;
         private readonly Func<string?> _getOriginSystemName;
+        private readonly Func<string> _getJournalDirectory;
         private CancellationTokenSource? _enrichmentCts;
 
         private string _routeText = string.Empty;
@@ -29,6 +34,7 @@ namespace RouteJumper.ViewModels
         private bool _isSaved;
         private bool _isAutoPilotRunning;
         private bool _showAutoPilotButton = true;
+        private bool _showTrimButton = true;
         private bool _autoCopyToClipboardEnabled;
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
@@ -50,19 +56,30 @@ namespace RouteJumper.ViewModels
         /// bridging pattern as <paramref name="canEngageAutoPilot"/>. Both default to a real EDSM
         /// lookup / "unknown" respectively, so existing callers/tests that don't care about
         /// enrichment keep working unchanged.
+        ///
+        /// <paramref name="getJournalDirectory"/> resolves the configured journal folder
+        /// (AppConfigStore.JournalDirectory) ImportFromNavRoute reads NavRoute.json out of -
+        /// deliberately not tied to any particular assigned Captain/tracked instance, since
+        /// NavRoute.json is a per-installation file (the same "one physical file regardless of how
+        /// many instances are running" caveat SPEC §5.2 already notes for Status.json/Cargo.json),
+        /// not something a specific running instance's own journal path could reliably resolve
+        /// anyway. Defaults to a real AppConfigStore read, so existing callers/tests that don't
+        /// care about Import keep working unchanged.
         /// </summary>
         public RouteViewModel(
             AppSettingsStore settings,
             IRowEventTrigger? rowEventTrigger = null,
             Func<bool>? canEngageAutoPilot = null,
             IStarSystemLookupService? starSystemLookupService = null,
-            Func<string?>? getOriginSystemName = null)
+            Func<string?>? getOriginSystemName = null,
+            Func<string>? getJournalDirectory = null)
         {
             _settings = settings;
             _canEngageAutoPilot = canEngageAutoPilot ?? (() => true);
-            var lookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
-            _enrichmentService = new RouteRowEnrichmentService(lookupService);
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
+            _enrichmentService = new RouteRowEnrichmentService(_starSystemLookupService);
             _getOriginSystemName = getOriginSystemName ?? (() => null);
+            _getJournalDirectory = getJournalDirectory ?? (() => new AppConfigStore().JournalDirectory);
             Rows = new ObservableCollection<RouteRowViewModel>();
 
             // Debounced live refresh: a live FSDTarget/NavRoute.json seed (Ship mode) or a
@@ -88,7 +105,7 @@ namespace RouteJumper.ViewModels
                 _dataSeededDebounceTimer.Stop();
                 RefreshEnrichment();
             };
-            lookupService.DataSeeded += (_, _) => _dataSeededDebounceTimer.Dispatcher.BeginInvoke(() =>
+            _starSystemLookupService.DataSeeded += (_, _) => _dataSeededDebounceTimer.Dispatcher.BeginInvoke(() =>
             {
                 // Applied immediately, ahead of and independent from the debounce below: any
                 // row whose Distance/Star Type is already resolvable purely from cache updates
@@ -274,6 +291,18 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
+        /// Whether the Route tab's "Trim to jump range" button is shown at all - Fleet Carrier
+        /// mode only, the same as ShowAutoPilotButton, since trimming to a 500ly max hop is a
+        /// fleet-carrier-specific planning aid with no Ship-mode equivalent (a solo ship's own
+        /// jump range varies by build/fuel, not a fixed 500ly).
+        /// </summary>
+        public bool ShowTrimButton
+        {
+            get => _showTrimButton;
+            private set => SetProperty(ref _showTrimButton, value);
+        }
+
+        /// <summary>
         /// Called by MainViewModel whenever TrackingMode changes. Entering Ship mode hides the
         /// Auto Pilot button and forcibly stops any run already in progress - hiding the button
         /// alone would leave a macro silently still playing in the background, which would
@@ -283,10 +312,138 @@ namespace RouteJumper.ViewModels
         public void SetShipMode(bool isShipMode)
         {
             ShowAutoPilotButton = !isShipMode;
+            ShowTrimButton = !isShipMode;
             if (isShipMode)
             {
                 StopAutoPilot();
             }
+        }
+
+        /// <summary>
+        /// Imports whatever route is currently plotted in-game (NavRoute.json, read straight out
+        /// of the configured journal folder - <see cref="_getJournalDirectory"/> - unconditionally,
+        /// with no Captain/tracked instance needing to be assigned first), replacing the currently
+        /// saved route with it, exactly as if the CMDR had pasted the same system list by hand and
+        /// clicked Save. Applies immediately (calling Save() itself) rather than leaving the result
+        /// in Edit state for review - the caller (RouteView's own confirmation dialog) is where the
+        /// "are you sure" step belongs, since this itself is a destructive, all-or-nothing
+        /// replacement of the current route with no partial/preview state in between. Deliberately
+        /// unconditional: NavRoute.json is a per-installation file, not tied to any one running
+        /// instance (the same "one physical file regardless of how many instances are running"
+        /// caveat SPEC §5.2 notes for Status.json/Cargo.json), so gating this on a specific
+        /// assignment would both require one unnecessarily and could still name a route belonging
+        /// to some other instance entirely - the CMDR is left to judge for themselves whether the
+        /// imported route is the one they meant. Every entry's own coordinates/star type are also
+        /// seeded into the shared IStarSystemLookupService cache along the way ("as we go") - not
+        /// because Save strictly needs it (EDSM would resolve the same values anyway), but because
+        /// NavRoute.json already hands over exact values for free, including any
+        /// procedurally-generated system EDSM has no record of at all, so Save's own Distance/Star
+        /// Type enrichment resolves instantly from cache instead of re-fetching what's already
+        /// known.
+        ///
+        /// NavRoute.json's own "Route" array always starts with wherever the CMDR was standing
+        /// when the route was plotted (their departure system) - see
+        /// StarSystemCacheSeeder.NavRouteEntry's own doc comment - so that first entry is deliberately
+        /// skipped: the pasted route describes systems to travel *to*, the same as if the CMDR had
+        /// typed it by hand, and typing one's own current system as the route's first line would
+        /// never occur to a CMDR doing this manually either.
+        /// </summary>
+        public NavRouteImportOutcome ImportFromNavRoute()
+        {
+            var entries = StarSystemCacheSeeder.ReadEntriesFromDirectory(_getJournalDirectory());
+            if (entries is null || entries.Count < 2)
+            {
+                Log.Warn("Route", "Import Current Route skipped - no route is currently plotted in-game (or NavRoute.json couldn't be read).");
+                return NavRouteImportOutcome.NoRoutePlotted;
+            }
+
+            foreach (var entry in entries)
+            {
+                if (entry.Coordinates is { } coordinates)
+                {
+                    _starSystemLookupService.SeedCoordinates(entry.SystemName, coordinates);
+                }
+
+                if (entry.StarType is { } starType)
+                {
+                    _starSystemLookupService.SeedStarType(entry.SystemName, starType);
+                }
+            }
+
+            RouteText = string.Join("\n", entries.Skip(1).Select(e => e.SystemName));
+            Save();
+            Log.Info("Route", $"Imported {entries.Count - 1} system(s) from NavRoute.json.");
+            return NavRouteImportOutcome.Success;
+        }
+
+        /// <summary>
+        /// Collapses the currently-saved route's rows down to a series of hops no longer than
+        /// MaxCarrierJumpLightYears, dropping whichever intermediate rows aren't needed to stay
+        /// within that reach - a planning aid for a route pasted (or imported, see
+        /// ImportFromNavRoute) with many closely-spaced waypoints (e.g. a neutron-highway plotter's
+        /// own output), collapsed down to only the systems a fleet carrier actually needs to jump
+        /// via. Requires every row's own coordinates already resolved (SPEC §4.9's Distance
+        /// column) - a route with any still-unresolved/confirmed-unavailable row can't be trimmed
+        /// reliably, since a leg distance involving it isn't known.
+        ///
+        /// Greedy "farthest reachable waypoint" simplification, the standard shape for this kind
+        /// of route-thinning: starting from row 1 (always kept), repeatedly jumps to the
+        /// farthest-along row still within range in a straight line, never skipping past a genuine
+        /// &gt;MaxCarrierJumpLightYears gap (that row is kept too - there's no way to skip it
+        /// regardless). The route's last row is always kept as well, as a natural consequence of
+        /// the loop always advancing until it reaches the end. Unlike ImportFromNavRoute, this
+        /// applies immediately (calling Save() itself) rather than leaving the result in Edit state
+        /// for review - the trim is a deterministic, purely mechanical distance calculation with no
+        /// judgment call for the CMDR to make, so there's nothing a manual confirmation step would
+        /// actually protect against.
+        /// </summary>
+        public RouteTrimResult TrimToJumpRange()
+        {
+            if (Rows.Count == 0)
+            {
+                Log.Warn("Route", "Trim for FC skipped - no saved route to trim.");
+                return new RouteTrimResult(RouteTrimOutcome.NoRoute);
+            }
+
+            var coordinates = new List<GalacticCoordinates>(Rows.Count);
+            foreach (var row in Rows)
+            {
+                if (!_starSystemLookupService.TryGetCachedCoordinates(row.SystemText, out var rowCoords) || rowCoords is not { } resolved)
+                {
+                    Log.Warn("Route", "Trim for FC skipped - not every row's coordinates are known yet.");
+                    return new RouteTrimResult(RouteTrimOutcome.CoordinatesUnavailable);
+                }
+
+                coordinates.Add(resolved);
+            }
+
+            var keptIndexes = new List<int> { 0 };
+            var currentIndex = 0;
+            while (currentIndex < Rows.Count - 1)
+            {
+                var farthestIndex = currentIndex + 1;
+                for (var candidate = currentIndex + 1; candidate < Rows.Count; candidate++)
+                {
+                    if (coordinates[currentIndex].DistanceTo(coordinates[candidate]) <= MaxCarrierJumpLightYears)
+                    {
+                        farthestIndex = candidate;
+                    }
+                }
+
+                keptIndexes.Add(farthestIndex);
+                currentIndex = farthestIndex;
+            }
+
+            var removedCount = Rows.Count - keptIndexes.Count;
+            if (removedCount == 0)
+            {
+                return new RouteTrimResult(RouteTrimOutcome.Success);
+            }
+
+            RouteText = string.Join("\n", keptIndexes.Select(i => Rows[i].SystemText));
+            Save();
+            Log.Info("Route", $"Trimmed route to {keptIndexes.Count} row(s) (removed {removedCount}), max {MaxCarrierJumpLightYears:0} ly/hop.");
+            return new RouteTrimResult(RouteTrimOutcome.Success, removedCount);
         }
 
         /// <summary>Copies a row's System text to the clipboard and plays a confirmation ping.</summary>

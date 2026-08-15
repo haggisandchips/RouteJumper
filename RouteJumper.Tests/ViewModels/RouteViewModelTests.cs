@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows.Threading;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
@@ -19,10 +20,12 @@ namespace RouteJumper.Tests.ViewModels
             IRowEventTrigger? trigger = null,
             Func<bool>? canEngageAutoPilot = null,
             IStarSystemLookupService? starSystemLookupService = null,
-            Func<string?>? getOriginSystemName = null) =>
+            Func<string?>? getOriginSystemName = null,
+            Func<string>? getJournalDirectory = null) =>
             new(new AppSettingsStore(dir.Path), trigger, canEngageAutoPilot,
                 starSystemLookupService ?? new FakeStarSystemLookupService(),
-                getOriginSystemName);
+                getOriginSystemName,
+                getJournalDirectory ?? (() => dir.Path));
 
         [Fact]
         public void SaveCommand_DisabledForBlankText()
@@ -690,6 +693,212 @@ namespace RouteJumper.Tests.ViewModels
                 Assert.Equal("TypeB", vm.Rows[1].StarType);
                 Assert.Null(vm.Rows[0].StarType); // row A's own lookup is still gated/pending
             });
+        }
+
+        // ===================== ImportFromNavRoute (NavRoute.json import) =====================
+
+        [Fact]
+        public void ImportFromNavRoute_NoNavRouteFile_ReturnsNoRoutePlotted()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            var outcome = vm.ImportFromNavRoute();
+
+            Assert.Equal(NavRouteImportOutcome.NoRoutePlotted, outcome);
+            Assert.Equal(string.Empty, vm.RouteText);
+        }
+
+        [Fact]
+        public void ImportFromNavRoute_OnlyOriginEntry_ReturnsNoRoutePlotted()
+        {
+            using var dir = new TempDirectory();
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                { "Route": [ { "StarSystem": "Sol", "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" } ] }
+                """);
+            var vm = Create(dir);
+
+            var outcome = vm.ImportFromNavRoute();
+
+            Assert.Equal(NavRouteImportOutcome.NoRoutePlotted, outcome);
+        }
+
+        [Fact]
+        public void ImportFromNavRoute_NoInstanceAssigned_StillImportsUnconditionally()
+        {
+            // No Captain/tracked instance assignment is involved at all any more - Import reads
+            // directly out of the configured journal folder (here, the default getJournalDirectory
+            // closure Create() wires to dir.Path), regardless of whether anything is assigned.
+            using var dir = new TempDirectory();
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "Route": [
+                        { "StarSystem": "Sol", "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Deciat", "StarPos": [3.0, 4.0, 0.0], "StarClass": "K" }
+                    ]
+                }
+                """);
+            var vm = Create(dir);
+
+            var outcome = vm.ImportFromNavRoute();
+
+            Assert.Equal(NavRouteImportOutcome.Success, outcome);
+            Assert.Equal("Deciat", vm.RouteText);
+        }
+
+        [Fact]
+        public void ImportFromNavRoute_SkipsOriginEntry_PopulatesRouteTextAndSeedsCache()
+        {
+            using var dir = new TempDirectory();
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "Route": [
+                        { "StarSystem": "Sol", "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Deciat", "StarPos": [3.0, 4.0, 0.0], "StarClass": "K" },
+                        { "StarSystem": "Wolf 359", "StarPos": [7.78, 1.28, -3.66], "StarClass": "M" }
+                    ]
+                }
+                """);
+            var fake = new FakeStarSystemLookupService();
+            var vm = Create(dir, starSystemLookupService: fake);
+
+            var outcome = vm.ImportFromNavRoute();
+
+            Assert.Equal(NavRouteImportOutcome.Success, outcome);
+            Assert.Equal("Deciat\nWolf 359", vm.RouteText);
+
+            // Applies immediately (no Edit-state review step) - Rows is already rebuilt from the
+            // imported text by the time ImportFromNavRoute returns.
+            Assert.True(vm.IsSaved);
+            Assert.Equal(2, vm.Rows.Count);
+            Assert.Equal("Deciat", vm.Rows[0].SystemText);
+            Assert.Equal("Wolf 359", vm.Rows[1].SystemText);
+
+            // "as we go": every entry (including the skipped origin) is seeded into the cache.
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
+            Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
+            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
+            Assert.Equal("M (Red dwarf)", fake.StarTypes["Wolf 359"]);
+        }
+
+        // ===================== TrimToJumpRange (500ly max-hop simplification) =====================
+
+        [Fact]
+        public void TrimToJumpRange_NoSavedRoute_ReturnsNoRoute()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.NoRoute, result.Outcome);
+        }
+
+        [Fact]
+        public void TrimToJumpRange_UnresolvedRowCoordinates_ReturnsCoordinatesUnavailable()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            // "Deciat" deliberately left unseeded - its coordinates aren't known.
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol\nDeciat";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.CoordinatesUnavailable, result.Outcome);
+        }
+
+        [Fact]
+        public void TrimToJumpRange_NoRowSkippable_RemovesNothing()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            // Each consecutive hop (300ly) is within range, but A->C directly (600ly) is not -
+            // B can't be skipped, so nothing is removable.
+            fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["B"] = new GalacticCoordinates(300, 0, 0);
+            fake.Coordinates["C"] = new GalacticCoordinates(600, 0, 0);
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "A\nB\nC";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.Success, result.Outcome);
+            Assert.Equal(0, result.RemovedCount);
+            Assert.True(vm.IsSaved); // nothing changed - RouteText untouched, still in Table state
+        }
+
+        [Fact]
+        public void TrimToJumpRange_LaterRowDirectlyReachable_SkipsIntermediateRow()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            // A straight line, entirely within a single 500ly hop from A to C - B adds nothing a
+            // fleet carrier actually needs, so it's dropped.
+            fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["B"] = new GalacticCoordinates(100, 0, 0);
+            fake.Coordinates["C"] = new GalacticCoordinates(200, 0, 0);
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "A\nB\nC";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.Success, result.Outcome);
+            Assert.Equal(1, result.RemovedCount);
+            Assert.Equal("A\nC", vm.RouteText);
+
+            // Applies immediately (no Edit-state confirmation step) - Rows itself is already
+            // rebuilt from the trimmed text by the time TrimToJumpRange returns.
+            Assert.True(vm.IsSaved);
+            Assert.Equal(2, vm.Rows.Count);
+            Assert.Equal("A", vm.Rows[0].SystemText);
+            Assert.Equal("C", vm.Rows[1].SystemText);
+        }
+
+        [Fact]
+        public void TrimToJumpRange_DropsIntermediateRowsBeyondJumpRange()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            // A straight line, 200ly apart per original hop - A -> D is 600ly (3 * 200), so a
+            // single 500ly-max hop can reach at most B->? Actually A->C is 400ly (within range),
+            // A->D is 600ly (out of range) - the farthest-reachable greedy walk should keep A, C,
+            // then D (C->D is 200ly, within range), dropping only B.
+            fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["B"] = new GalacticCoordinates(200, 0, 0);
+            fake.Coordinates["C"] = new GalacticCoordinates(400, 0, 0);
+            fake.Coordinates["D"] = new GalacticCoordinates(600, 0, 0);
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "A\nB\nC\nD";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.Success, result.Outcome);
+            Assert.Equal(1, result.RemovedCount);
+            Assert.Equal("A\nC\nD", vm.RouteText);
+            Assert.True(vm.IsSaved); // applied immediately, not left for manual review/Save
+        }
+
+        [Fact]
+        public void TrimToJumpRange_GapBiggerThanJumpRange_KeepsBothEndpointsRegardless()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["B"] = new GalacticCoordinates(900, 0, 0); // 900ly - exceeds the 500ly max on its own
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "A\nB";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.Success, result.Outcome);
+            Assert.Equal(0, result.RemovedCount);
         }
 
         /// <summary>

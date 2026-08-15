@@ -74,7 +74,8 @@ namespace RouteJumper.ViewModels
                 starSystemLookupService,
                 () => _mode == TrackingMode.Ship
                     ? TrackViewModel!.Instances.FirstOrDefault(i => i.IsTracked)?.CurrentSystem
-                    : RolesViewModel!.CaptainInstance?.CurrentSystem);
+                    : RolesViewModel!.CaptainInstance?.CurrentSystem,
+                () => config.JournalDirectory);
             RolesViewModel = new RolesViewModel(
                 routeEventTrigger,
                 _settings,

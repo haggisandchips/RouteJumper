@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using RouteJumper.Services;
+using RouteJumper.ViewModels;
 
 namespace RouteJumper.Views
 {
@@ -99,6 +100,48 @@ namespace RouteJumper.Views
             {
                 _settings.SetDouble(key, RouteDataGrid.Columns[columnIndex].Width.DisplayValue);
             }
+        }
+
+        /// <summary>
+        /// "Import Current Route": both this and Trim for FC below overwrite the currently-saved
+        /// route outright with no way back (Cancel only ever restores Edit state's own text box,
+        /// not a prior Table-state route), so each confirms via a plain Yes/No dialog first -
+        /// declining leaves the route untouched. Once confirmed, RouteViewModel.ImportFromNavRoute
+        /// applies the result immediately on its own (no Edit-state detour) and there's nothing
+        /// further to report - a failure (nothing currently plotted in-game) is logged (Help >
+        /// Logs) rather than surfaced as a second dialog, since the CMDR already deliberately
+        /// chose to run this and a plain "nothing happened" is enough to see for themselves.
+        /// </summary>
+        private void OnImportFromNavRouteClick(object sender, RoutedEventArgs e)
+        {
+            var confirmed = MessageBox.Show(Window.GetWindow(this),
+                "This will replace your currently saved route with whatever's plotted in-game right now. Continue?",
+                "Import Current Route", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmed != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            ((RouteViewModel)DataContext).ImportFromNavRoute();
+        }
+
+        /// <summary>
+        /// "Trim for FC": same confirm-then-apply-unconditionally shape as
+        /// OnImportFromNavRouteClick above - see its own doc comment for why there's no
+        /// follow-up/outcome dialog.
+        /// </summary>
+        private void OnTrimToJumpRangeClick(object sender, RoutedEventArgs e)
+        {
+            var confirmed = MessageBox.Show(Window.GetWindow(this),
+                "This will trim your saved route down to a series of hops no longer than " +
+                $"{RouteViewModel.MaxCarrierJumpLightYears:0}ly, permanently discarding whichever systems aren't needed to stay within that reach. Continue?",
+                "Trim for FC", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirmed != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            ((RouteViewModel)DataContext).TrimToJumpRange();
         }
     }
 }

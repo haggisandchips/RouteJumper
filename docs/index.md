@@ -72,11 +72,25 @@ Fleet Carrier mode adds:
 
 The main working screen in both tracking modes. It starts in an **Edit**
 state — a plain multi-line text box — where you paste a route, one
-system per line. Clicking **Save** turns it into a read-only table with
-a status icon, row number, system name, `Distance`, `Star Type`, and
-status for each row, and switches to a **Table** state with **Edit** and
-(Fleet Carrier mode only) **Auto Pilot** buttons.
+system per line. Clicking **Save** switches to a **Table** state: a
+read-only table with a status icon, row number, system name, `Distance`,
+`Star Type`, and status for each row, plus **Import Current Route**,
+**Trim for FC** and **Auto Pilot** (the latter two Fleet Carrier mode
+only), and **Edit** buttons.
 
+- **Import Current Route** replaces the saved route with whatever's
+  currently plotted in-game (read straight from the game's own
+  `NavRoute.json`) — no Captain/tracked instance needs to be assigned
+  first.
+- **Trim for FC** (Fleet Carrier mode only) collapses the saved route
+  down to a series of hops no longer than 500ly each, dropping whichever
+  systems aren't actually needed to stay within a fleet carrier's real
+  jump range — handy after importing or pasting a route with lots of
+  closely-spaced waypoints (e.g. from a neutron-highway plotter). **Tip:**
+  plotting the in-game route with a small-jump-range ship packs more,
+  closer-together waypoints into `NavRoute.json` for Trim to choose
+  from, so the resulting carrier hops land closer to the full 500ly
+  than plotting the same route with a long-range explorer would.
 - Clicking a row copies its system name to the clipboard (with a
   confirmation sound and a small clipboard icon on the row).
 - Right-clicking a row offers **"Set next system"** — a manual override
@@ -89,10 +103,13 @@ status for each row, and switches to a **Table** state with **Edit** and
 - **`Distance`** is the leg distance (previous row → this row, or your
   current position → row 1), and **`Star Type`** is that row's own
   system's main star, both resolved against EDSM in the background as
-  each row is looked up — a system EDSM has no coordinates for shows
+  each row is looked up — a system EDSM has no coordinates for, shows
   small "Plot needed" text instead of a blank cell (or "Target needed"
   if only the star type is missing), so it's obvious which row is the
-  actual gap rather than a knock-on effect of the one before it.
+  actual gap rather than a knock-on effect of the one before it. In-game,
+  plotting a route to that system — or simply targeting it — fills in the
+  missing `Distance`/`Star Type` live, straight from the game's own data,
+  with no re-save needed.
 - **Auto Pilot** (Fleet Carrier mode only; enabled once a Captain is
   assigned with a macro selected for them — see the Roles tab) drives
   the whole route to completion: it plays the Captain's macro to plot
