@@ -566,25 +566,50 @@ might pause en route rather than something either mode tracks.
   fine. To make the true culprit obvious at a glance rather than requiring
   the CMDR to cross-reference `Star Type` or guess, `Distance` shows small,
   light "Plot needed" text in place of a blank cell whenever *this row's
-  own* coordinates are confirmed unavailable from EDSM this session -
-  never for a row whose `Distance` is merely blank because the row before
-  it (or, for row 1, the CMDR's own origin position, not row 1's own
-  system) is the actual problem. `Star Type` shows "Target needed" the
-  same way whenever this row's own coordinates are known but its star type
-  specifically isn't - a single `FSDTarget` (no full route plot needed) is
-  enough to fix that, the faster, more direct remedy compared to
-  `Distance`'s own "Plot needed" fix. Neither placeholder replaces a cell
-  that's still mid-resolution (no completed lookup pass has covered it
-  yet), which stays plain blank exactly as before. Both are purely a UI
-  signal, recomputed fresh on every completed enrichment pass and never
-  persisted - a system confirmed unavailable this session can still
-  resolve on the very next pass, exactly as the retry rule below already
-  allows.
+  own* coordinates are confirmed unavailable from EDSM (this session, or
+  still within the retry cooldown below) - never for a row whose
+  `Distance` is merely blank because the row before it (or, for row 1, the
+  CMDR's own origin position, not row 1's own system) is the actual
+  problem. `Star Type` shows "Target needed" the same way whenever this
+  row's own coordinates are known but its star type specifically isn't -
+  a single `FSDTarget` (no full route plot needed) is enough to fix that,
+  the faster, more direct remedy compared to `Distance`'s own "Plot
+  needed" fix. Neither placeholder replaces a cell that's still
+  mid-resolution (no completed lookup pass has covered it yet), which
+  stays plain blank exactly as before. Both are purely a UI signal,
+  recomputed fresh on every completed enrichment pass and never persisted
+  as such - though the underlying "confirmed unavailable" fact they
+  reflect *is* (see below), so a system shown this way keeps showing it,
+  even across a Save/restore or an app restart, until the retry cooldown
+  actually lapses.
 - Once resolved, a system's coordinates/star type are cached locally
   indefinitely (§7) and never queried again - a second Save/restore
-  referencing the same system name reuses the cached value instantly. An
-  *unresolved* name is not cached, and is retried on the next
-  Save/restore, since EDSM's own crowdsourced data can fill in later.
+  referencing the same system name reuses the cached value instantly.
+- An **unresolved** name - EDSM's own response genuinely omitting it,
+  never a transient failure like a timeout or a non-success status, which
+  is always retried on the very next attempt regardless - is remembered
+  too, so the same system isn't queried again for a configurable cooldown
+  (`EdsmUnresolvedRetryHours` in `routejumper.conf`, §5.2's own
+  hand-editable convention, defaulting to 12 hours): in-memory for the
+  rest of the current session, and on disk (§7) so the cooldown survives
+  an app restart as well. EDSM's crowdsourced coverage is very unlikely to
+  meaningfully change within a matter of hours, so repeating the same
+  request within that window is treated as pure waste, not a legitimate
+  retry opportunity. A system that later *does* resolve (a fresh EDSM
+  lookup once the cooldown lapses, or a local journal-derived seed, below)
+  clears its own recorded cooldown immediately, rather than waiting for it
+  to expire on its own.
+- **Coordinates and star type are resolved together, in one request**:
+  EDSM's `api-v1/systems` endpoint returns both a system's coordinates and
+  its primary star's type in the same response when queried with
+  `showCoordinates=1` and `showPrimaryStar=1` together, so there is no
+  separate, per-system endpoint call for star type at all - a single
+  chunked request (batched the same way `Distance`'s own coordinate
+  lookups always have been) resolves both columns for every system in the
+  chunk at once. A system whose coordinates are already cached but whose
+  star type isn't (e.g. a route saved before this existed) is still
+  resolved with one further single-system request, the same shared
+  mechanism - just without the earlier per-system coordinates half.
 - On a normal app launch with a previously-saved route, `Distance`
   populates in two passes: once immediately (using whatever origin is
   already known at that instant, if any), and once more automatically
@@ -1268,10 +1293,19 @@ operation opens and closes its own short-lived connection. A persistence
 failure (e.g. a permissions issue) degrades to "nothing persisted" rather
 than the app failing to start.
 
+A second table in the same database, `UnresolvedLookups (Kind TEXT,
+SystemKey TEXT, LastAttemptUtc TEXT, PRIMARY KEY (Kind, SystemKey))`,
+backs the EDSM retry cooldown (§4.9) - deliberately its own table rather
+than more `Settings` rows, since its access pattern (a point lookup keyed
+by `(Kind, SystemKey)` on essentially every uncached lookup) is different
+enough to benefit from its own schema; the composite primary key is
+already the only index this needs.
+
 A separate, deliberately hand-editable `routejumper.conf` sits beside the
 database (see §5.2) for configuration a user might reasonably want to
-change directly in a text editor — the journal folder, plus the log
-housekeeping settings §12 describes — rather than internal app state like
+change directly in a text editor — the journal folder, the log
+housekeeping settings §12 describes, and the EDSM retry cooldown
+(`EdsmUnresolvedRetryHours`, §4.9) — rather than internal app state like
 the table below.
 
 | What | Persisted when | Restored when |
@@ -1280,6 +1314,7 @@ the table below.
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Route table column widths (icon, `#`, `System`, `Distance`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | EDSM system coordinates/star type cache (§4.9) | First successful lookup of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
+| EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
@@ -1961,6 +1996,20 @@ outright the instant Ship mode is switched on.
     CMDR to delete old files by hand - deleting the oldest files first
     once the total size cap is exceeded, and never deleting the file
     currently being written to.
+75. A single EDSM request per chunk (`showCoordinates=1&showPrimaryStar=1`
+    together) resolves both `Distance` and `Star Type` for every system in
+    it - a system whose coordinates come back in that response with a
+    `primaryStar` type populates both columns' caches, and a later lookup
+    of either never triggers a second request for a system already fully
+    resolved by the first.
+76. A system EDSM's response genuinely omits (not a network/HTTP-level
+    failure, which is always retried on the very next attempt) is not
+    queried again for `EdsmUnresolvedRetryHours` (`routejumper.conf`,
+    default 12) - neither later in the same session nor, restarting the
+    app within that window, on a fresh one either. A system that resolves
+    before the cooldown lapses (a later successful EDSM lookup once it
+    does, or a local journal-derived seed) is queried normally again from
+    that point on, with its recorded cooldown cleared immediately.
 
 ---
 
@@ -1987,7 +2036,7 @@ open) and the Logs window itself (§3.8, only while it's open).
   Error; Warn/Error entries may carry an exception's type and message.
   Categories group related events (`Http`, `Journal`, `AutoPilot`,
   `Roles`, `Track`, `Route`, `Macro`, `Update`, `Settings`, `Config`,
-  `Scan`, `App`).
+  `Edsm`, `Scan`, `App`).
 - **HTTP requests**: every outbound HTTP request this app makes directly
   (currently EDSM's coordinate/star-type lookups, §4.9 - the app's only
   direct HttpClient usage) is logged on both the way out (method + URL)

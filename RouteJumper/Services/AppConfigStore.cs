@@ -22,10 +22,12 @@ namespace RouteJumper.Services
         private const string LogRetentionDaysKey = "LogRetentionDays";
         private const string LogMaxFileSizeMbKey = "LogMaxFileSizeMB";
         private const string LogMaxTotalSizeMbKey = "LogMaxTotalSizeMB";
+        private const string EdsmUnresolvedRetryHoursKey = "EdsmUnresolvedRetryHours";
 
         private const int DefaultLogRetentionDays = 7;
         private const int DefaultLogMaxFileSizeMb = 10;
         private const int DefaultLogMaxTotalSizeMb = 100;
+        private const int DefaultEdsmUnresolvedRetryHours = 12;
 
         private readonly string _configPath;
 
@@ -72,6 +74,16 @@ namespace RouteJumper.Services
         /// <summary>Total size cap (MB) across every log file - FileLogSink deletes the oldest files (never the one currently being written to) once exceeded.</summary>
         public int LogMaxTotalSizeMb => ReadIntOrDefault(LogMaxTotalSizeMbKey, DefaultLogMaxTotalSizeMb);
 
+        /// <summary>
+        /// How long EdsmStarSystemLookupService waits before retrying a system whose most recent
+        /// EDSM lookup came back genuinely unresolved (EDSM confirmed it has no record - not a
+        /// transient network/HTTP failure, which is always retried immediately) - across restarts,
+        /// via EdsmLookupAttemptStore, not just within one running session. EDSM's crowdsourced
+        /// coverage is very unlikely to change within a matter of hours, so this exists purely to
+        /// cut down on pointless repeat requests, not to ever permanently give up on a system.
+        /// </summary>
+        public int EdsmUnresolvedRetryHours => ReadIntOrDefault(EdsmUnresolvedRetryHoursKey, DefaultEdsmUnresolvedRetryHours);
+
         private int ReadIntOrDefault(string key, int defaultValue)
         {
             var values = ReadOrCreateDefault();
@@ -98,7 +110,9 @@ namespace RouteJumper.Services
                         "# minutes, or on the next log file rollover, without a restart required.",
                         $"{LogRetentionDaysKey}={DefaultLogRetentionDays}",
                         $"{LogMaxFileSizeMbKey}={DefaultLogMaxFileSizeMb}",
-                        $"{LogMaxTotalSizeMbKey}={DefaultLogMaxTotalSizeMb}"
+                        $"{LogMaxTotalSizeMbKey}={DefaultLogMaxTotalSizeMb}",
+                        "# Hours to wait before retrying a system EDSM had no record of last time.",
+                        $"{EdsmUnresolvedRetryHoursKey}={DefaultEdsmUnresolvedRetryHours}"
                     });
                 }
                 catch (IOException ex)

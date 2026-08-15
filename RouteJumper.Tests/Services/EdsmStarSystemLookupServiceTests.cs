@@ -12,13 +12,25 @@ namespace RouteJumper.Tests.Services
         private static (EdsmStarSystemLookupService Service, FakeHttpMessageHandler Handler) Create(TempDirectory dir)
         {
             var settings = new AppSettingsStore(dir.Path);
+            var config = new AppConfigStore(dir.Path);
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
             var handler = new FakeHttpMessageHandler();
-            var service = new EdsmStarSystemLookupService(settings, new HttpClient(handler));
+            var service = new EdsmStarSystemLookupService(settings, config, attemptStore, new HttpClient(handler));
+            return (service, handler);
+        }
+
+        /// <summary>Same as Create, but reusing a caller-supplied AppConfigStore/EdsmLookupAttemptStore for the new service instance - simulates "the app restarted": a fresh EdsmStarSystemLookupService (no in-memory cache/session-unresolved-set of its own) against the same on-disk state, the same way SeedCoordinates_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance already simulates a restart for the resolved-value cache.</summary>
+        private static (EdsmStarSystemLookupService Service, FakeHttpMessageHandler Handler) CreateFresh(
+            TempDirectory dir, AppConfigStore config, EdsmLookupAttemptStore attemptStore)
+        {
+            var settings = new AppSettingsStore(dir.Path);
+            var handler = new FakeHttpMessageHandler();
+            var service = new EdsmStarSystemLookupService(settings, config, attemptStore, new HttpClient(handler));
             return (service, handler);
         }
 
         [Fact]
-        public async Task GetCoordinatesAsync_RequestsExpectedUrlWithArrayParamsAndShowCoordinates()
+        public async Task GetCoordinatesAsync_RequestsExpectedUrlWithArrayParamsShowCoordinatesAndShowPrimaryStar()
         {
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
@@ -31,6 +43,7 @@ namespace RouteJumper.Tests.Services
             Assert.Contains("systemName[]=Sol", url);
             Assert.Contains("systemName[]=Alpha%20Centauri", url);
             Assert.Contains("showCoordinates=1", url);
+            Assert.Contains("showPrimaryStar=1", url);
         }
 
         [Fact]
@@ -104,62 +117,128 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task GetCoordinatesAsync_UnresolvedName_IsNotCached()
+        public async Task GetCoordinatesAsync_HttpFailure_IsRetriedOnNextCall_NotRememberedAsUnresolved()
         {
+            // A transient HTTP-level failure carries no information about whether EDSM actually
+            // has the data, unlike a genuinely successful response that simply omits the system -
+            // so it must never be treated as "EDSM confirmed no record" and skipped next time.
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
-            handler.Respond = _ => (HttpStatusCode.OK, "[]"); // "Sol" never resolved
+            handler.Respond = _ => (HttpStatusCode.InternalServerError, string.Empty);
 
             await service.GetCoordinatesAsync(new[] { "Sol" });
             await service.GetCoordinatesAsync(new[] { "Sol" });
 
-            // Retried both times, rather than a miss being permanently remembered as unknown.
             Assert.Equal(2, handler.RequestedUrls.Count);
         }
 
         [Fact]
-        public async Task GetMainStarTypeAsync_PrefersMainStarOverOtherStars()
+        public async Task GetCoordinatesAsync_UnresolvedName_NotRetriedWithinSameSession()
         {
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
-            handler.Respond = _ => (HttpStatusCode.OK, """
-                {"name":"Sol","bodies":[
-                    {"name":"Sol B","type":"Star","subType":"M (Red dwarf) Star","isMainStar":false},
-                    {"name":"Sol","type":"Star","subType":"G (White-Yellow) Star","isMainStar":true}
-                ]}
-                """);
+            handler.Respond = _ => (HttpStatusCode.OK, "[]"); // EDSM has no record of "Sol"
 
-            var result = await service.GetMainStarTypeAsync("Sol");
+            await service.GetCoordinatesAsync(new[] { "Sol" });
+            await service.GetCoordinatesAsync(new[] { "Sol" });
 
-            Assert.Equal("G (White-Yellow)", result);
+            // EDSM already confirmed it has no record - not asked again this session.
+            Assert.Single(handler.RequestedUrls);
         }
 
         [Fact]
-        public async Task GetMainStarTypeAsync_NoStarFlaggedMain_FallsBackToFirstStar()
+        public async Task GetCoordinatesAsync_ResponseIncludesPrimaryStar_AlsoResolvesStarTypeWithoutFurtherHttpCall()
         {
+            // The whole point of merging the two lookups (showCoordinates=1&showPrimaryStar=1 in
+            // one request) - a coordinates fetch that happens to name a primary star type should
+            // leave GetMainStarTypeAsync for the same system with nothing left to fetch.
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
-            handler.Respond = _ => (HttpStatusCode.OK, """
-                {"name":"Sol","bodies":[
-                    {"name":"Sol","type":"Star","subType":"G (White-Yellow) Star","isMainStar":false},
-                    {"name":"Earth","type":"Planet","subType":"Earthlike body"}
-                ]}
-                """);
+            handler.Respond = _ => (HttpStatusCode.OK,
+                """[{"name":"Sol","coords":{"x":0,"y":0,"z":0},"primaryStar":{"type":"G (White-Yellow) Star"}}]""");
 
-            var result = await service.GetMainStarTypeAsync("Sol");
+            var coords = await service.GetCoordinatesAsync(new[] { "Sol" });
+            Assert.Single(handler.RequestedUrls);
 
-            Assert.Equal("G (White-Yellow)", result);
+            var starType = await service.GetMainStarTypeAsync("Sol");
+
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), coords["Sol"]);
+            Assert.Equal("G (White-Yellow)", starType); // redundant "Star" word stripped
+            Assert.Single(handler.RequestedUrls); // no separate star-type request was needed
+        }
+
+        [Fact]
+        public async Task GetCoordinatesAsync_PersistedRecentUnresolvedAttempt_SkipsHttpCallEvenOnFreshInstance()
+        {
+            using var dir = new TempDirectory();
+            var config = new AppConfigStore(dir.Path);
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            attemptStore.SetLastAttemptUtc(EdsmStarSystemLookupService.CoordsKind, "SOL", DateTime.UtcNow.AddHours(-1));
+
+            var (service, handler) = CreateFresh(dir, config, attemptStore);
+            var result = await service.GetCoordinatesAsync(new[] { "Sol" });
+
+            Assert.Null(result["Sol"]);
+            Assert.Empty(handler.RequestedUrls);
+        }
+
+        [Fact]
+        public async Task GetCoordinatesAsync_PersistedUnresolvedAttemptOlderThanRetryWindow_IsRetried()
+        {
+            using var dir = new TempDirectory();
+            var config = new AppConfigStore(dir.Path);
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            attemptStore.SetLastAttemptUtc(EdsmStarSystemLookupService.CoordsKind, "SOL", DateTime.UtcNow.AddHours(-13)); // past the default 12h cooldown
+
+            var (service, handler) = CreateFresh(dir, config, attemptStore);
+            handler.Respond = _ => (HttpStatusCode.OK, "[]");
+
+            await service.GetCoordinatesAsync(new[] { "Sol" });
+
+            Assert.Single(handler.RequestedUrls);
+        }
+
+        [Fact]
+        public async Task GetCoordinatesAsync_UnresolvedName_PersistsAttemptTimestamp_VisibleFromAFreshAttemptStore()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            await service.GetCoordinatesAsync(new[] { "Sol" });
+            await service.WaitForPendingPersistAsync();
+
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            var lastAttempt = attemptStore.GetLastAttemptUtc(EdsmStarSystemLookupService.CoordsKind, "SOL");
+
+            Assert.NotNull(lastAttempt);
+            Assert.True(DateTime.UtcNow - lastAttempt.Value < TimeSpan.FromMinutes(1));
+        }
+
+        [Fact]
+        public async Task GetCoordinatesAsync_LaterResolvedViaSeed_ClearsThePersistedUnresolvedAttempt()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            await service.GetCoordinatesAsync(new[] { "Sol" }); // confirmed unresolved, persisted
+            await service.WaitForPendingPersistAsync();
+
+            service.SeedCoordinates("Sol", new GalacticCoordinates(1, 2, 3));
+            await service.WaitForPendingPersistAsync();
+
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            Assert.Null(attemptStore.GetLastAttemptUtc(EdsmStarSystemLookupService.CoordsKind, "SOL"));
         }
 
         [Fact]
         public async Task GetMainStarTypeAsync_EdsmSubTypeEndsInStar_DropsTheRedundantWord()
         {
-            // EDSM's own "subType" always ends in a literal "Star" word - the Route tab's own
+            // EDSM's own "type" always ends in a literal "Star" word - the Route tab's own
             // column is already headed "Star Type" (§4.2), so repeating it in every cell is
             // redundant and is stripped before caching/returning.
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
-            handler.Respond = _ => (HttpStatusCode.OK, """{"name":"Sol","bodies":[{"type":"Star","subType":"K (Yellow-Orange) Star","isMainStar":true}]}""");
+            handler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","primaryStar":{"type":"K (Yellow-Orange) Star"}}]""");
 
             var result = await service.GetMainStarTypeAsync("Sol");
 
@@ -167,11 +246,11 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task GetMainStarTypeAsync_NoStarsAtAll_ReturnsNull()
+        public async Task GetMainStarTypeAsync_NoPrimaryStarInResponse_ReturnsNull()
         {
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
-            handler.Respond = _ => (HttpStatusCode.OK, """{"name":"Sol","bodies":[]}""");
+            handler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","coords":{"x":0,"y":0,"z":0}}]""");
 
             Assert.Null(await service.GetMainStarTypeAsync("Sol"));
         }
@@ -191,7 +270,7 @@ namespace RouteJumper.Tests.Services
         {
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
-            handler.Respond = _ => (HttpStatusCode.OK, """{"name":"Sol","bodies":[{"type":"Star","subType":"G (White-Yellow) Star","isMainStar":true}]}""");
+            handler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","primaryStar":{"type":"G (White-Yellow) Star"}}]""");
 
             await service.GetMainStarTypeAsync("Sol");
             Assert.Single(handler.RequestedUrls);
@@ -200,6 +279,34 @@ namespace RouteJumper.Tests.Services
 
             Assert.Single(handler.RequestedUrls);
             Assert.Equal("G (White-Yellow)", second);
+        }
+
+        [Fact]
+        public async Task GetMainStarTypeAsync_UnresolvedName_NotRetriedWithinSameSession()
+        {
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, "[]");
+
+            await service.GetMainStarTypeAsync("Sol");
+            await service.GetMainStarTypeAsync("Sol");
+
+            Assert.Single(handler.RequestedUrls);
+        }
+
+        [Fact]
+        public async Task GetMainStarTypeAsync_PersistedRecentUnresolvedAttempt_SkipsHttpCallEvenOnFreshInstance()
+        {
+            using var dir = new TempDirectory();
+            var config = new AppConfigStore(dir.Path);
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            attemptStore.SetLastAttemptUtc(EdsmStarSystemLookupService.StarTypeKind, "SOL", DateTime.UtcNow.AddHours(-1));
+
+            var (service, handler) = CreateFresh(dir, config, attemptStore);
+            var result = await service.GetMainStarTypeAsync("Sol");
+
+            Assert.Null(result);
+            Assert.Empty(handler.RequestedUrls);
         }
 
         [Fact]

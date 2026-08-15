@@ -59,7 +59,7 @@ namespace RouteJumper.ViewModels
             // DataSeeded subscription (its live-refresh debounce - see its own constructor) actually
             // observes seeds made through RolesViewModel's/TrackViewModel's own CarrierRouteJournalWatcher/
             // ShipRouteJournalWatcher, which write through this same object rather than a separate one.
-            var starSystemLookupService = new EdsmStarSystemLookupService(_settings);
+            var starSystemLookupService = new EdsmStarSystemLookupService(_settings, config);
 
             // The RolesViewModel/ControlsViewModel property dereferences below are guaranteed
             // safe despite still being unassigned at this exact statement - these closures are
