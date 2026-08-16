@@ -581,6 +581,80 @@ namespace RouteJumper.Tests.ViewModels
             Assert.Equal("G (White-Yellow) Star", vm.Rows[0].StarType);
         }
 
+        // ===================== ShowUnresolvedSystemsBanner =====================
+
+        [Fact]
+        public async Task Save_EverySystemResolves_DoesNotShowUnresolvedSystemsBanner()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            fake.StarTypes["Sol"] = "G (White-Yellow) Star";
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+
+            vm.SaveCommand.Execute(null);
+            await WaitUntilAsync(() => vm.Rows[0].StarType != null);
+
+            Assert.False(vm.HasUnresolvedSystems);
+            Assert.False(vm.ShowUnresolvedSystemsBanner);
+        }
+
+        [Fact]
+        public async Task Save_ARowConfirmedUnresolvable_ShowsUnresolvedSystemsBanner()
+        {
+            using var dir = new TempDirectory();
+            // "Sol" is deliberately left unseeded - FakeStarSystemLookupService resolves it to
+            // null, the same as EDSM genuinely having no record of it (§4.9's "Plot needed").
+            var fake = new FakeStarSystemLookupService();
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+
+            vm.SaveCommand.Execute(null);
+            await WaitUntilAsync(() => vm.HasUnresolvedSystems);
+
+            Assert.True(vm.Rows[0].IsDistancePlaceholder);
+            Assert.True(vm.ShowUnresolvedSystemsBanner);
+        }
+
+        [Fact]
+        public async Task DismissUnresolvedSystemsBannerCommand_HidesTheBannerWithoutClearingThePlaceholders()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+            await WaitUntilAsync(() => vm.ShowUnresolvedSystemsBanner);
+
+            vm.DismissUnresolvedSystemsBannerCommand.Execute(null);
+
+            Assert.False(vm.ShowUnresolvedSystemsBanner);
+            Assert.True(vm.HasUnresolvedSystems); // the underlying fact, and the row's own placeholder, are untouched
+            Assert.True(vm.Rows[0].IsDistancePlaceholder);
+        }
+
+        [Fact]
+        public async Task Save_AfterDismiss_ReshowsTheBannerForTheFreshlySavedRoute()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            var vm = Create(dir, starSystemLookupService: fake);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+            await WaitUntilAsync(() => vm.ShowUnresolvedSystemsBanner);
+            vm.DismissUnresolvedSystemsBannerCommand.Execute(null);
+            Assert.False(vm.ShowUnresolvedSystemsBanner);
+
+            // A fresh Save (e.g. Edit -> Save again) re-confirms the same unresolved gap - the
+            // dismiss shouldn't stick forever across a genuinely new table.
+            vm.RouteText = "Sol\nDeciat";
+            vm.SaveCommand.Execute(null);
+            await WaitUntilAsync(() => vm.ShowUnresolvedSystemsBanner);
+
+            Assert.True(vm.ShowUnresolvedSystemsBanner);
+        }
+
         [Fact]
         public void DataSeeded_AfterSaveAlreadyRendered_LiveRefreshesAlreadyDisplayedRowWithoutRestart()
         {

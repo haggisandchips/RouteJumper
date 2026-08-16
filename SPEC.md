@@ -613,6 +613,19 @@ might pause en route rather than something either mode tracks.
   reflect *is* (see below), so a system shown this way keeps showing it,
   even across a Save/restore or an app restart, until the retry cooldown
   actually lapses.
+- Once a Distance/Star Type enrichment pass runs all the way to its own
+  completion (whether triggered by Save, a restore, or a later catch-up
+  refresh) and finds at least one row left showing "Plot needed"/"Target
+  needed", a dismissible advisory banner appears above the table (below
+  "Auto Copy To Clipboard") pointing the CMDR at those per-row hints -
+  "resolve as instructed [fly a full route plot, or a direct target, per
+  the specific row's own placeholder] or ignore this - it has no effect
+  on tracking." Dismissing it hides only the banner itself, never the
+  underlying per-row placeholders, which keep showing regardless. Not
+  shown while a pass is still in progress, or once every row has actually
+  resolved; a fresh Save (first time or after Edit) re-evaluates from
+  scratch, so the banner (and any earlier dismissal) resets for the newly
+  rebuilt table rather than persisting across genuinely different routes.
 - Once resolved, a system's coordinates/star type are cached locally for
   the rest of the running session, and a second Save/restore within that
   session referencing the same system name reuses the cached value
@@ -2327,6 +2340,14 @@ outright the instant Ship mode is switched on.
     earlier session, or seeded via §4.9's journal/Spansh paths) but its
     star types aren't, which still resolves via one batched request for
     every such row, never one request per row.
+82. Once a Distance/Star Type enrichment pass completes and at least one
+    row is left showing "Plot needed"/"Target needed", a dismissible
+    banner appears above the Route table pointing at those per-row hints;
+    it doesn't appear while a route is still fully resolved, or while a
+    pass is still in progress. Dismissing it hides only the banner - the
+    per-row placeholders it refers to are unaffected. A fresh Save
+    re-evaluates and, if the same or a different gap is still there,
+    shows the banner again regardless of an earlier dismissal.
 
 ---
 

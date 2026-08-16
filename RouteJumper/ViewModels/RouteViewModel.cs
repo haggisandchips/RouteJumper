@@ -36,6 +36,8 @@ namespace RouteJumper.ViewModels
         private bool _showAutoPilotButton = true;
         private bool _showTrimButton = true;
         private bool _autoCopyToClipboardEnabled;
+        private bool _hasUnresolvedSystems;
+        private bool _unresolvedSystemsBannerDismissed;
         private RouteRowViewModel? _clipboardSourceRow;
         private uint _expectedClipboardSequenceNumber;
         private readonly DispatcherTimer _progressTimer;
@@ -143,6 +145,7 @@ namespace RouteJumper.ViewModels
             AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => ShowAutoPilotButton && IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
             CopySystemCommand = new RelayCommand<RouteRowViewModel>(CopySystemToClipboard);
             SetNextSystemCommand = new RelayCommand<RouteRowViewModel>(SetNextSystem);
+            DismissUnresolvedSystemsBannerCommand = new RelayCommand(DismissUnresolvedSystemsBanner);
 
             // Purely cosmetic (§4.4's Status-column countdown progress bar) - never mutates
             // Icon/Status itself, just recomputes each row's already-cheap Progress from
@@ -221,6 +224,44 @@ namespace RouteJumper.ViewModels
                     CopyCurrentInProgressSystemToClipboard();
                 }
             }
+        }
+
+        /// <summary>
+        /// True once a completed enrichment pass (RunEnrichmentAsync) finds at least one row
+        /// showing "Plot needed"/"Target needed" (RouteRowViewModel.IsDistancePlaceholder/
+        /// IsStarTypePlaceholder) - i.e. EDSM has confirmed it can't resolve that row's own
+        /// system. Drives ShowUnresolvedSystemsBanner below; not itself shown directly.
+        /// </summary>
+        public bool HasUnresolvedSystems
+        {
+            get => _hasUnresolvedSystems;
+            private set
+            {
+                if (SetProperty(ref _hasUnresolvedSystems, value))
+                {
+                    OnPropertyChanged(nameof(ShowUnresolvedSystemsBanner));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Drives the Route tab's own dismissible advisory banner (above the table) telling the
+        /// CMDR some systems' Distance/Star Type couldn't be resolved - shown once a completed
+        /// enrichment pass confirms a genuine gap (HasUnresolvedSystems), until Dismiss is
+        /// clicked (DismissUnresolvedSystemsBannerCommand) or a fresh Save resets both flags.
+        /// Deliberately separate from the per-row "Plot needed"/"Target needed" placeholders
+        /// themselves (§4.9), which stay showing regardless - this is just a one-time nudge
+        /// pointing at them, not a replacement for them.
+        /// </summary>
+        public bool ShowUnresolvedSystemsBanner => HasUnresolvedSystems && !_unresolvedSystemsBannerDismissed;
+
+        /// <summary>Closes the unresolved-systems banner (above) without affecting the underlying per-row placeholders - reappears only after a fresh Save re-confirms the same (or a new) gap.</summary>
+        public RelayCommand DismissUnresolvedSystemsBannerCommand { get; }
+
+        private void DismissUnresolvedSystemsBanner()
+        {
+            _unresolvedSystemsBannerDismissed = true;
+            OnPropertyChanged(nameof(ShowUnresolvedSystemsBanner));
         }
 
         /// <summary>
@@ -517,6 +558,8 @@ namespace RouteJumper.ViewModels
             // with everything else Save rebuilds - nothing currently displayed should be
             // treated as the clipboard's source until a fresh copy action says otherwise.
             _clipboardSourceRow = null;
+            _unresolvedSystemsBannerDismissed = false;
+            HasUnresolvedSystems = false;
 
             Rows.Clear();
             for (var i = 0; i < lines.Count; i++)
@@ -570,6 +613,12 @@ namespace RouteJumper.ViewModels
             try
             {
                 await _enrichmentService.PopulateAsync(rows, origin, cancellationToken);
+
+                // "Post processing" is only genuinely complete once this pass ran to its own
+                // end uncancelled - a still-running/superseded pass has nothing conclusive to
+                // report yet, so the banner (and its underlying flag) is left exactly as it was
+                // rather than flickering based on a partial result.
+                HasUnresolvedSystems = rows.Any(row => row.IsDistancePlaceholder || row.IsStarTypePlaceholder);
             }
             catch (OperationCanceledException)
             {

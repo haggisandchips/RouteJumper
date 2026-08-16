@@ -84,15 +84,55 @@
         <Grid Visibility="{Binding IsSaved, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
+
+            <!-- Dismissible advisory (SPEC §4.9) shown once a completed Distance/Star Type
+                 enrichment pass confirms at least one row is stuck showing "Plot needed"/"Target
+                 needed" - not an error (Secondary palette, not the red ValidationError brush
+                 MainWindow's own playback-failure banner uses, §6.5), just a nudge pointing at
+                 the per-row placeholders themselves, which stay showing regardless of whether
+                 this is dismissed. Re-evaluated (and un-dismissed) fresh on every Save. -->
+            <Border Grid.Row="0"
+                    Visibility="{Binding ShowUnresolvedSystemsBanner, Converter={StaticResource BoolToVisibilityConverter}}"
+                    Background="{DynamicResource MaterialDesign.Brush.Secondary}"
+                    Padding="10,6"
+                    Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <materialDesign:PackIcon Grid.Column="0"
+                                              Kind="InformationOutline"
+                                              Foreground="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,8,0" />
+                    <TextBlock Grid.Column="1"
+                               Text="Some systems couldn't be resolved from EDSM. Follow each row's own &quot;Plot needed&quot;/&quot;Target needed&quot; hint to fill them in, or ignore this - it has no effect on tracking."
+                               Foreground="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="2"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Foreground="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}"
+                            Padding="4"
+                            Command="{Binding DismissUnresolvedSystemsBannerCommand}"
+                            ToolTip="Dismiss"
+                            AutomationProperties.Name="Dismiss unresolved systems notice">
+                        <materialDesign:PackIcon Kind="Close" Width="16" Height="16" />
+                    </Button>
+                </Grid>
+            </Border>
 
             <!-- Session-only preference - not shown while editing, not persisted across app
                  restarts. Copies the next system to the clipboard the instant a live-monitored
                  CarrierLocation event is observed for the assigned Captain's carrier, ahead of
                  the route table's own (deliberately delayed) status update. -->
-            <StackPanel Grid.Row="0"
+            <StackPanel Grid.Row="1"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         Margin="0,0,0,8">
@@ -104,7 +144,7 @@
             </StackPanel>
 
             <DataGrid x:Name="RouteDataGrid"
-                      Grid.Row="1"
+                      Grid.Row="2"
                       Style="{StaticResource MaterialDesignDataGrid}"
                       ItemsSource="{Binding Rows}"
                       AutoGenerateColumns="False"
@@ -396,7 +436,7 @@
                  confirm via a Yes/No dialog before doing anything (see RouteView.xaml.cs) - once
                  confirmed, each applies immediately (no Edit-state detour, no follow-up dialog),
                  since there's nothing left to review once the CMDR has already said yes. -->
-            <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid Grid.Row="3" Margin="0,10,0,0">
                 <StackPanel Orientation="Horizontal"
                             HorizontalAlignment="Left">
                     <Button Content="Import Current Route"

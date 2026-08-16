@@ -71,6 +71,10 @@ and this project follows [Semantic Versioning](https://semver.org/).
   use, so the imported route's columns populate instantly rather than
   needing a fresh EDSM round trip. Used with the express permission of
   Spansh's author, Gareth Harper, credited in the dialog itself.
+- A dismissible banner above the Route table when Distance/Star Type
+  enrichment finishes with one or more systems still showing "Plot
+  needed"/"Target needed" — points at those per-row hints instead of
+  leaving it to be noticed row by row. Resets on every fresh Save.
 
 ### Changed
 
