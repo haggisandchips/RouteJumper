@@ -30,12 +30,17 @@ namespace RouteJumper.Services
         private const string LogMaxFileSizeMbKey = "LogMaxFileSizeMB";
         private const string LogMaxTotalSizeMbKey = "LogMaxTotalSizeMB";
         private const string EdsmUnresolvedRetryHoursKey = "EdsmUnresolvedRetryHours";
+        private const string EdsmCoordinatesBatchSizeKey = "EdsmCoordinatesBatchSize";
         private const string SpanshAutocompleteDebounceMsKey = "SpanshAutocompleteDebounceMs";
 
         private const int DefaultLogRetentionDays = 7;
         private const int DefaultLogMaxFileSizeMb = 10;
         private const int DefaultLogMaxTotalSizeMb = 100;
         private const int DefaultEdsmUnresolvedRetryHours = 12;
+
+        /// <summary>Internal (not private) so tests can assert chunking against the real default rather than a hardcoded duplicate - see EdsmStarSystemLookupServiceTests.</summary>
+        internal const int DefaultEdsmCoordinatesBatchSize = 100;
+
         private const int DefaultSpanshAutocompleteDebounceMs = 250;
 
         private readonly string _configPath;
@@ -94,6 +99,15 @@ namespace RouteJumper.Services
         public int EdsmUnresolvedRetryHours => ReadIntOrDefault(EdsmUnresolvedRetryHoursKey, DefaultEdsmUnresolvedRetryHours);
 
         /// <summary>
+        /// How many system names EdsmStarSystemLookupService bundles into a single EDSM
+        /// `api-v1/systems` request (coordinates + star type together) before chunking into a
+        /// further request - hand-editable here like the settings above. EDSM doesn't publicly
+        /// document a per-request cap, so this stays conservative-but-generous rather than
+        /// assuming an unlimited batch.
+        /// </summary>
+        public int EdsmCoordinatesBatchSize => ReadIntOrDefault(EdsmCoordinatesBatchSizeKey, DefaultEdsmCoordinatesBatchSize);
+
+        /// <summary>
         /// How long the Spansh dialog's Source/Destination autocomplete fields (Integrations &gt;
         /// Spansh, SpanshSystemPickerViewModel) wait after the last keystroke before issuing a
         /// live search - hand-editable here like the settings above, re-read fresh each time the
@@ -130,6 +144,8 @@ namespace RouteJumper.Services
                         $"{LogMaxTotalSizeMbKey}={DefaultLogMaxTotalSizeMb}",
                         "# Hours to wait before retrying a system EDSM had no record of last time.",
                         $"{EdsmUnresolvedRetryHoursKey}={DefaultEdsmUnresolvedRetryHours}",
+                        "# How many systems to bundle into a single EDSM coordinates/star-type request.",
+                        $"{EdsmCoordinatesBatchSizeKey}={DefaultEdsmCoordinatesBatchSize}",
                         "# Delay (ms) after the last keystroke before the Spansh dialog's Source/",
                         "# Destination fields search for suggestions.",
                         $"{SpanshAutocompleteDebounceMsKey}={DefaultSpanshAutocompleteDebounceMs}"
@@ -190,6 +206,7 @@ namespace RouteJumper.Services
             [LogMaxFileSizeMbKey] = DefaultLogMaxFileSizeMb.ToString(),
             [LogMaxTotalSizeMbKey] = DefaultLogMaxTotalSizeMb.ToString(),
             [EdsmUnresolvedRetryHoursKey] = DefaultEdsmUnresolvedRetryHours.ToString(),
+            [EdsmCoordinatesBatchSizeKey] = DefaultEdsmCoordinatesBatchSize.ToString(),
             [SpanshAutocompleteDebounceMsKey] = DefaultSpanshAutocompleteDebounceMs.ToString()
         };
 

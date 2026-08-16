@@ -29,6 +29,20 @@ namespace RouteJumper.Services
         Task<string?> GetMainStarTypeAsync(string systemName, CancellationToken cancellationToken = default);
 
         /// <summary>
+        /// Bulk counterpart to <see cref="GetMainStarTypeAsync"/> - resolves star type for every
+        /// name in <paramref name="systemNames"/> (matched case-insensitively; duplicates are
+        /// fine), batched/chunked internally the same way <see cref="GetCoordinatesAsync"/> is.
+        /// The returned dictionary always contains every requested name as a key, the same
+        /// never-missing-a-key contract GetCoordinatesAsync's own result carries. Exists
+        /// separately from GetCoordinatesAsync because a name whose coordinates are already
+        /// cached never triggers that method's own network fetch, so it alone can't be relied on
+        /// to batch-resolve star type for a route whose systems are already coordinate-resolved
+        /// but not yet star-type-resolved (see RouteRowEnrichmentService.PopulateStarTypesAsync).
+        /// </summary>
+        Task<IReadOnlyDictionary<string, string?>> GetStarTypesAsync(
+            IReadOnlyList<string> systemNames, CancellationToken cancellationToken = default);
+
+        /// <summary>
         /// Seeds the coordinates cache for a system directly, without a network call - e.g. from
         /// a Ship-mode CMDR's own NavRoute.json (see ShipRouteJournalWatcher), which names exact
         /// coordinates for every system in their currently-plotted in-game route, including

@@ -1,8 +1,10 @@
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using RouteJumper.Models;
 using RouteJumper.Services;
 using RouteJumper.Tests.TestSupport;
+using RouteJumper.ViewModels;
 using Xunit;
 
 namespace RouteJumper.Tests.Services
@@ -79,13 +81,30 @@ namespace RouteJumper.Tests.Services
             var (service, handler) = Create(dir);
             handler.Respond = _ => (HttpStatusCode.OK, "[]");
 
-            var names = Enumerable.Range(1, EdsmStarSystemLookupService.CoordinatesBatchSize + 3)
+            var names = Enumerable.Range(1, AppConfigStore.DefaultEdsmCoordinatesBatchSize + 3)
                 .Select(i => $"System {i}")
                 .ToList();
 
             await service.GetCoordinatesAsync(names);
 
             Assert.Equal(2, handler.RequestedUrls.Count);
+        }
+
+        [Fact]
+        public async Task GetCoordinatesAsync_ConfiguredBatchSize_ChunksAtTheConfiguredSizeNotTheDefault()
+        {
+            using var dir = new TempDirectory();
+            var config = new AppConfigStore(dir.Path);
+            File.AppendAllLines(dir.CombinePath("routejumper.conf"), new[] { "EdsmCoordinatesBatchSize=5" });
+            var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            var resolvedLookups = new EdsmResolvedLookupStore(dir.Path);
+            var handler = new FakeHttpMessageHandler { Respond = _ => (HttpStatusCode.OK, "[]") };
+            var service = new EdsmStarSystemLookupService(config, attemptStore, resolvedLookups, new HttpClient(handler));
+
+            var names = Enumerable.Range(1, 12).Select(i => $"System {i}").ToList();
+            await service.GetCoordinatesAsync(names);
+
+            Assert.Equal(3, handler.RequestedUrls.Count); // 5 + 5 + 2
         }
 
         [Fact]
@@ -523,6 +542,74 @@ namespace RouteJumper.Tests.Services
             var (freshService, _) = Create(dir);
             Assert.True(freshService.TryGetCachedSystemAddress("Sol", out var systemAddress));
             Assert.Equal(10477373803, systemAddress);
+        }
+
+        [Fact]
+        public async Task RouteRowEnrichmentService_PopulateAsync_MultiRowRoute_MakesExactlyOneHttpRequest()
+        {
+            // End-to-end regression test against the real EdsmStarSystemLookupService (not
+            // FakeStarSystemLookupService, which has no cache-side-effect behaviour of its own to
+            // get wrong) - proves RouteRowEnrichmentService.PopulateAsync's Distance-then-StarType
+            // sequencing actually lets the star-type pass ride the coordinates batch's own cache
+            // side effect end to end, rather than each row separately hitting EDSM.
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, """
+                [
+                    {"name":"Sol","coords":{"x":0,"y":0,"z":0},"primaryStar":{"type":"G (White-Yellow) Star"}},
+                    {"name":"Alpha Centauri","coords":{"x":3,"y":-0.1,"z":3.1},"primaryStar":{"type":"G (White-Yellow) Star"}},
+                    {"name":"Wolf 359","coords":{"x":3.9,"y":6.5,"z":-1.9},"primaryStar":{"type":"M (Red dwarf) Star"}}
+                ]
+                """);
+
+            var enrichment = new RouteRowEnrichmentService(service);
+            var rows = new[]
+            {
+                new RouteRowViewModel { SystemText = "Alpha Centauri" },
+                new RouteRowViewModel { SystemText = "Wolf 359" }
+            };
+
+            await enrichment.PopulateAsync(rows, originSystemName: "Sol");
+
+            Assert.Single(handler.RequestedUrls); // Distance + StarType for every row, one round trip
+            Assert.NotNull(rows[0].Distance);
+            Assert.NotNull(rows[1].Distance);
+            Assert.Equal("G (White-Yellow)", rows[0].StarType);
+            Assert.Equal("M (Red dwarf)", rows[1].StarType);
+        }
+
+        [Fact]
+        public async Task RouteRowEnrichmentService_PopulateAsync_CoordinatesAlreadyCachedButStarTypesNot_StillBatchesStarTypeRequest()
+        {
+            // The actual real-world reproduction of the reported bug: a route whose systems'
+            // coordinates were already resolved/cached in an earlier session (so
+            // GetCoordinatesAsync's own network fetch never runs at all, and so never gets a
+            // chance to piggyback star-type resolution as a side effect) must still batch-resolve
+            // every row's star type together in one request, not one request per row.
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            service.SeedCoordinates("Sol", new GalacticCoordinates(0, 0, 0));
+            service.SeedCoordinates("Alpha Centauri", new GalacticCoordinates(3, -0.1, 3.1));
+            service.SeedCoordinates("Wolf 359", new GalacticCoordinates(3.9, 6.5, -1.9));
+            handler.Respond = _ => (HttpStatusCode.OK, """
+                [
+                    {"name":"Alpha Centauri","primaryStar":{"type":"G (White-Yellow) Star"}},
+                    {"name":"Wolf 359","primaryStar":{"type":"M (Red dwarf) Star"}}
+                ]
+                """);
+
+            var enrichment = new RouteRowEnrichmentService(service);
+            var rows = new[]
+            {
+                new RouteRowViewModel { SystemText = "Alpha Centauri" },
+                new RouteRowViewModel { SystemText = "Wolf 359" }
+            };
+
+            await enrichment.PopulateAsync(rows, originSystemName: "Sol");
+
+            Assert.Single(handler.RequestedUrls); // one batched star-type request, not two
+            Assert.Equal("G (White-Yellow)", rows[0].StarType);
+            Assert.Equal("M (Red dwarf)", rows[1].StarType);
         }
     }
 }

@@ -170,6 +170,28 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
+        public void EdsmCoordinatesBatchSize_NoConfigFileYet_DefaultsTo100AndIsWrittenToNewFile()
+        {
+            using var dir = new TempDirectory();
+            var store = new AppConfigStore(dir.Path);
+
+            Assert.Equal(100, store.EdsmCoordinatesBatchSize);
+
+            var written = File.ReadAllText(Path.Combine(dir.Path, "routejumper.conf"));
+            Assert.Contains("EdsmCoordinatesBatchSize=100", written);
+        }
+
+        [Fact]
+        public void EdsmCoordinatesBatchSize_HandEditedConfigFile_ReadsTheNewValue()
+        {
+            using var dir = new TempDirectory();
+            File.WriteAllLines(Path.Combine(dir.Path, "routejumper.conf"), new[] { "EdsmCoordinatesBatchSize=50" });
+            var store = new AppConfigStore(dir.Path);
+
+            Assert.Equal(50, store.EdsmCoordinatesBatchSize);
+        }
+
+        [Fact]
         public void SpanshAutocompleteDebounceMs_NoConfigFileYet_DefaultsTo250AndIsWrittenToNewFile()
         {
             using var dir = new TempDirectory();

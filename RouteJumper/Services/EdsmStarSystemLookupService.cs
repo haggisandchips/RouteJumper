@@ -30,7 +30,8 @@ namespace RouteJumper.Services
     /// lookup opportunistically resolves star type too (and vice versa, for the rarer case a
     /// system's coordinates are already cached but its star type still isn't), for free, in the
     /// same chunked request. EDSM's exact per-request batch-size cap isn't publicly documented, so
-    /// requests are defensively chunked (<see cref="CoordinatesBatchSize"/>) the same as before.
+    /// requests are defensively chunked at <see cref="AppConfigStore.EdsmCoordinatesBatchSize"/>
+    /// systems per request (hand-editable in routejumper.conf, default 100) the same as before.
     ///
     /// Both are cached indefinitely in <see cref="EdsmResolvedLookupStore"/> once resolved (a
     /// named system's coordinates/star type never change) - only positive results are cached
@@ -65,9 +66,6 @@ namespace RouteJumper.Services
         internal const string CoordsKind = "Coords";
         internal const string StarTypeKind = "StarType";
         internal const string SystemAddressKind = "SystemAddress";
-
-        /// <summary>Internal (not private) so tests can assert chunking against the real value rather than a hardcoded duplicate.</summary>
-        internal const int CoordinatesBatchSize = 10;
 
         private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -163,10 +161,11 @@ namespace RouteJumper.Services
                 }
             }
 
-            for (var i = 0; i < toFetch.Count; i += CoordinatesBatchSize)
+            var batchSize = Math.Max(1, _config.Value.EdsmCoordinatesBatchSize);
+            for (var i = 0; i < toFetch.Count; i += batchSize)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var chunk = toFetch.Skip(i).Take(CoordinatesBatchSize).ToList();
+                var chunk = toFetch.Skip(i).Take(batchSize).ToList();
                 await FetchSystemInfoChunkAsync(chunk, result, cancellationToken);
             }
 
@@ -175,28 +174,70 @@ namespace RouteJumper.Services
 
         public async Task<string?> GetMainStarTypeAsync(string systemName, CancellationToken cancellationToken = default)
         {
-            if (TryGetCachedStarType(systemName, out var cached))
+            var result = await GetStarTypesAsync(new[] { systemName }, cancellationToken);
+            return result[systemName];
+        }
+
+        /// <summary>
+        /// Bulk counterpart to <see cref="GetMainStarTypeAsync"/> - resolves star type for every
+        /// name in <paramref name="systemNames"/> in as few chunked requests as possible
+        /// (<see cref="AppConfigStore.EdsmCoordinatesBatchSize"/> names per request), the same
+        /// batching GetCoordinatesAsync already gets. This matters because a name whose
+        /// coordinates are already cached (e.g. resolved in an earlier session, before Star Type
+        /// existed, or simply already known) never goes through GetCoordinatesAsync's own network
+        /// fetch at all, so that call alone can't piggyback star-type resolution for it -
+        /// RouteRowEnrichmentService calls this afterward specifically to batch-resolve exactly
+        /// that remaining set, rather than each such row falling back to its own single-name
+        /// request (see GetMainStarTypeAsync's old per-row-in-a-loop caller, and the class doc
+        /// comment's "resolved together in one request" note).
+        /// </summary>
+        public async Task<IReadOnlyDictionary<string, string?>> GetStarTypesAsync(
+            IReadOnlyList<string> systemNames, CancellationToken cancellationToken = default)
+        {
+            var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            var toFetch = new List<string>();
+
+            foreach (var name in systemNames)
             {
-                return cached;
+                if (result.ContainsKey(name))
+                {
+                    continue; // duplicate in the caller's own list
+                }
+
+                if (TryGetCachedStarType(name, out var cached))
+                {
+                    result[name] = cached;
+                }
+                else if (IsUnresolvedRecently(StarTypeKind, name))
+                {
+                    result[name] = null;
+                }
+                else
+                {
+                    result[name] = null; // placeholder - overwritten below if this chunk resolves it
+                    toFetch.Add(name);
+                }
             }
 
-            if (IsUnresolvedRecently(StarTypeKind, systemName))
+            var batchSize = Math.Max(1, _config.Value.EdsmCoordinatesBatchSize);
+            for (var i = 0; i < toFetch.Count; i += batchSize)
             {
-                return null;
+                cancellationToken.ThrowIfCancellationRequested();
+                var chunk = toFetch.Skip(i).Take(batchSize).ToList();
+
+                // The throwaway coords dictionary is discarded - only the star-type cache
+                // FetchSystemInfoChunkAsync populates as a side effect is what this cares about
+                // (though any coordinates this incidentally resolves are cached too, for free).
+                var throwawayCoordsResult = new Dictionary<string, GalacticCoordinates?>(StringComparer.OrdinalIgnoreCase);
+                await FetchSystemInfoChunkAsync(chunk, throwawayCoordsResult, cancellationToken);
+
+                foreach (var name in chunk)
+                {
+                    result[name] = TryGetCachedStarType(name, out var resolved) ? resolved : null;
+                }
             }
 
-            // Reuses the exact same merged coordinates+star-type request the bulk coordinates
-            // path uses (see the class doc comment) - a single-name "chunk" costs one request
-            // either way, but this keeps caching/unresolved-marking behaviour identical for both
-            // callers instead of duplicating it. The throwaway coords result is discarded; only
-            // the star-type cache this populates as a side effect is what this method cares about.
-            var throwawayCoordsResult = new Dictionary<string, GalacticCoordinates?>(StringComparer.OrdinalIgnoreCase)
-            {
-                [systemName] = null
-            };
-            await FetchSystemInfoChunkAsync(new[] { systemName }, throwawayCoordsResult, cancellationToken);
-
-            return TryGetCachedStarType(systemName, out var resolved) ? resolved : null;
+            return result;
         }
 
         /// <summary>

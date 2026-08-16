@@ -7,9 +7,24 @@ namespace RouteJumper.Services
     /// Orchestrates populating a saved route's Distance and Star Type columns
     /// (<see cref="RouteRowViewModel"/>) against <see cref="IStarSystemLookupService"/> - pure
     /// orchestration, no I/O of its own (that's entirely IStarSystemLookupService's concern), so
-    /// this class is trivially testable with a hand-written fake. Distance and star-type
-    /// population run concurrently, since they're independent (different EDSM endpoints,
-    /// different result shapes) and neither should wait on the other.
+    /// this class is trivially testable with a hand-written fake. Distance is populated first, via
+    /// one batched/chunked <see cref="IStarSystemLookupService.GetCoordinatesAsync"/> call for
+    /// every row's system (see PopulateDistancesAsync) - and, since EDSM resolves coordinates and
+    /// star type together in the same request (EdsmStarSystemLookupService), that call already
+    /// caches star type for most of the route as a side effect. Star type is populated afterward
+    /// (PopulateStarTypesAsync), via its own single batched/chunked
+    /// <see cref="IStarSystemLookupService.GetStarTypesAsync"/> call for every row's system -
+    /// deliberately a *separate* bulk call from the coordinates one above, not merely a
+    /// cache-read pass riding on it: a system whose coordinates were already cached before this
+    /// call ran (a previous session, or simply already known) never goes through
+    /// GetCoordinatesAsync's own network fetch at all, so that call alone can't be relied on to
+    /// batch-resolve star type for it either - GetStarTypesAsync exists specifically to
+    /// batch-resolve exactly that remaining gap in one further request, rather than each such row
+    /// falling back to its own single-system request. Running distance/star-type concurrently (as
+    /// this used to) or looping per-row through single-name star-type calls (as this also used to)
+    /// both defeated genuine batching - a hangover from before coordinates/star type were merged
+    /// into one EDSM endpoint, when star type still had its own separate, per-system-throttled
+    /// endpoint.
     /// </summary>
     public class RouteRowEnrichmentService
     {
@@ -34,9 +49,8 @@ namespace RouteJumper.Services
                 return;
             }
 
-            await Task.WhenAll(
-                PopulateDistancesAsync(rows, originSystemName, cancellationToken),
-                PopulateStarTypesAsync(rows, cancellationToken));
+            await PopulateDistancesAsync(rows, originSystemName, cancellationToken);
+            await PopulateStarTypesAsync(rows, cancellationToken);
         }
 
         /// <summary>
@@ -96,43 +110,56 @@ namespace RouteJumper.Services
         }
 
         /// <summary>
-        /// Resolves each distinct system name at most once (a route revisiting the same system
-        /// more than once costs one lookup, not one per occurrence), applying the result to every
-        /// row sharing that name. Awaiting one system at a time (rather than fanning every row out
-        /// concurrently) is what naturally paces requests against
-        /// EdsmStarSystemLookupService's own per-request throttle, and lets rows populate
-        /// progressively in the UI as each lookup completes rather than all appearing at once.
+        /// One GetStarTypesAsync call for every distinct row system (internal chunking is
+        /// IStarSystemLookupService's concern, same as PopulateDistancesAsync's own
+        /// GetCoordinatesAsync call) - a route revisiting the same system more than once costs one
+        /// lookup, not one per occurrence, resolved once and applied to every row sharing that
+        /// name. Deliberately one bulk call rather than fanning rows out individually: in practice
+        /// this mostly resolves straight from cache (either already known, or seeded moments ago
+        /// as a side effect of PopulateDistancesAsync's own coordinates request), but any names it
+        /// doesn't cover are still batch-fetched together here rather than each issuing its own
+        /// single-system EDSM request.
         /// </summary>
         private async Task PopulateStarTypesAsync(IReadOnlyList<RouteRowViewModel> rows, CancellationToken cancellationToken)
         {
-            var resolved = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            var distinctNames = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                if (seen.Add(row.SystemText))
+                {
+                    distinctNames.Add(row.SystemText);
+                }
+            }
+
+            IReadOnlyDictionary<string, string?> starTypes;
+            try
+            {
+                starTypes = await _lookup.GetStarTypesAsync(distinctNames, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                // Best-effort - every row's StarType simply stays as it was. The whole batch
+                // failed (e.g. network down), so every row's own state is unknowable from this
+                // pass - marked Unavailable rather than left Resolving, the same degrade
+                // PopulateDistancesAsync's own failure path already uses.
+                foreach (var row in rows)
+                {
+                    row.OwnStarTypeState = EdsmLookupState.Unavailable;
+                }
+
+                return;
+            }
 
             foreach (var row in rows)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (resolved.TryGetValue(row.SystemText, out var cachedType))
-                {
-                    row.StarType = cachedType;
-                    row.OwnStarTypeState = cachedType is null ? EdsmLookupState.Unavailable : EdsmLookupState.Resolved;
-                    continue;
-                }
-
-                string? starType;
-                try
-                {
-                    starType = await _lookup.GetMainStarTypeAsync(row.SystemText, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception)
-                {
-                    starType = null; // best-effort - this system's StarType simply stays null
-                }
-
-                resolved[row.SystemText] = starType;
+                var starType = starTypes.TryGetValue(row.SystemText, out var value) ? value : null;
                 row.StarType = starType;
                 row.OwnStarTypeState = starType is null ? EdsmLookupState.Unavailable : EdsmLookupState.Resolved;
             }

@@ -75,48 +75,49 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task PopulateAsync_StarTypesPopulateProgressively()
+        public async Task PopulateAsync_MultipleDistinctSystems_ResolvesStarTypesInOneBatchedCallNotOnePerSystem()
         {
+            // The reported bug: star types must be resolved via one batched call covering every
+            // distinct system in the route, not one request per system.
             var fake = new FakeStarSystemLookupService();
             fake.StarTypes["A"] = "TypeA";
             fake.StarTypes["B"] = "TypeB";
-            var gate = new TaskCompletionSource();
-            fake.StarTypeGates["B"] = gate;
-            var rows = new[] { Row("A"), Row("B") };
+            fake.StarTypes["C"] = "TypeC";
+            var rows = new[] { Row("A"), Row("B"), Row("C") };
             var service = new RouteRowEnrichmentService(fake);
 
-            var populateTask = service.PopulateAsync(rows, originSystemName: null);
+            await service.PopulateAsync(rows, originSystemName: null);
 
-            // Row A resolves synchronously (no gate); row B's lookup is still held up - proves
-            // rows populate one at a time rather than all appearing together at the very end.
             Assert.Equal("TypeA", rows[0].StarType);
-            Assert.Null(rows[1].StarType);
-
-            gate.SetResult();
-            await populateTask;
-
             Assert.Equal("TypeB", rows[1].StarType);
+            Assert.Equal("TypeC", rows[2].StarType);
+            var batch = Assert.Single(fake.StarTypeBatchRequests); // one call, not three
+            Assert.Equal(new[] { "A", "B", "C" }, batch);
         }
 
         [Fact]
-        public async Task PopulateAsync_CancelledMidPopulation_ThrowsAndLeavesAlreadyPopulatedRowsIntact()
+        public async Task PopulateAsync_CancelledDuringStarTypeResolution_LeavesAlreadyResolvedDistancesIntact()
         {
+            // Distance resolves as its own earlier phase (PopulateDistancesAsync), before star
+            // type's own batched call even starts - a cancellation mid-star-type-batch must never
+            // corrupt state an earlier, already-completed phase already resolved.
             var fake = new FakeStarSystemLookupService();
-            fake.StarTypes["A"] = "TypeA";
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["A"] = new GalacticCoordinates(3, 4, 0);
             var gate = new TaskCompletionSource();
-            fake.StarTypeGates["B"] = gate;
-            var rows = new[] { Row("A"), Row("B") };
+            fake.StarTypeGates["A"] = gate;
+            var rows = new[] { Row("A") };
             var service = new RouteRowEnrichmentService(fake);
             using var cts = new CancellationTokenSource();
 
-            var populateTask = service.PopulateAsync(rows, originSystemName: null, cts.Token);
-            Assert.Equal("TypeA", rows[0].StarType);
+            var populateTask = service.PopulateAsync(rows, "Sol", cts.Token);
+            Assert.Equal(5.0, rows[0].Distance!.Value, precision: 6); // distance phase already completed
 
             cts.Cancel();
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => populateTask);
-            Assert.Equal("TypeA", rows[0].StarType); // untouched by the cancellation
-            Assert.Null(rows[1].StarType);
+            Assert.Equal(5.0, rows[0].Distance!.Value, precision: 6); // untouched by the star-type cancellation
+            Assert.Null(rows[0].StarType);
         }
 
         [Fact]

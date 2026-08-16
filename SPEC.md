@@ -632,10 +632,20 @@ might pause en route rather than something either mode tracks.
   separate, per-system endpoint call for star type at all - a single
   chunked request (batched the same way `Distance`'s own coordinate
   lookups always have been) resolves both columns for every system in the
-  chunk at once. A system whose coordinates are already cached but whose
-  star type isn't (e.g. a route saved before this existed) is still
-  resolved with one further single-system request, the same shared
-  mechanism - just without the earlier per-system coordinates half.
+  chunk at once. Coordinates and star type are nonetheless resolved via
+  two independent batched passes, Distance first and Star Type second -
+  a system whose coordinates are already cached (e.g. a route saved
+  before Star Type existed, or simply already known from an earlier
+  session) never goes through the coordinates pass' own network fetch at
+  all, so that pass alone can't be relied on to resolve star type for
+  it; the star-type pass batch-resolves every such remaining system
+  together, in the same chunked shared mechanism, rather than each
+  falling back to its own single-system request. How many systems are
+  bundled into one such request is itself configurable
+  (`EdsmCoordinatesBatchSize` in `routejumper.conf`, §5.2's own
+  hand-editable convention, defaulting to 100 - EDSM doesn't publicly
+  document a per-request cap, so this stays conservative-but-generous
+  rather than assuming an unlimited batch).
 - On a normal app launch with a previously-saved route, `Distance`
   populates in two passes: once immediately (using whatever origin is
   already known at that instant, if any), and once more automatically
@@ -1441,8 +1451,9 @@ A separate, deliberately hand-editable `routejumper.conf` sits beside the
 database (see §5.2) for configuration a user might reasonably want to
 change directly in a text editor — the journal folder, the log
 housekeeping settings §12 describes, and the EDSM retry cooldown
-(`EdsmUnresolvedRetryHours`, §4.9) — rather than internal app state like
-the table below.
+(`EdsmUnresolvedRetryHours`, §4.9) and coordinate/star-type request batch
+size (`EdsmCoordinatesBatchSize`, §4.9) — rather than internal app state
+like the table below.
 
 | What | Persisted when | Restored when |
 |---|---|---|
