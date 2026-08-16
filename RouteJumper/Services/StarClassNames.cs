@@ -18,7 +18,10 @@ namespace RouteJumper.Services
     /// responses (O/B/A/F/G/K/M via named real systems - Altair, Bellatrix/Achenar, Procyon, and
     /// Wolf 359 among them - each returning exactly the "{code} ({colour}) Star" pattern this
     /// drops the trailing word from; O itself follows that same confirmed pattern by inference,
-    /// not independently confirmed). "Neutron"/"Black Hole"/"Supermassive Black Hole" are
+    /// not independently confirmed). The brown dwarf classes (L, T, Y) follow the identical
+    /// "{code} ({descriptor}) Star" shape - L and Y independently confirmed live against Luhman 16
+    /// ("L (Brown dwarf) Star") and WISE 0855-0714 ("Y (Brown dwarf) Star"), T by the same pattern.
+    /// "Neutron"/"Black Hole"/"Supermassive Black Hole" are
     /// unambiguous, universally-agreed community terms (the latter two confirmed for real via
     /// Sagittarius A* itself, and neither actually contains the word "Star" to begin with).
     /// White dwarf subclasses (DA, DB, DQ, ...) all follow one confirmed mechanical pattern - the
@@ -50,6 +53,9 @@ namespace RouteJumper.Services
             ["G"] = "G (White-Yellow)",
             ["K"] = "K (Yellow-Orange)",
             ["M"] = "M (Red dwarf)",
+            ["L"] = "L (Brown dwarf)",
+            ["T"] = "T (Brown dwarf)",
+            ["Y"] = "Y (Brown dwarf)",
             ["N"] = "Neutron",
             ["H"] = "Black Hole",
             ["SupermassiveBlackHole"] = "Supermassive Black Hole",

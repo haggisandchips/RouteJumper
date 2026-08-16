@@ -103,6 +103,10 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `Star Type` no longer shows the bare journal code for the brown dwarf
+  classes (L, T, Y) — now formatted as "L (Brown dwarf)", "T (Brown
+  dwarf)", and "Y (Brown dwarf)", matching the main-sequence classes'
+  own display style.
 - Ship mode: a genuinely live-tailed `FSDTarget` naming a system not in
   the pasted route could leave a stale `Targeted` row icon stuck showing
   instead of clearing it.

@@ -692,9 +692,10 @@ might pause en route rather than something either mode tracks.
     which one resolved it first, and a later addition to that mapping
     retroactively improves every already-cached system with nothing to
     invalidate. Reformatted only where that mapping is well-established
-    (main-sequence classes, neutron stars, black holes, white dwarf
-    subclasses, T Tauri, Herbig Ae/Be, Wolf-Rayet variants, and the carbon
-    star family); anything more exotic is cached as the raw journal code
+    (main-sequence classes, brown dwarfs, neutron stars, black holes,
+    white dwarf subclasses, T Tauri, Herbig Ae/Be, Wolf-Rayet variants,
+    and the carbon star family); anything more exotic is cached as the
+    raw journal code
     rather than guessing at an unverified format.
   - Two independent triggers read the companion `NavRoute.json` file
     (beside the journal, the same convention every other Frontier

@@ -13,6 +13,9 @@ namespace RouteJumper.Tests.Services
         [InlineData("G", "G (White-Yellow)")]
         [InlineData("K", "K (Yellow-Orange)")]
         [InlineData("M", "M (Red dwarf)")]
+        [InlineData("L", "L (Brown dwarf)")]
+        [InlineData("T", "T (Brown dwarf)")]
+        [InlineData("Y", "Y (Brown dwarf)")]
         [InlineData("N", "Neutron")]
         [InlineData("H", "Black Hole")]
         [InlineData("SupermassiveBlackHole", "Supermassive Black Hole")]
@@ -62,6 +65,8 @@ namespace RouteJumper.Tests.Services
 
         [Theory]
         [InlineData("K (Yellow-Orange)", "K")]
+        [InlineData("L (Brown dwarf)", "L")]
+        [InlineData("Y (Brown dwarf)", "Y")]
         [InlineData("Neutron", "N")]
         [InlineData("Black Hole", "H")]
         [InlineData("T Tauri", "TTS")]
@@ -96,7 +101,7 @@ namespace RouteJumper.Tests.Services
             // Every code this app formats must be reversible from its own formatted text -
             // otherwise an EDSM-resolved result for that same star could never converge with a
             // journal-seeded one.
-            string[] codes = { "O", "B", "A", "F", "G", "K", "M", "N", "H", "SupermassiveBlackHole",
+            string[] codes = { "O", "B", "A", "F", "G", "K", "M", "L", "T", "Y", "N", "H", "SupermassiveBlackHole",
                 "TTS", "AeBe", "W", "WN", "WNC", "WC", "WO", "C", "CS", "CN", "CJ", "CH", "CHd", "MS", "S" };
 
             foreach (var code in codes)
