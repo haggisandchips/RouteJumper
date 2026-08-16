@@ -92,6 +92,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - The EDSM request batch size is now configurable
   (`EdsmCoordinatesBatchSize` in `routejumper.conf`), defaulting to 100
   systems per request instead of the previous hardcoded 10.
+- The coordinate/star-type cache no longer persists every system ever
+  resolved, indefinitely — a value EDSM itself resolves is now kept only
+  for the running session (asking EDSM again next launch is cheap, now
+  that it's a single batched request), and a journal/Spansh seed is
+  written to disk only when it fills a system EDSM has already confirmed
+  it has no record of. System address (id64) is no longer persisted at
+  all — nothing reads it yet. Keeps `routejumper.db` bounded instead of
+  growing with every system a commander has ever visited.
 
 ### Fixed
 

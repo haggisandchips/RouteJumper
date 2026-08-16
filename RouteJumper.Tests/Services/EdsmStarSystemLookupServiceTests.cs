@@ -250,6 +250,89 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
+        public async Task SeedCoordinates_AfterConfirmedEdsmFailure_PersistsToDatabase_VisibleFromAFreshServiceInstance()
+        {
+            // The one case a seed IS durably persisted: EDSM has already confirmed it has no
+            // record of this exact system, so the seed is filling a gap EDSM can never fill again
+            // on its own - unlike a seed for a system EDSM was never even asked about, which is
+            // deliberately session-only (see the sibling "WithNoPriorEdsmFailure" test below).
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, "[]"); // EDSM confirms it has no record of "Sol"
+
+            await service.GetCoordinatesAsync(new[] { "Sol" });
+            await service.WaitForPendingPersistAsync();
+
+            service.SeedCoordinates("Sol", new GalacticCoordinates(1, 2, 3));
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, freshHandler) = Create(dir);
+            var result = await freshService.GetCoordinatesAsync(new[] { "Sol" });
+
+            Assert.Equal(new GalacticCoordinates(1, 2, 3), result["Sol"]);
+            Assert.Empty(freshHandler.RequestedUrls); // resolved from disk, no network call needed
+        }
+
+        [Fact]
+        public async Task SeedStarType_AfterConfirmedEdsmFailure_PersistsToDatabase_VisibleFromAFreshServiceInstance()
+        {
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, "[]"); // EDSM confirms it has no record of "Sol"
+
+            await service.GetMainStarTypeAsync("Sol");
+            await service.WaitForPendingPersistAsync();
+
+            service.SeedStarType("Sol", "G");
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, freshHandler) = Create(dir);
+            var result = await freshService.GetMainStarTypeAsync("Sol");
+
+            Assert.Equal("G (White-Yellow)", result);
+            Assert.Empty(freshHandler.RequestedUrls);
+        }
+
+        [Fact]
+        public async Task GetCoordinatesAsync_ResolvedViaEdsm_DoesNotPersist_FreshInstanceRefetches()
+        {
+            // The core of this change: an EDSM-resolved value is now session-only, not written to
+            // ResolvedLookups - a fresh instance (simulating an app restart) has to ask EDSM again
+            // rather than silently finding it already on disk.
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","coords":{"x":0,"y":0,"z":0}}]""");
+
+            await service.GetCoordinatesAsync(new[] { "Sol" });
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, freshHandler) = Create(dir);
+            freshHandler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","coords":{"x":0,"y":0,"z":0}}]""");
+            var result = await freshService.GetCoordinatesAsync(new[] { "Sol" });
+
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), result["Sol"]);
+            Assert.Single(freshHandler.RequestedUrls); // had to re-fetch, nothing persisted
+        }
+
+        [Fact]
+        public async Task GetMainStarTypeAsync_ResolvedViaEdsm_DoesNotPersist_FreshInstanceRefetches()
+        {
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","primaryStar":{"type":"G (White-Yellow) Star"}}]""");
+
+            await service.GetMainStarTypeAsync("Sol");
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, freshHandler) = Create(dir);
+            freshHandler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Sol","primaryStar":{"type":"G (White-Yellow) Star"}}]""");
+            var result = await freshService.GetMainStarTypeAsync("Sol");
+
+            Assert.Equal("G (White-Yellow)", result);
+            Assert.Single(freshHandler.RequestedUrls); // had to re-fetch, nothing persisted
+        }
+
+        [Fact]
         public async Task GetMainStarTypeAsync_EdsmSubTypeEndsInStar_DropsTheRedundantWord()
         {
             // EDSM's own "type" always ends in a literal "Star" word - the Route tab's own
@@ -447,12 +530,12 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task SeedCoordinates_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance()
+        public async Task SeedCoordinates_WithNoPriorEdsmFailure_DoesNotPersistAcrossRestart()
         {
-            // Proves the deferred write (EnqueuePersist) actually reaches disk, not just memory -
-            // a second service instance against the same directory has no in-memory cache of its
-            // own, so it can only see the value if it was genuinely persisted (mirrors a real app
-            // restart, SPEC §7's "restored... indefinitely" cache row).
+            // A seed for a system EDSM was never even asked about (the normal case for Import
+            // Current Route/Trim for FC/Spansh, which hand over exact data without ever consulting
+            // EDSM) is session-only - a fresh instance (simulating an app restart) has no memory of
+            // it and has to ask EDSM, same as any other never-seen system.
             using var dir = new TempDirectory();
             var (service, _) = Create(dir);
 
@@ -460,14 +543,15 @@ namespace RouteJumper.Tests.Services
             await service.WaitForPendingPersistAsync();
 
             var (freshService, freshHandler) = Create(dir);
+            freshHandler.Respond = _ => (HttpStatusCode.OK, "[]");
             var result = await freshService.GetCoordinatesAsync(new[] { "Sol" });
 
-            Assert.Equal(new GalacticCoordinates(1, 2, 3), result["Sol"]);
-            Assert.Empty(freshHandler.RequestedUrls); // resolved from disk, no network call needed
+            Assert.Null(result["Sol"]); // not found on disk, and this fake EDSM response has no record either
+            Assert.Single(freshHandler.RequestedUrls); // had to ask EDSM - nothing was persisted
         }
 
         [Fact]
-        public async Task SeedStarType_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance()
+        public async Task SeedStarType_WithNoPriorEdsmFailure_DoesNotPersistAcrossRestart()
         {
             using var dir = new TempDirectory();
             var (service, _) = Create(dir);
@@ -476,10 +560,11 @@ namespace RouteJumper.Tests.Services
             await service.WaitForPendingPersistAsync();
 
             var (freshService, freshHandler) = Create(dir);
+            freshHandler.Respond = _ => (HttpStatusCode.OK, "[]");
             var result = await freshService.GetMainStarTypeAsync("Sol");
 
-            Assert.Equal("G (White-Yellow)", result);
-            Assert.Empty(freshHandler.RequestedUrls);
+            Assert.Null(result);
+            Assert.Single(freshHandler.RequestedUrls);
         }
 
         [Fact]
@@ -531,8 +616,10 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task SeedSystemAddress_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance()
+        public async Task SeedSystemAddress_NeverPersists_NotVisibleFromAFreshServiceInstance()
         {
+            // System address isn't read by anything in the UI yet, so it's deliberately
+            // memory-only, dropped on restart - see the class doc comment.
             using var dir = new TempDirectory();
             var (service, _) = Create(dir);
 
@@ -540,8 +627,8 @@ namespace RouteJumper.Tests.Services
             await service.WaitForPendingPersistAsync();
 
             var (freshService, _) = Create(dir);
-            Assert.True(freshService.TryGetCachedSystemAddress("Sol", out var systemAddress));
-            Assert.Equal(10477373803, systemAddress);
+            Assert.False(freshService.TryGetCachedSystemAddress("Sol", out var systemAddress));
+            Assert.Null(systemAddress);
         }
 
         [Fact]

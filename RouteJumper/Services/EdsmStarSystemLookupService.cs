@@ -33,26 +33,49 @@ namespace RouteJumper.Services
     /// requests are defensively chunked at <see cref="AppConfigStore.EdsmCoordinatesBatchSize"/>
     /// systems per request (hand-editable in routejumper.conf, default 100) the same as before.
     ///
-    /// Both are cached indefinitely in <see cref="EdsmResolvedLookupStore"/> once resolved (a
-    /// named system's coordinates/star type never change) - only positive results are cached
-    /// there; star type is cached as a canonical StarClass code, not pre-formatted display text
-    /// (see StarClassNames), so a caller always sees the current mapping table's own output
-    /// rather than whatever text happened to be cached the first time. An
-    /// unresolved name is a different story: EDSM confirming it simply has no record for a system
-    /// is itself remembered - see <see cref="EdsmLookupAttemptStore"/> and
-    /// <see cref="AppConfigStore.EdsmUnresolvedRetryHours"/> - both in-memory for the rest of this
-    /// running session (<see cref="_unresolvedCoordsThisSession"/>/<see cref="_unresolvedStarTypeThisSession"/>)
-    /// and on disk, so the same system isn't queried again for a configurable cooldown (default 12
-    /// hours), even across an app restart. EDSM's crowdsourced coverage is very unlikely to change
-    /// meaningfully within that window, so repeating the same request is close to pure waste. This
-    /// only ever applies to a lookup EDSM genuinely answered ("no record") - a transient failure
-    /// (network down, non-success status, malformed response) is never remembered this way, and is
-    /// simply retried on the very next attempt, the same as before.
-    ///
     /// A resolved value is visible immediately via an in-memory cache (<see cref="_coordsMemoryCache"/>/
     /// <see cref="_starTypeMemoryCache"/>) - every read checks memory first, falling back to
     /// <see cref="EdsmResolvedLookupStore"/> only on a miss (and back-filling memory from that DB read for
-    /// next time). Writing to disk is deliberately decoupled from both the memory update and
+    /// next time). But the two ways a value gets resolved persist very differently to disk, to keep
+    /// <see cref="EdsmResolvedLookupStore"/> from growing without bound as a commander visits many
+    /// thousands of systems over time:
+    ///
+    /// - A value EDSM itself resolves (<see cref="FetchSystemInfoChunkAsync"/>) is cached in memory
+    ///   only, for the running session - never written to <see cref="EdsmResolvedLookupStore"/>.
+    ///   EDSM's own lookup is now a single batched request per ~100 systems, so simply re-asking it
+    ///   again next launch is cheap; there's no need to keep a system EDSM can answer forever.
+    /// - A journal/Spansh-seeded value (<see cref="SeedCoordinates"/>/<see cref="SeedStarType"/>) is
+    ///   persisted only if EDSM had *already* confirmed, at some point, that it has no record of
+    ///   that exact system (<see cref="IsConfirmedUnresolved"/>) - i.e. the seed is filling a
+    ///   genuine gap EDSM can never fill on its own (almost always a procedurally-generated system
+    ///   name). Otherwise the seed still updates the in-memory cache immediately (so the row
+    ///   displays without waiting on a network round trip, SPEC §4.9), but isn't written to disk -
+    ///   a system Import Current Route/Trim for FC/Spansh hands over for free, that EDSM has never
+    ///   even been asked about, is simply re-derived from its own source (or from EDSM) again next
+    ///   session rather than persisted the first time it's ever seen.
+    /// - System address (id64, <see cref="SeedSystemAddress"/>) is never persisted at all right now
+    ///   - nothing in the UI reads it yet (see <see cref="SpanshRouteJump"/>'s own doc comment), so
+    ///   there's no benefit to writing it to disk, only unbounded growth.
+    ///
+    /// Star type is cached as a canonical StarClass code, not pre-formatted display text (see
+    /// StarClassNames), so a caller always sees the current mapping table's own output rather than
+    /// whatever text happened to be cached the first time.
+    ///
+    /// An unresolved name is a different story: EDSM confirming it simply has no record for a
+    /// system is itself remembered - see <see cref="EdsmLookupAttemptStore"/> and
+    /// <see cref="AppConfigStore.EdsmUnresolvedRetryHours"/> - both in-memory for the rest of this
+    /// running session (<see cref="_unresolvedCoordsThisSession"/>/<see cref="_unresolvedStarTypeThisSession"/>)
+    /// and on disk, so the same system isn't queried again for a configurable cooldown (default 12
+    /// hours), even across an app restart - and so a later seed can recognise it as a genuine,
+    /// worth-persisting gap even if that cooldown has since lapsed (see
+    /// <see cref="IsConfirmedUnresolved"/>, which checks for the record's existence, not its
+    /// recency). EDSM's crowdsourced coverage is very unlikely to change meaningfully within that
+    /// window, so repeating the same request is close to pure waste. This only ever applies to a
+    /// lookup EDSM genuinely answered ("no record") - a transient failure (network down,
+    /// non-success status, malformed response) is never remembered this way, and is simply retried
+    /// on the very next attempt, the same as before.
+    ///
+    /// Writing to disk is deliberately decoupled from both the memory update and
     /// <see cref="DataSeeded"/> - see <see cref="EnqueuePersist"/> - so a burst of seeds (e.g. every
     /// system in a freshly-read NavRoute.json, SPEC §4.9) updates the UI essentially instantly,
     /// with the (comparatively slow, one-open-close-per-write) SQLite persistence trailing behind
@@ -282,7 +305,7 @@ namespace RouteJumper.Services
                     {
                         var coordinates = new GalacticCoordinates(coordsDto.X, coordsDto.Y, coordsDto.Z);
                         result[name] = coordinates;
-                        CacheCoordinates(name, coordinates);
+                        CacheCoordinatesFromEdsm(name, coordinates);
                     }
 
                     if (entry.PrimaryStar?.Type is { } rawSubType)
@@ -296,7 +319,7 @@ namespace RouteJumper.Services
                         // don't-guess degrade StarClassNames.ToDisplayName already applies to an
                         // unrecognized journal code.
                         var stripped = StripRedundantStarWord(rawSubType);
-                        CacheStarType(name, StarClassNames.TryGetCode(stripped, out var code) ? code : stripped);
+                        CacheStarTypeFromEdsm(name, StarClassNames.TryGetCode(stripped, out var code) ? code : stripped);
                     }
                 }
             }
@@ -332,13 +355,13 @@ namespace RouteJumper.Services
 
         public void SeedCoordinates(string systemName, GalacticCoordinates coordinates)
         {
-            CacheCoordinates(systemName, coordinates);
+            CacheCoordinatesFromSeed(systemName, coordinates);
             DataSeeded?.Invoke(this, EventArgs.Empty);
         }
 
         public void SeedStarType(string systemName, string starClassCode)
         {
-            CacheStarType(systemName, starClassCode);
+            CacheStarTypeFromSeed(systemName, starClassCode);
             DataSeeded?.Invoke(this, EventArgs.Empty);
         }
 
@@ -377,6 +400,19 @@ namespace RouteJumper.Services
 
             return false;
         }
+
+        /// <summary>
+        /// True if EDSM has, at some point, confirmed it has no record of <paramref name="key"/>
+        /// for <paramref name="kind"/> - unlike <see cref="IsUnresolvedRecently"/>, this checks for
+        /// the record's mere *existence*, not whether it's still within the retry-cooldown window,
+        /// since a gap confirmed weeks ago is still a real gap worth a seed persisting to fill -
+        /// used by <see cref="CacheCoordinatesFromSeed"/>/<see cref="CacheStarTypeFromSeed"/> to
+        /// decide whether a seed is filling a genuine, otherwise-unrecoverable EDSM gap or merely
+        /// duplicating a system EDSM could resolve again for free next session anyway. Expects an
+        /// already-normalized <paramref name="key"/> (see <see cref="NormalizeKey"/>).
+        /// </summary>
+        private bool IsConfirmedUnresolved(string kind, string key) =>
+            SessionSetFor(kind).ContainsKey(key) || _attemptStore.Value.GetLastAttemptUtc(kind, key) is not null;
 
         /// <summary>Records that EDSM was just asked about <paramref name="systemName"/> for <paramref name="kind"/> and confirmed it has no record - in-memory for the rest of this session, and persisted (background, non-blocking) so the cooldown survives a restart too.</summary>
         private void MarkUnresolved(string kind, string systemName)
@@ -462,49 +498,91 @@ namespace RouteJumper.Services
         /// <summary>
         /// Updates the in-memory cache immediately (so a caller's very next read, or this same
         /// resolved value flowing straight back out of the async lookup that just produced it, is
-        /// already consistent) and enqueues the actual disk write - see EnqueuePersist for why that
-        /// write deliberately isn't done inline here. Also clears any recorded unresolved-attempt
-        /// for this system (in-memory and persisted) - a value that just resolved must never still
-        /// be treated as "recently confirmed unavailable" by a later lookup.
+        /// already consistent) for a value EDSM itself just resolved. Never persisted to disk - see
+        /// the class doc comment - but still clears any recorded unresolved-attempt for this system
+        /// (in-memory and persisted), since a value that just resolved must never still be treated
+        /// as "recently confirmed unavailable" by a later lookup.
         /// </summary>
-        private void CacheCoordinates(string systemName, GalacticCoordinates coordinates)
+        private void CacheCoordinatesFromEdsm(string systemName, GalacticCoordinates coordinates)
         {
             var key = NormalizeKey(systemName);
             _coordsMemoryCache[key] = coordinates;
             _unresolvedCoordsThisSession.TryRemove(key, out _);
 
-            EnqueuePersist(() =>
-            {
-                var raw = string.Join("|",
-                    coordinates.X.ToString(CultureInfo.InvariantCulture),
-                    coordinates.Y.ToString(CultureInfo.InvariantCulture),
-                    coordinates.Z.ToString(CultureInfo.InvariantCulture));
-                _resolvedLookups.Value.SetValue(CoordsKind, key, raw);
-                _attemptStore.Value.Clear(CoordsKind, key);
-            });
+            EnqueuePersist(() => _attemptStore.Value.Clear(CoordsKind, key));
         }
 
-        /// <summary>See CacheCoordinates's own doc comment - identical shape (including clearing any recorded unresolved-attempt) for the star-type cache. <paramref name="starClassCode"/> is the canonical value cached and later rendered via StarClassNames.ToDisplayName on read (TryGetCachedStarType) - a raw journal StarClass code from the journal-seeding path, or the equivalent code recovered from EDSM's own display text (see FetchSystemInfoChunkAsync/StarClassNames.TryGetCode).</summary>
-        private void CacheStarType(string systemName, string starClassCode)
+        /// <summary>See CacheCoordinatesFromEdsm's own doc comment - identical shape for the star-type cache. <paramref name="starClassCode"/> is the canonical value cached and later rendered via StarClassNames.ToDisplayName on read (TryGetCachedStarType) - the code recovered from EDSM's own display text (see FetchSystemInfoChunkAsync/StarClassNames.TryGetCode).</summary>
+        private void CacheStarTypeFromEdsm(string systemName, string starClassCode)
         {
             var key = NormalizeKey(systemName);
             _starTypeMemoryCache[key] = starClassCode;
             _unresolvedStarTypeThisSession.TryRemove(key, out _);
 
+            EnqueuePersist(() => _attemptStore.Value.Clear(StarTypeKind, key));
+        }
+
+        /// <summary>
+        /// Updates the in-memory cache immediately for a journal/Spansh-seeded value, and persists
+        /// it to disk only if EDSM had already confirmed, at some point, that it has no record of
+        /// this exact system (<see cref="IsConfirmedUnresolved"/>, checked against the pre-seed
+        /// state before anything below mutates it) - a seed that isn't filling a confirmed EDSM gap
+        /// simply isn't written to disk, since EDSM can resolve it again for free next session. The
+        /// unresolved-attempt record is always cleared regardless, persisted or not - a seed always
+        /// supersedes stale "confirmed unavailable" state.
+        /// </summary>
+        private void CacheCoordinatesFromSeed(string systemName, GalacticCoordinates coordinates)
+        {
+            var key = NormalizeKey(systemName);
+            var fillsConfirmedGap = IsConfirmedUnresolved(CoordsKind, key);
+            _coordsMemoryCache[key] = coordinates;
+            _unresolvedCoordsThisSession.TryRemove(key, out _);
+
             EnqueuePersist(() =>
             {
-                _resolvedLookups.Value.SetValue(StarTypeKind, key, starClassCode);
+                if (fillsConfirmedGap)
+                {
+                    var raw = string.Join("|",
+                        coordinates.X.ToString(CultureInfo.InvariantCulture),
+                        coordinates.Y.ToString(CultureInfo.InvariantCulture),
+                        coordinates.Z.ToString(CultureInfo.InvariantCulture));
+                    _resolvedLookups.Value.SetValue(CoordsKind, key, raw);
+                }
+
+                _attemptStore.Value.Clear(CoordsKind, key);
+            });
+        }
+
+        /// <summary>See CacheCoordinatesFromSeed's own doc comment - identical shape for the star-type cache. <paramref name="starClassCode"/> is the raw journal StarClass code (FSDTarget/NavRoute.json), cached as-is (see CacheCoordinatesFromEdsm's own note on canonical codes vs. display text).</summary>
+        private void CacheStarTypeFromSeed(string systemName, string starClassCode)
+        {
+            var key = NormalizeKey(systemName);
+            var fillsConfirmedGap = IsConfirmedUnresolved(StarTypeKind, key);
+            _starTypeMemoryCache[key] = starClassCode;
+            _unresolvedStarTypeThisSession.TryRemove(key, out _);
+
+            EnqueuePersist(() =>
+            {
+                if (fillsConfirmedGap)
+                {
+                    _resolvedLookups.Value.SetValue(StarTypeKind, key, starClassCode);
+                }
+
                 _attemptStore.Value.Clear(StarTypeKind, key);
             });
         }
 
-        /// <summary>Same shape as CacheCoordinates/CacheStarType, minus the unresolved-attempt bookkeeping - a system address is only ever seeded, never looked up (and so never "confirmed unavailable") over HTTP.</summary>
+        /// <summary>
+        /// Memory-cache only, deliberately never persisted - nothing in the UI reads a system's
+        /// address yet (see SpanshRouteJump's own doc comment), so writing it to disk would only be
+        /// unbounded growth for zero current benefit. Revisit once a feature that actually needs it
+        /// exists. (Old rows persisted by a previous version are left alone and still readable via
+        /// TryGetCachedSystemAddress's own DB fallback - just never written again.)
+        /// </summary>
         private void CacheSystemAddress(string systemName, long systemAddress)
         {
             var key = NormalizeKey(systemName);
             _systemAddressMemoryCache[key] = systemAddress;
-
-            EnqueuePersist(() => _resolvedLookups.Value.SetValue(SystemAddressKind, key, systemAddress.ToString(CultureInfo.InvariantCulture)));
         }
 
         /// <summary>

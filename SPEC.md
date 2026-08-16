@@ -613,9 +613,22 @@ might pause en route rather than something either mode tracks.
   reflect *is* (see below), so a system shown this way keeps showing it,
   even across a Save/restore or an app restart, until the retry cooldown
   actually lapses.
-- Once resolved, a system's coordinates/star type are cached locally
-  indefinitely (§7) and never queried again - a second Save/restore
-  referencing the same system name reuses the cached value instantly.
+- Once resolved, a system's coordinates/star type are cached locally for
+  the rest of the running session, and a second Save/restore within that
+  session referencing the same system name reuses the cached value
+  instantly, with no repeat lookup. Whether that value also survives to
+  the *next* session (persisted indefinitely to the `ResolvedLookups`
+  table, §7) depends on how it was resolved: a value EDSM itself resolved
+  is **not** persisted - EDSM's own lookup is a single batched request per
+  chunk of systems (below), so simply asking it again next session is
+  cheap, and there's no need to remember forever a system EDSM can answer
+  any time. A value resolved instead via a journal/Spansh seed (below) is
+  persisted only if it fills a gap EDSM has already confirmed it can't
+  fill on its own - almost always a procedurally-generated system name -
+  since that's the one case nothing will ever re-derive the value again
+  by asking EDSM a second time. This keeps `ResolvedLookups` bounded by
+  "systems EDSM genuinely can't help with" rather than growing forever
+  with every system a commander has ever seen.
 - An **unresolved** name - EDSM's own response genuinely omitting it,
   never a transient failure like a timeout or a non-success status, which
   is always retried on the very next attempt regardless - is remembered
@@ -707,6 +720,18 @@ might pause en route rather than something either mode tracks.
     lookup exactly as before, and Fleet Carrier mode's own Auto Pilot/row
     tracking is entirely unaffected by any of it (Captain FSDTarget lines
     fire no row event at all, only this cache seed).
+  - A seed like this always updates the current session's cache
+    immediately (so the row displays right away, below), but only
+    survives to a later session (persisted to `ResolvedLookups`, §7) if
+    EDSM had already confirmed, at some point, that it genuinely has no
+    record of that exact system - the common case for a system reached
+    only via `NavRoute.json`/Spansh (§4.10-§4.12), which hands over exact
+    data without EDSM ever being asked, isn't persisted the first time
+    it's seen; it's simply supplied fresh from the same source again next
+    session. This is what keeps the underlying cache from growing without
+    bound as a commander visits many systems over time, while still
+    permanently remembering the systems that genuinely need it -
+    procedurally-generated names EDSM can never resolve on its own.
 - **A newly-seeded system refreshes already-displayed rows live**, not
   only at the next Save/restore - a system resolved via `FSDTarget`/
   `NavRoute.json` moments after the table was last populated (e.g. mid-
@@ -850,9 +875,9 @@ might pause en route rather than something either mode tracks.
   it running against nothing.
 - **On success**, every jump Spansh returns seeds the same Distance/Star
   Type cache EDSM lookups populate (§4.9) - coordinates and the system's
-  real, stable system address (id64, §7's `ResolvedLookups` table) -
-  before the route itself replaces the currently-saved route (the
-  System text of every returned jump, one per line) and is Saved,
+  real, stable system address (id64) - before the route itself replaces
+  the currently-saved route (the System text of every returned jump, one
+  per line) and is Saved,
   exactly as if that list had been pasted and Save clicked by hand, with
   no Edit-state review step and no confirmation dialog first - opening
   this dialog and clicking Calculate is already the deliberate action,
@@ -1501,16 +1526,21 @@ than the app failing to start.
 
 A second table in the same database, `ResolvedLookups (Kind TEXT,
 SystemKey TEXT, Value TEXT, PRIMARY KEY (Kind, SystemKey))`, holds the
-EDSM/journal-seeded coordinate, star-type, and system-address cache (§4.9)
-- one row per `(Kind, SystemKey)`, `Kind` one of `Coords`/`StarType`/
-`SystemAddress`. Deliberately its own table rather than more `Settings`
-rows (which is where this cache used to live, as prefixed keys like
-`EdsmCoords:SOL`) - its access pattern (a point lookup keyed by
-`(Kind, SystemKey)` on essentially every route row) is different enough to
-benefit from its own schema, the same rationale as `UnresolvedLookups`
-below; the composite primary key is already the only index this needs.
-`StarType`'s own `Value` is a canonical `StarClass` code (e.g. `K`, `TTS`),
-never pre-formatted display text - see §4.9's own note on why.
+subset of the coordinate/star-type cache (§4.9) that's actually worth
+keeping forever - one row per `(Kind, SystemKey)`, `Kind` one of
+`Coords`/`StarType`. A value EDSM itself resolves is never written here
+(session-only, §4.9) - only a journal/Spansh seed that fills a system EDSM
+has already confirmed it can't resolve on its own is. System address
+(id64) is likewise never written here at all currently - nothing displays
+it yet, so it stays session-only in memory until a feature that needs it
+exists. Deliberately its own table rather than more `Settings` rows (which
+is where this cache used to live, as prefixed keys like `EdsmCoords:SOL`)
+- its access pattern (a point lookup keyed by `(Kind, SystemKey)` on
+essentially every route row) is different enough to benefit from its own
+schema, the same rationale as `UnresolvedLookups` below; the composite
+primary key is already the only index this needs. `StarType`'s own
+`Value` is a canonical `StarClass` code (e.g. `K`, `TTS`), never
+pre-formatted display text - see §4.9's own note on why.
 
 A third table in the same database, `UnresolvedLookups (Kind TEXT,
 SystemKey TEXT, LastAttemptUtc TEXT, PRIMARY KEY (Kind, SystemKey))`,
@@ -1533,7 +1563,7 @@ below.
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Route table column widths (icon, `#`, `System`, `Distance`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
-| EDSM/journal/Spansh-seeded system coordinates/star type/address cache, in `ResolvedLookups` (§4.9, §4.12) | First successful lookup/seed of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
+| Journal/Spansh-seeded system coordinates/star type that fill a confirmed EDSM gap, in `ResolvedLookups` (§4.9, §4.12) | First seed of that system after EDSM has already confirmed it has no record of it | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached. A value EDSM itself resolves, or a seed that isn't filling a confirmed gap, is cached only for the running session and isn't written here at all — see §4.9. System address (id64) is likewise session-only, not persisted, until a feature that consumes it exists |
 | EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
@@ -1761,8 +1791,10 @@ outright the instant Ship mode is switched on.
 - **Network:** the Route tab's Distance/Star Type columns (§4.9) are this
   app's first feature making outbound calls to a third-party web service -
   [EDSM](https://www.edsm.net), free and requiring no API key. Every call
-  is best-effort (never blocks Save, the UI, or app startup), aggressively
-  cached (§7), and sends only system names, never commander/journal data.
+  is best-effort (never blocks Save, the UI, or app startup), cached for
+  the running session (persisted indefinitely only for the rarer case of
+  a system EDSM genuinely can't resolve, §4.9/§7), and sends only system
+  names, never commander/journal data.
   The Spansh dialog (§4.12) is the app's second such integration - unlike
   EDSM, it's used with Spansh's own author's express permission against
   undocumented, internal endpoints, and only ever sends the two system
@@ -2123,8 +2155,13 @@ outright the instant Ship mode is switched on.
     offline), leaves that row's `Distance`/`Star Type` cell blank rather
     than blocking, freezing, retrying forever, or crashing. A
     successfully-resolved system is never queried again on a later
-    Save/restore - its coordinates/star type are reused from the local
-    cache instantly.
+    Save/restore *within the same running session* - its coordinates/star
+    type are reused from the local cache instantly. Across an app
+    restart, a system EDSM itself resolved is queried again (cheap, via
+    the same batched request, §4.9) rather than reused from disk; only a
+    journal/Spansh seed that filled a system EDSM had already confirmed
+    it can't resolve survives the restart, reused instantly with no
+    lookup at all.
 62. A commander's own ship `FSDTarget`/`NavRoute` events opportunistically
     seed `Star Type`/`Distance`'s coordinate cache (§4.9) - `FSDTarget`'s
     own `StarClass` field, and `NavRoute.json` (read on either a live
