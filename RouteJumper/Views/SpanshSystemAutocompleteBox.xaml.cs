@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using RouteJumper.Models;
 using RouteJumper.ViewModels;
 
@@ -173,6 +174,14 @@ namespace RouteJumper.Views
             }
         }
 
+        /// <summary>
+        /// Walks logical-parent-then-visual-parent, the same as before, but the new focus target
+        /// isn't always a Visual - e.g. a Hyperlink (a FrameworkContentElement, part of the
+        /// logical/content tree only) elsewhere in the same window. VisualTreeHelper.GetParent
+        /// throws InvalidOperationException for anything that isn't a Visual/Visual3D, so a
+        /// FrameworkContentElement must walk via its own logical Parent exclusively, never falling
+        /// through to VisualTreeHelper.
+        /// </summary>
         private bool IsWithinThisControl(DependencyObject? element)
         {
             while (element != null)
@@ -182,9 +191,13 @@ namespace RouteJumper.Views
                     return true;
                 }
 
-                element = element is FrameworkElement fe && fe.Parent != null
-                    ? fe.Parent
-                    : VisualTreeHelper.GetParent(element);
+                element = element switch
+                {
+                    FrameworkElement { Parent: { } parent } => parent,
+                    FrameworkContentElement { Parent: { } parent } => parent,
+                    Visual or Visual3D => VisualTreeHelper.GetParent(element),
+                    _ => null,
+                };
             }
 
             return false;

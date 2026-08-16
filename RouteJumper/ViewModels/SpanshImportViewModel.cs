@@ -17,6 +17,9 @@ namespace RouteJumper.ViewModels
     {
         private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
+        /// <summary>Spansh's own Fleet Carrier route planner - unlike this dialog's Calculate (a single source-&gt;destination hop sequence), it accounts for tritium capacity and schedules restock stops along the way.</summary>
+        private const string FleetCarrierRouterUrl = "https://spansh.co.uk/fleet-carrier";
+
         private readonly ISpanshRouteService _routeService;
         private readonly Func<IReadOnlyList<SpanshRouteJump>, bool> _applyRoute;
 
@@ -38,6 +41,7 @@ namespace RouteJumper.ViewModels
             _applyRoute = applyRoute;
 
             CalculateCommand = new AsyncRelayCommand(CalculateAsync, CanCalculate);
+            OpenFleetCarrierRouterCommand = new RelayCommand(() => BrowserLauncher.Open(FleetCarrierRouterUrl));
 
             var debounceDelay = TimeSpan.FromMilliseconds((config ?? new AppConfigStore()).SpanshAutocompleteDebounceMs);
             var cachedSearch = CreateCachingSearch(routeService.SearchSystemNamesAsync);
@@ -87,6 +91,8 @@ namespace RouteJumper.ViewModels
         public SpanshSystemPickerViewModel Destination { get; }
 
         public AsyncRelayCommand CalculateCommand { get; }
+
+        public RelayCommand OpenFleetCarrierRouterCommand { get; }
 
         /// <summary>Drives the indeterminate progress bar - true from the moment Calculate is clicked until the job either completes, fails, or is cancelled (the dialog closing).</summary>
         public bool IsCalculating

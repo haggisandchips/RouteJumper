@@ -79,6 +79,15 @@
                        Opacity="0.7"
                        FontSize="11"
                        TextAlignment="Left"
+                       Margin="0,0,0,16">
+                <Run Text="If tritium capacity and restock planning along the way is required, use Spansh's own " />
+                <Hyperlink Command="{Binding OpenFleetCarrierRouterCommand}">Fleet Carrier route planner</Hyperlink>
+                <Run Text=" instead." />
+            </TextBlock>
+            <TextBlock TextWrapping="Wrap"
+                       Opacity="0.7"
+                       FontSize="11"
+                       TextAlignment="Left"
                        Margin="0,0,0,12">
                 Thanks to Gareth Harper for kindly granting permission to use Spansh's internal
                 route-plotting API to power this feature.
