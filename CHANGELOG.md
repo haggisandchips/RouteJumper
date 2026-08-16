@@ -57,6 +57,20 @@ and this project follows [Semantic Versioning](https://semver.org/).
   via a Yes/No dialog first (each replaces/rewrites the saved route
   outright) and then apply immediately, left-to-right in the order
   you'd actually use them: Import Current Route, Trim for FC, Auto Pilot.
+- **Spansh integration**: a new **Integrations > Spansh…** dialog to
+  calculate a route between two systems (autocomplete Source/Destination
+  fields) via Spansh's own route-plotting API and import it straight
+  into the Route tab, replacing the currently-saved route the same way
+  Import Current Route does. Polls the calculation every 5 seconds with
+  an indeterminate progress indicator while it's running. A footnote
+  links out to Spansh's own hosted Fleet Carrier route planner (which
+  accounts for tritium capacity and schedules restock stops along the
+  way — this dialog's own Calculate is a single direct hop sequence,
+  not tritium-aware) for that heavier planning job instead. Every jump
+  Spansh returns seeds the same Distance/Star Type cache EDSM lookups
+  use, so the imported route's columns populate instantly rather than
+  needing a fresh EDSM round trip. Used with the express permission of
+  Spansh's author, Gareth Harper, credited in the dialog itself.
 
 ### Changed
 
@@ -72,6 +86,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
   burst of seeds (e.g. reading a freshly-plotted `NavRoute.json`)
   updates the table essentially instantly, with the (comparatively slow)
   database write trailing behind on its own background queue.
+- Coordinate/star-type/system-address caching moved off prefixed
+  `Settings` rows onto its own `ResolvedLookups` table, mirroring
+  `UnresolvedLookups`' own existing rationale for a separate schema.
+- The EDSM request batch size is now configurable
+  (`EdsmCoordinatesBatchSize` in `routejumper.conf`), defaulting to 100
+  systems per request instead of the previous hardcoded 10.
 
 ### Fixed
 
@@ -83,6 +103,20 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - `Star Type` values no longer repeat the redundant trailing "Star" word
   EDSM's own data already ends in (e.g. "K (Yellow-Orange)" instead of
   "K (Yellow-Orange) Star").
+- A journal-targeted system (e.g. a T Tauri star, raw code `TTS`) and
+  the same system resolved via EDSM ("T Tauri") could show different
+  `Star Type` text depending on which source resolved it first — and
+  since the cache was permanent, the mismatch never healed itself once
+  cached. `Star Type` is now always cached as the canonical journal
+  code and formatted fresh on read, so both sources converge on
+  identical text regardless of resolution order.
+- `Distance` and `Star Type` could each end up firing their own
+  separate EDSM request per system instead of genuinely batching
+  together — most visibly on a route whose coordinates were already
+  cached (e.g. from an earlier session) but whose star types weren't,
+  which fell back to one EDSM request per row. Star Type now always
+  resolves via a single batched request covering every system in the
+  route.
 
 ## [1.3.0] - 2026-08-13
 

@@ -42,6 +42,9 @@ Common to both modes:
   arrive, so it's ready to paste into the game.
 - **Detects every running Elite Dangerous instance** on the machine and
   matches each one to its journal file.
+- **Calculates and imports a route via Spansh** (Integrations > Spansh…)
+  without leaving the app — see [Spansh integration](#spansh-integration)
+  below.
 - **Logs significant events** (journal-driven row transitions, EDSM
   requests, Auto Pilot triggers, ...) to a rolling file and an optional
   live viewer (Help > Logs) — see [Logs](#logs) below.
@@ -219,6 +222,39 @@ Pilot (and manual playback) is built from.
 
 ---
 
+## Spansh integration
+
+**Integrations > Spansh…** opens a small dialog (available in both
+tracking modes) to calculate a route between two systems and import it
+straight into the Route tab, without leaving the app or hand-typing a
+system list.
+
+- Type into the **Source**/**Destination** fields for a live autocomplete
+  search against Spansh, then click **Calculate**. The dialog polls the
+  calculation every 5 seconds (an indeterminate progress bar, since
+  there's no way to know in advance how long Spansh's own queue/
+  calculation will take) and, once it completes, replaces the
+  currently-saved route with the calculated jump list — the same
+  "replaces the saved route outright" behaviour Import Current Route
+  and Trim for FC use, applied here as soon as the calculation finishes
+  rather than behind a confirmation dialog, since opening this dialog at
+  all is already the deliberate action.
+- Every jump Spansh returns seeds the same Distance/Star Type cache EDSM
+  lookups use (coordinates and, once resolved by EDSM or targeted
+  in-game, star type), so the freshly-imported route's columns populate
+  instantly rather than waiting on a fresh EDSM round trip for systems
+  Spansh already told us the exact position of.
+- This dialog's own Calculate is a single, direct source → destination
+  hop sequence — it doesn't know about tritium capacity or plan restock
+  stops along the way. For that, a footnote links out to Spansh's own
+  hosted **Fleet Carrier route planner**, which does account for it; use
+  that instead and paste the result in (or **Import Current Route** if
+  you plot it in-game) when tritium/restock planning actually matters.
+- Used with the express permission of Spansh's author, Gareth Harper,
+  credited directly in the dialog.
+
+---
+
 ## Logs
 
 **Help > Logs** opens a live, non-modal viewer for the same background
@@ -249,7 +285,7 @@ ED:FC Auto Pilot stores its own state in `%LocalAppData%\EDFCAutoPilot\`:
 | File | Contents |
 |---|---|
 | `routejumper.db` | SQLite key/value store — route text, window bounds/column widths, Captain/Engineer role + macro assignment, key bindings, recorded macros, Options, EDSM coordinate/star-type cache and unresolved-lookup cooldown |
-| `routejumper.conf` | Plain-text, hand-editable `Key=Value` config: `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping (`LogRetentionDays`/`LogMaxFileSizeMB`/`LogMaxTotalSizeMB` — default 7 days / 10MB / 100MB), and `EdsmUnresolvedRetryHours` (default 12 — how long before retrying a system EDSM had no record of last time). Edit this (while the app is closed or running — most of it is re-read on every Roles tab refresh or within ~30 minutes) to change any of these without reinstalling. |
+| `routejumper.conf` | Plain-text, hand-editable `Key=Value` config: `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping (`LogRetentionDays`/`LogMaxFileSizeMB`/`LogMaxTotalSizeMB` — default 7 days / 10MB / 100MB), `EdsmUnresolvedRetryHours` (default 12 — how long before retrying a system EDSM had no record of last time), `EdsmCoordinatesBatchSize` (default 100 — how many systems are bundled into a single EDSM coordinates/star-type request), and `SpanshAutocompleteDebounceMs` (default 250 — how long the Spansh dialog's Source/Destination fields wait after your last keystroke before searching). Edit this (while the app is closed or running — most of it is re-read on every Roles tab refresh or within ~30 minutes) to change any of these without reinstalling. |
 | `Logs\routejumper-yyyy-MM-dd.log` | Date-stamped log files (see [Logs](#logs) above) — kept and size-capped automatically per the housekeeping settings above. |
 
 Not persisted, by design: per-row route progress/status (re-derived from
@@ -299,3 +335,8 @@ expected" apart from "the app saw it but didn't react the way I expected".
 - **Didn't want to install the latest version automatically** — uncheck
   "Automatically check for updates on startup" in File > Preferences;
   Help > Check for Updates still works on demand regardless.
+- **Spansh dialog shows "Failed: ..."** — either Spansh itself
+  rejected/couldn't complete the request (the status message names why),
+  or it couldn't be reached at all; Help > Logs has the fuller picture.
+  Calculate stays disabled until both Source and Destination are
+  actually selected from the autocomplete list, not just typed.

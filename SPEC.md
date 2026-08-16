@@ -37,7 +37,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
 | Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Preferences (voice/volume/test, plus an update-check opt-out) and Exit, a Help menu with Logs (§3.8), Check for Updates (§3.7), and About (§3.6), a Fleet Carrier/Ship mode toggle, and an always-visible mute button | |
 | **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
-| | Proper on-screen credit for third-party data sources the app queries (EDSM today, §4.9; likely Spansh or others in future) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet |
+| An **Integrations** menu (§3.4) holding **Spansh…** (§4.12): calculate a route between two systems via Spansh's own route-plotting API and import it straight into the Route tab, available in both tracking modes | Proper on-screen credit for EDSM specifically (§4.9) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet. (Spansh, §4.12, already carries its own in-dialog credit.) |
 | Material Design styling | |
 | Importing whatever route is currently plotted in-game ("Import Current Route", §4.10), unconditionally, in both tracking modes; trimming a saved route down to a max-500ly-per-hop series of jumps (§4.11, "Trim for FC", Fleet Carrier mode only) - both apply immediately after a Yes/No confirmation, with no in-between review step | |
 
@@ -77,11 +77,16 @@ See §6.
 
 ### 3.4 Menu bar, mode toggle, and mute button
 - A `Menu` sits above the tab area, visible regardless of which tab is
-  active, with two top-level entries, **File** and **Help**:
+  active, with three top-level entries, **File**, **Integrations**, and
+  **Help**:
   - **File**:
     - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
     - **Exit** closes the main window (which persists its bounds as normal,
       §7, and ends the app).
+  - **Integrations**:
+    - **Spansh…** opens the Spansh dialog (§4.12) as a modal window -
+      available regardless of which tab is currently showing, and in
+      either tracking mode.
   - **Help**:
     - **Logs** opens the non-modal Logs window (§3.8) - unlike Preferences/
       About, this stays open (and keeps live-updating) alongside the rest
@@ -806,6 +811,72 @@ might pause en route rather than something either mode tracks.
   it isn't known; this, too, is logged rather than shown as a dialog, and
   leaves the route untouched.
 
+### 4.12 Spansh Integration
+
+- **Integrations > Spansh…** (§3.4) opens a small modal dialog to
+  calculate a route between two systems via
+  [Spansh](https://spansh.co.uk)'s own route-plotting API and import it
+  straight into the Route tab - available regardless of which tab is
+  currently showing, and in both tracking modes (unlike Auto Pilot,
+  Trim for FC, or any other Fleet-Carrier-only feature). Used with the
+  express permission of Spansh's own author, Gareth Harper - credited
+  directly in the dialog (EDSM, §4.9, carries no equivalent in-app
+  credit yet - see the Scope table's own out-of-scope note on this).
+- The dialog currently holds a single **Fleet Carrier** tab (left room
+  for further Spansh tools as further tabs later): a **Source** and
+  **Destination** system field, each a live autocomplete search against
+  Spansh as the CMDR types (debounced - `SpanshAutocompleteDebounceMs`
+  in `routejumper.conf`, §5.2's own hand-editable convention, defaulting
+  to 250ms), and a **Calculate** button.
+- A custom autocomplete control (not a stock `ComboBox`) is used
+  deliberately - a `ComboBox` bound the way this needs (two-way `Text`,
+  two-way `SelectedItem`, an async-populated `ItemsSource`) was confirmed
+  live to auto-select-and-highlight the whole text box the instant typed
+  text exactly matched a suggestion (wiping out further typing) and to
+  close its dropdown after the very first arrow-key press, since WPF ties
+  a `ComboBox`'s `SelectedItem` to every arrow press, not just a final
+  Enter/click.
+- **Calculate** is enabled only once both Source and Destination have an
+  actual selected suggestion (not just typed, unconfirmed text). Clicking
+  it requests a route from Spansh and polls the result every 5 seconds -
+  an indeterminate progress bar (§4.4's own "no known duration" cue) plus
+  a status message ("Requesting route from Spansh…", "Queued…", a
+  capitalized version of whatever in-progress state Spansh itself
+  reports, ...) reflect progress the whole time. Starting a new
+  Calculate while one is already in flight cancels the previous one
+  first, the same "starting a new one cancels whichever was running"
+  convention macro Play already uses (§6.5); closing the dialog while a
+  calculation is in flight cancels it the same way, rather than leaving
+  it running against nothing.
+- **On success**, every jump Spansh returns seeds the same Distance/Star
+  Type cache EDSM lookups populate (§4.9) - coordinates and the system's
+  real, stable system address (id64, §7's `ResolvedLookups` table) -
+  before the route itself replaces the currently-saved route (the
+  System text of every returned jump, one per line) and is Saved,
+  exactly as if that list had been pasted and Save clicked by hand, with
+  no Edit-state review step and no confirmation dialog first - opening
+  this dialog and clicking Calculate is already the deliberate action,
+  the same "no second are-you-sure" precedent Import Current Route/Trim
+  for FC apply once *they've* already been confirmed (§4.10, §4.11). This
+  is what lets the freshly-imported route's Distance/Star Type columns
+  populate instantly from cache rather than waiting on a fresh EDSM round
+  trip for systems Spansh already named the exact position of. An empty
+  jump list (Spansh's own job somehow completing with nothing to import)
+  is logged and leaves the route untouched rather than replacing it with
+  nothing.
+- **On failure** (Spansh reports the job itself failed, or the request/
+  poll couldn't reach Spansh at all), the status message explains why
+  and the dialog is left open and otherwise unchanged - no route
+  replacement happens, and Calculate can be retried.
+- This dialog's own Calculate is deliberately a single, direct
+  source → destination hop sequence - it has no notion of a fleet
+  carrier's tritium capacity or restock planning along the way. A
+  footnote instead links out (default browser) to Spansh's own hosted
+  **Fleet Carrier route planner** (`https://spansh.co.uk/fleet-carrier`),
+  which does account for both; the CMDR pastes that tool's own result
+  in by hand (or uses Import Current Route, §4.10, once it's plotted
+  in-game) when that heavier planning is actually needed.
+
 ---
 
 ## 5. Roles Tab
@@ -1450,17 +1521,19 @@ already the only index this needs.
 A separate, deliberately hand-editable `routejumper.conf` sits beside the
 database (see §5.2) for configuration a user might reasonably want to
 change directly in a text editor — the journal folder, the log
-housekeeping settings §12 describes, and the EDSM retry cooldown
+housekeeping settings §12 describes, the EDSM retry cooldown
 (`EdsmUnresolvedRetryHours`, §4.9) and coordinate/star-type request batch
-size (`EdsmCoordinatesBatchSize`, §4.9) — rather than internal app state
-like the table below.
+size (`EdsmCoordinatesBatchSize`, §4.9), and the Spansh dialog's own
+Source/Destination autocomplete debounce (`SpanshAutocompleteDebounceMs`,
+§4.12, default 250ms) — rather than internal app state like the table
+below.
 
 | What | Persisted when | Restored when |
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Route table column widths (icon, `#`, `System`, `Distance`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
-| EDSM/journal-seeded system coordinates/star type/address cache, in `ResolvedLookups` (§4.9) | First successful lookup/seed of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
+| EDSM/journal/Spansh-seeded system coordinates/star type/address cache, in `ResolvedLookups` (§4.9, §4.12) | First successful lookup/seed of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
 | EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
@@ -1690,6 +1763,11 @@ outright the instant Ship mode is switched on.
   [EDSM](https://www.edsm.net), free and requiring no API key. Every call
   is best-effort (never blocks Save, the UI, or app startup), aggressively
   cached (§7), and sends only system names, never commander/journal data.
+  The Spansh dialog (§4.12) is the app's second such integration - unlike
+  EDSM, it's used with Spansh's own author's express permission against
+  undocumented, internal endpoints, and only ever sends the two system
+  names/ids the CMDR themselves selected, never commander/journal data
+  either.
 
 ---
 
@@ -2192,6 +2270,25 @@ outright the instant Ship mode is switched on.
     dialog). Hidden entirely in Ship mode. If any row's own coordinates
     aren't yet known, nothing is changed and the outcome is logged rather
     than shown as a dialog.
+80. **Integrations > Spansh…** (§4.12) opens a modal dialog, in either
+    tracking mode, with Source/Destination autocomplete fields and a
+    Calculate button enabled only once both have an actual selected
+    suggestion. Clicking it polls Spansh every 5 seconds (indeterminate
+    progress + status text) until the job completes or fails; on
+    completion, every returned jump's coordinates/system address are
+    seeded into the Distance/Star Type cache and the saved route is
+    replaced with the jump list, applying immediately with no
+    confirmation dialog (opening Calculate is itself the deliberate
+    action) - on failure, the route is left untouched and the status
+    message explains why. Starting a new Calculate, or closing the
+    dialog, while one is already in flight cancels it first.
+81. `Distance` and `Star Type` are each resolved via their own single
+    batched EDSM request covering every row in the route (chunked at
+    `EdsmCoordinatesBatchSize`, `routejumper.conf`, default 100) -
+    including when a route's coordinates are already cached (from an
+    earlier session, or seeded via §4.9's journal/Spansh paths) but its
+    star types aren't, which still resolves via one batched request for
+    every such row, never one request per row.
 
 ---
 
@@ -2224,12 +2321,13 @@ window itself (§3.8, only while it's open).
   Error; Warn/Error entries may carry an exception's type and message.
   Categories group related events (`Http`, `Journal`, `AutoPilot`,
   `Roles`, `Track`, `Route`, `Macro`, `Update`, `Settings`, `Config`,
-  `Edsm`, `Scan`, `App`).
+  `Edsm`, `Spansh`, `Scan`, `App`).
 - **HTTP requests**: every outbound HTTP request this app makes directly
-  (currently EDSM's coordinate/star-type lookups, §4.9 - the app's only
-  direct HttpClient usage) is logged on both the way out (method + URL)
-  and the way back (status code + elapsed time), or as a warning if it
-  fails outright. Velopack's own internal update-check HTTP calls aren't
+  (EDSM's coordinate/star-type lookups, §4.9, and the Spansh dialog's own
+  search/route-calculation/poll requests, §4.12 - the app's only two
+  direct-HttpClient integrations) is logged on both the way out (method +
+  URL) and the way back (status code + elapsed time), or as a warning if
+  it fails outright. Velopack's own internal update-check HTTP calls aren't
   individually visible this way (Velopack owns its own HTTP stack with no
   logging seam) - those are covered instead by an Info/Warn line around
   each update check's own start/outcome (§3.7).

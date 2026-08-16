@@ -33,11 +33,11 @@ RouteJumper/                    The application
   ViewModels/                   One ViewModel per tab (Route/Roles/Controls/Track), plus per-row/per-item ViewModels
   Sequencing/                   The route-progress engine (event-driven, no hardcoded delays - see CLAUDE.md)
   Services/                     Journal parsing/watching (Fleet Carrier + Ship mode), EDSM lookups,
-                                 macro parser/player, settings/config stores, process/window scanning,
-                                 key-binding formatting, speech synthesis
+                                 Spansh route calculation, macro parser/player, settings/config stores,
+                                 process/window scanning, key-binding formatting, speech synthesis
   Services/Logging/              Background file logging (Log, FileLogSink) and HTTP request logging
   Converters/                   WPF IValueConverters
-  Views/                        XAML for each tab, plus the Preferences/About/Logs windows
+  Views/                        XAML for each tab, plus the Preferences/About/Logs/Spansh windows
   Resources/                    App icon
 RouteJumper.Tests/               xUnit unit test suite, mirroring the layout above
 ```
