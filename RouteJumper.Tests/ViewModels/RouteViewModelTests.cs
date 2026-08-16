@@ -781,6 +781,61 @@ namespace RouteJumper.Tests.ViewModels
             Assert.Equal("M (Red dwarf)", fake.StarTypes["Wolf 359"]);
         }
 
+        // ===================== ImportFromSpansh (Integrations > Spansh) =====================
+
+        [Fact]
+        public void ImportFromSpansh_NoJumps_ReturnsFalseAndLeavesRouteUntouched()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            var applied = vm.ImportFromSpansh(Array.Empty<SpanshRouteJump>());
+
+            Assert.False(applied);
+            Assert.False(vm.IsSaved);
+        }
+
+        [Fact]
+        public void ImportFromSpansh_IncludesSourceSystemUnconditionally_AndSeedsCache()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            var vm = Create(dir, starSystemLookupService: fake);
+            var jumps = new[]
+            {
+                new SpanshRouteJump(10477373803, "Sol", 0, 0, 0),
+                new SpanshRouteJump(1600678053467, "Deciat", -35.5, -6.5, -87.0)
+            };
+
+            var applied = vm.ImportFromSpansh(jumps);
+
+            Assert.True(applied);
+            Assert.Equal("Sol\nDeciat", vm.RouteText);
+            Assert.True(vm.IsSaved);
+            Assert.Equal(2, vm.Rows.Count);
+            Assert.Equal("Sol", vm.Rows[0].SystemText);
+            Assert.Equal("Deciat", vm.Rows[1].SystemText);
+
+            // Every jump is seeded into the cache "as we go".
+            Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
+            Assert.Equal(10477373803, fake.SystemAddresses["Sol"]);
+            Assert.Equal(new GalacticCoordinates(-35.5, -6.5, -87.0), fake.Coordinates["Deciat"]);
+            Assert.Equal(1600678053467, fake.SystemAddresses["Deciat"]);
+        }
+
+        [Fact]
+        public void ImportFromSpansh_SingleJump_StillApplied()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var jumps = new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) };
+
+            var applied = vm.ImportFromSpansh(jumps);
+
+            Assert.True(applied);
+            Assert.Equal("Sol", vm.RouteText);
+        }
+
         // ===================== TrimToJumpRange (500ly max-hop simplification) =====================
 
         [Fact]

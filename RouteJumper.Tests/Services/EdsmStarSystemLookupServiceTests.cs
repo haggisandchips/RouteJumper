@@ -426,5 +426,67 @@ namespace RouteJumper.Tests.Services
             Assert.Equal("G (White-Yellow) Star", result);
             Assert.Empty(freshHandler.RequestedUrls);
         }
+
+        [Fact]
+        public void SeedSystemAddress_ThenTryGetCachedSystemAddress_ReturnsSeededValue()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            service.SeedSystemAddress("Sol", 10477373803);
+
+            Assert.True(service.TryGetCachedSystemAddress("Sol", out var systemAddress));
+            Assert.Equal(10477373803, systemAddress);
+        }
+
+        [Fact]
+        public void TryGetCachedSystemAddress_NeverSeeded_ReturnsFalse()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            Assert.False(service.TryGetCachedSystemAddress("Sol", out var systemAddress));
+            Assert.Null(systemAddress);
+        }
+
+        [Fact]
+        public void SeedSystemAddress_CalledTwice_OverwritesWithLatestValue()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            service.SeedSystemAddress("Sol", 1);
+            service.SeedSystemAddress("Sol", 2);
+
+            Assert.True(service.TryGetCachedSystemAddress("Sol", out var systemAddress));
+            Assert.Equal(2, systemAddress);
+        }
+
+        [Fact]
+        public void SeedSystemAddress_RaisesDataSeeded()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+            var raised = 0;
+            service.DataSeeded += (_, _) => raised++;
+
+            service.SeedSystemAddress("Sol", 10477373803);
+
+            Assert.Equal(1, raised);
+        }
+
+        [Fact]
+        public async Task SeedSystemAddress_EventuallyPersistsToDatabase_VisibleFromAFreshServiceInstance()
+        {
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            service.SeedSystemAddress("Sol", 10477373803);
+            await service.WaitForPendingPersistAsync();
+
+            var (freshService, _) = Create(dir);
+            Assert.True(freshService.TryGetCachedSystemAddress("Sol", out var systemAddress));
+            Assert.Equal(10477373803, systemAddress);
+        }
     }
 }

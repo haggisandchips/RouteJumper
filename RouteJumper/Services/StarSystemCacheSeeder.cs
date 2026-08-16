@@ -39,6 +39,11 @@ namespace RouteJumper.Services
                 lookupService.SeedStarType(targetSystem, starType);
             }
 
+            if (fsdTargetRoot.TryGetProperty("SystemAddress", out var saEl) && saEl.TryGetInt64(out var systemAddress))
+            {
+                lookupService.SeedSystemAddress(targetSystem, systemAddress);
+            }
+
             // Present only while a multi-jump in-game route is actively plotted - its presence
             // (any value, including 0) is the signal that NavRoute.json is fresh and worth
             // reading right now, which hands over exact coordinates (and each hop's own star) for
@@ -81,6 +86,11 @@ namespace RouteJumper.Services
                 {
                     lookupService.SeedStarType(entry.SystemName, starType);
                 }
+
+                if (entry.SystemAddress is { } systemAddress)
+                {
+                    lookupService.SeedSystemAddress(entry.SystemName, systemAddress);
+                }
             }
 
             // One summary line, not one per system - a plotted neutron highway can easily
@@ -99,7 +109,7 @@ namespace RouteJumper.Services
         /// distinction (SeedFromNavRoute above treats every entry identically, since it's only
         /// ever seeding a coordinate/star-type cache, not building a route to paste).
         /// </summary>
-        public readonly record struct NavRouteEntry(string SystemName, GalacticCoordinates? Coordinates, string? StarType);
+        public readonly record struct NavRouteEntry(string SystemName, GalacticCoordinates? Coordinates, string? StarType, long? SystemAddress);
 
         /// <summary>
         /// Reads and parses NavRoute.json (beside <paramref name="journalPath"/>) into an ordered
@@ -160,7 +170,13 @@ namespace RouteJumper.Services
                         starType = StarClassNames.ToDisplayName(starClass);
                     }
 
-                    entries.Add(new NavRouteEntry(systemName, coordinates, starType));
+                    long? systemAddress = null;
+                    if (entry.TryGetProperty("SystemAddress", out var addrEl) && addrEl.TryGetInt64(out var parsedAddress))
+                    {
+                        systemAddress = parsedAddress;
+                    }
+
+                    entries.Add(new NavRouteEntry(systemName, coordinates, starType, systemAddress));
                 }
 
                 return entries;

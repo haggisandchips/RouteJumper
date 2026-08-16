@@ -222,6 +222,8 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
             Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
+            Assert.Equal(10477373803, fake.SystemAddresses["Sol"]);
+            Assert.Equal(1, fake.SystemAddresses["Deciat"]);
         }
 
         [Fact]

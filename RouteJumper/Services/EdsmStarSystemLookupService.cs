@@ -60,6 +60,9 @@ namespace RouteJumper.Services
         private const string CoordsCacheKeyPrefix = "EdsmCoords:";
         private const string StarTypeCacheKeyPrefix = "EdsmStarType:";
 
+        /// <summary>Not "Edsm"-prefixed - unlike coordinates/star type, a system address is never resolved via EDSM, only ever seeded from journal/Spansh data (see IStarSystemLookupService.SeedSystemAddress).</summary>
+        private const string SystemAddressCacheKeyPrefix = "SystemAddress:";
+
         /// <summary>Attempt-tracking "kind" discriminators - see EdsmLookupAttemptStore. Internal (not private) so tests can drive EdsmLookupAttemptStore directly with the real values rather than a hardcoded duplicate.</summary>
         internal const string CoordsKind = "Coords";
         internal const string StarTypeKind = "StarType";
@@ -87,6 +90,7 @@ namespace RouteJumper.Services
 
         private readonly ConcurrentDictionary<string, GalacticCoordinates> _coordsMemoryCache = new();
         private readonly ConcurrentDictionary<string, string> _starTypeMemoryCache = new();
+        private readonly ConcurrentDictionary<string, long> _systemAddressMemoryCache = new();
 
         /// <summary>Systems EDSM has already confirmed (this running session) it has no coordinates for - never re-queried again until the app restarts, on top of the persisted cooldown (EdsmLookupAttemptStore) which survives a restart too.</summary>
         private readonly ConcurrentDictionary<string, byte> _unresolvedCoordsThisSession = new();
@@ -290,6 +294,12 @@ namespace RouteJumper.Services
             DataSeeded?.Invoke(this, EventArgs.Empty);
         }
 
+        public void SeedSystemAddress(string systemName, long systemAddress)
+        {
+            CacheSystemAddress(systemName, systemAddress);
+            DataSeeded?.Invoke(this, EventArgs.Empty);
+        }
+
         /// <summary>
         /// True if <paramref name="systemName"/> was already confirmed unresolved for
         /// <paramref name="kind"/> recently enough that it shouldn't be queried again - checked
@@ -380,6 +390,27 @@ namespace RouteJumper.Services
             return false;
         }
 
+        public bool TryGetCachedSystemAddress(string systemName, out long? systemAddress)
+        {
+            var key = NormalizeKey(systemName);
+            if (_systemAddressMemoryCache.TryGetValue(key, out var memoized))
+            {
+                systemAddress = memoized;
+                return true;
+            }
+
+            var raw = _settings.GetString(SystemAddressCacheKeyPrefix + key);
+            if (raw != null && long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            {
+                _systemAddressMemoryCache[key] = parsed; // back-fill memory so the next read skips the DB
+                systemAddress = parsed;
+                return true;
+            }
+
+            systemAddress = null;
+            return false;
+        }
+
         /// <summary>
         /// Updates the in-memory cache immediately (so a caller's very next read, or this same
         /// resolved value flowing straight back out of the async lookup that just produced it, is
@@ -417,6 +448,15 @@ namespace RouteJumper.Services
                 _settings.SetString(StarTypeCacheKeyPrefix + key, starType);
                 _attemptStore.Value.Clear(StarTypeKind, key);
             });
+        }
+
+        /// <summary>Same shape as CacheCoordinates/CacheStarType, minus the unresolved-attempt bookkeeping - a system address is only ever seeded, never looked up (and so never "confirmed unavailable") over HTTP.</summary>
+        private void CacheSystemAddress(string systemName, long systemAddress)
+        {
+            var key = NormalizeKey(systemName);
+            _systemAddressMemoryCache[key] = systemAddress;
+
+            EnqueuePersist(() => _settings.SetString(SystemAddressCacheKeyPrefix + key, systemAddress.ToString(CultureInfo.InvariantCulture)));
         }
 
         /// <summary>

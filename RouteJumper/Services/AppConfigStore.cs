@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Services
@@ -15,6 +16,12 @@ namespace RouteJumper.Services
     /// pattern `AppSettingsStore` already uses for its own connections. This means a config file
     /// hand-edited while the app is running takes effect on the very next read (e.g. the next
     /// Roles tab refresh), with no restart required.
+    ///
+    /// An *existing* file missing one or more known keys (e.g. it was written by an older version
+    /// of the app, before some setting existed) has those specific keys appended with their own
+    /// default value on the very next read - see BackfillMissingKeys - so a setting introduced by
+    /// an app update actually shows up in the file for the CMDR to discover/hand-edit, rather than
+    /// silently working from an in-memory default forever.
     /// </summary>
     public class AppConfigStore
     {
@@ -23,11 +30,13 @@ namespace RouteJumper.Services
         private const string LogMaxFileSizeMbKey = "LogMaxFileSizeMB";
         private const string LogMaxTotalSizeMbKey = "LogMaxTotalSizeMB";
         private const string EdsmUnresolvedRetryHoursKey = "EdsmUnresolvedRetryHours";
+        private const string SpanshAutocompleteDebounceMsKey = "SpanshAutocompleteDebounceMs";
 
         private const int DefaultLogRetentionDays = 7;
         private const int DefaultLogMaxFileSizeMb = 10;
         private const int DefaultLogMaxTotalSizeMb = 100;
         private const int DefaultEdsmUnresolvedRetryHours = 12;
+        private const int DefaultSpanshAutocompleteDebounceMs = 250;
 
         private readonly string _configPath;
 
@@ -84,6 +93,14 @@ namespace RouteJumper.Services
         /// </summary>
         public int EdsmUnresolvedRetryHours => ReadIntOrDefault(EdsmUnresolvedRetryHoursKey, DefaultEdsmUnresolvedRetryHours);
 
+        /// <summary>
+        /// How long the Spansh dialog's Source/Destination autocomplete fields (Integrations &gt;
+        /// Spansh, SpanshSystemPickerViewModel) wait after the last keystroke before issuing a
+        /// live search - hand-editable here like the settings above, re-read fresh each time the
+        /// dialog is opened (a new SpanshImportViewModel per open), not live mid-session.
+        /// </summary>
+        public int SpanshAutocompleteDebounceMs => ReadIntOrDefault(SpanshAutocompleteDebounceMsKey, DefaultSpanshAutocompleteDebounceMs);
+
         private int ReadIntOrDefault(string key, int defaultValue)
         {
             var values = ReadOrCreateDefault();
@@ -112,7 +129,10 @@ namespace RouteJumper.Services
                         $"{LogMaxFileSizeMbKey}={DefaultLogMaxFileSizeMb}",
                         $"{LogMaxTotalSizeMbKey}={DefaultLogMaxTotalSizeMb}",
                         "# Hours to wait before retrying a system EDSM had no record of last time.",
-                        $"{EdsmUnresolvedRetryHoursKey}={DefaultEdsmUnresolvedRetryHours}"
+                        $"{EdsmUnresolvedRetryHoursKey}={DefaultEdsmUnresolvedRetryHours}",
+                        "# Delay (ms) after the last keystroke before the Spansh dialog's Source/",
+                        "# Destination fields search for suggestions.",
+                        $"{SpanshAutocompleteDebounceMsKey}={DefaultSpanshAutocompleteDebounceMs}"
                     });
                 }
                 catch (IOException ex)
@@ -124,7 +144,7 @@ namespace RouteJumper.Services
                     Log.Warn("Config", "Could not create routejumper.conf - falling back to defaults.", ex);
                 }
 
-                return new Dictionary<string, string> { [JournalDirectoryKey] = DefaultJournalDirectory };
+                return GetAllDefaults();
             }
 
             var values = new Dictionary<string, string>();
@@ -150,13 +170,66 @@ namespace RouteJumper.Services
             catch (IOException ex)
             {
                 Log.Warn("Config", "Could not read routejumper.conf - falling back to defaults.", ex);
+                return values;
             }
             catch (UnauthorizedAccessException ex)
             {
                 Log.Warn("Config", "Could not read routejumper.conf - falling back to defaults.", ex);
+                return values;
             }
 
+            BackfillMissingKeys(values);
             return values;
+        }
+
+        /// <summary>Every known key, mapped to its own default value (as the raw string this file stores) - the full set a freshly-created routejumper.conf gets, and what BackfillMissingKeys compares an existing file's own keys against.</summary>
+        private static Dictionary<string, string> GetAllDefaults() => new()
+        {
+            [JournalDirectoryKey] = DefaultJournalDirectory,
+            [LogRetentionDaysKey] = DefaultLogRetentionDays.ToString(),
+            [LogMaxFileSizeMbKey] = DefaultLogMaxFileSizeMb.ToString(),
+            [LogMaxTotalSizeMbKey] = DefaultLogMaxTotalSizeMb.ToString(),
+            [EdsmUnresolvedRetryHoursKey] = DefaultEdsmUnresolvedRetryHours.ToString(),
+            [SpanshAutocompleteDebounceMsKey] = DefaultSpanshAutocompleteDebounceMs.ToString()
+        };
+
+        /// <summary>
+        /// Adds any key that's missing from an *existing* routejumper.conf (own value already
+        /// parsed into <paramref name="values"/>) - e.g. a file written by an older version of the
+        /// app, before some setting existed. Without this, a key that was never added by the
+        /// version that first created the file would silently fall back to its in-memory default
+        /// forever, never actually appearing in the file for the CMDR to discover and hand-edit,
+        /// even across an app update that introduces it. Only ever appends (existing keys/values/
+        /// comments/ordering are left completely untouched) - idempotent, since a file that already
+        /// has every known key triggers no write at all on subsequent reads.
+        /// </summary>
+        private void BackfillMissingKeys(Dictionary<string, string> values)
+        {
+            var missing = GetAllDefaults().Where(kv => !values.ContainsKey(kv.Key)).ToList();
+            if (missing.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var (key, defaultValue) in missing)
+            {
+                values[key] = defaultValue;
+            }
+
+            try
+            {
+                var newLines = new List<string> { "# Added automatically by a newer version of ED:FC Auto Pilot:" };
+                newLines.AddRange(missing.Select(kv => $"{kv.Key}={kv.Value}"));
+                File.AppendAllLines(_configPath, newLines);
+            }
+            catch (IOException ex)
+            {
+                Log.Warn("Config", "Could not update routejumper.conf with new default settings.", ex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log.Warn("Config", "Could not update routejumper.conf with new default settings.", ex);
+            }
         }
     }
 }

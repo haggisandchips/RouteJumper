@@ -184,6 +184,20 @@ namespace RouteJumper
         }
 
         /// <summary>
+        /// Opens the modal Spansh dialog (Integrations &gt; Spansh) - a fresh SpanshImportViewModel
+        /// each time (unlike Preferences/About, this one has real per-open state: in-flight
+        /// searches/a calculation), wired to RouteViewModel.ImportFromSpansh so a successfully
+        /// calculated route replaces the currently-saved one, the same view-layer carve-out as the
+        /// other dialogs opened from here.
+        /// </summary>
+        private void OnSpanshClick(object sender, RoutedEventArgs e)
+        {
+            var mainViewModel = (MainViewModel)DataContext;
+            var viewModel = new SpanshImportViewModel(new SpanshRouteService(), mainViewModel.RouteViewModel.ImportFromSpansh);
+            new SpanshImportWindow(viewModel) { Owner = this }.ShowDialog();
+        }
+
+        /// <summary>
         /// Opens the non-modal Logs window (Help &gt; Logs) - unlike Preferences/About, this is
         /// deliberately not a dialog: it needs to stay usable (and keep live-updating) while the
         /// user keeps working the rest of the app. A second click while it's already open just

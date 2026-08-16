@@ -368,12 +368,50 @@ namespace RouteJumper.ViewModels
                 {
                     _starSystemLookupService.SeedStarType(entry.SystemName, starType);
                 }
+
+                if (entry.SystemAddress is { } systemAddress)
+                {
+                    _starSystemLookupService.SeedSystemAddress(entry.SystemName, systemAddress);
+                }
             }
 
             RouteText = string.Join("\n", entries.Skip(1).Select(e => e.SystemName));
             Save();
             Log.Info("Route", $"Imported {entries.Count - 1} system(s) from NavRoute.json.");
             return NavRouteImportOutcome.Success;
+        }
+
+        /// <summary>
+        /// Applies a route freshly calculated by Spansh's fleet-carrier route planner (Integrations
+        /// &gt; Spansh, SpanshImportViewModel) - replaces the currently-saved route with every jump
+        /// Spansh returned, unconditionally including the source system as row 1 (unlike
+        /// ImportFromNavRoute, which skips NavRoute.json's own leading departure entry - a Spansh
+        /// route is a deliberately hand-picked source/destination pair, not "wherever the CMDR
+        /// happened to be standing", so the source is itself a real, intended waypoint here).
+        /// Applies immediately (calling Save() itself), the same "no Edit-state review step" shape
+        /// ImportFromNavRoute uses. Every jump's own coordinates and system address (id64) are
+        /// seeded into the shared IStarSystemLookupService cache along the way, the same "as we go"
+        /// caching ImportFromNavRoute already does for NavRoute.json. Returns false (route left
+        /// untouched) if Spansh returned no jumps at all.
+        /// </summary>
+        public bool ImportFromSpansh(IReadOnlyList<SpanshRouteJump> jumps)
+        {
+            if (jumps.Count == 0)
+            {
+                Log.Warn("Route", "Spansh route import skipped - no jumps returned.");
+                return false;
+            }
+
+            foreach (var jump in jumps)
+            {
+                _starSystemLookupService.SeedCoordinates(jump.Name, jump.Coordinates);
+                _starSystemLookupService.SeedSystemAddress(jump.Name, jump.Id64);
+            }
+
+            RouteText = string.Join("\n", jumps.Select(j => j.Name));
+            Save();
+            Log.Info("Route", $"Imported {jumps.Count} system(s) from Spansh.");
+            return true;
         }
 
         /// <summary>

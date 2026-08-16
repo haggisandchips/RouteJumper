@@ -168,5 +168,101 @@ namespace RouteJumper.Tests.Services
 
             Assert.Contains("Saved Games", store.JournalDirectory);
         }
+
+        [Fact]
+        public void SpanshAutocompleteDebounceMs_NoConfigFileYet_DefaultsTo250AndIsWrittenToNewFile()
+        {
+            using var dir = new TempDirectory();
+            var store = new AppConfigStore(dir.Path);
+
+            Assert.Equal(250, store.SpanshAutocompleteDebounceMs);
+
+            var written = File.ReadAllText(Path.Combine(dir.Path, "routejumper.conf"));
+            Assert.Contains("SpanshAutocompleteDebounceMs=250", written);
+        }
+
+        [Fact]
+        public void SpanshAutocompleteDebounceMs_HandEditedConfigFile_ReadsTheNewValue()
+        {
+            using var dir = new TempDirectory();
+            File.WriteAllLines(Path.Combine(dir.Path, "routejumper.conf"), new[] { "SpanshAutocompleteDebounceMs=500" });
+            var store = new AppConfigStore(dir.Path);
+
+            Assert.Equal(500, store.SpanshAutocompleteDebounceMs);
+        }
+
+        [Fact]
+        public void SpanshAutocompleteDebounceMs_InvalidValue_FallsBackToDefault()
+        {
+            using var dir = new TempDirectory();
+            File.WriteAllLines(Path.Combine(dir.Path, "routejumper.conf"), new[] { "SpanshAutocompleteDebounceMs=not-a-number" });
+            var store = new AppConfigStore(dir.Path);
+
+            Assert.Equal(250, store.SpanshAutocompleteDebounceMs);
+        }
+
+        // ===================== Backfilling keys missing from an existing config file (e.g.
+        // written by an older version of the app, before some setting existed) =====================
+
+        [Fact]
+        public void ExistingFileMissingASetting_AppendsItWithDefaultOnNextRead()
+        {
+            using var dir = new TempDirectory();
+            var configPath = Path.Combine(dir.Path, "routejumper.conf");
+            File.WriteAllLines(configPath, new[] { "JournalDirectory=D:\\Journals" });
+            var store = new AppConfigStore(dir.Path);
+
+            var debounce = store.SpanshAutocompleteDebounceMs;
+
+            Assert.Equal(250, debounce);
+            var written = File.ReadAllText(configPath);
+            Assert.Contains("SpanshAutocompleteDebounceMs=250", written);
+        }
+
+        [Fact]
+        public void ExistingFileMissingASetting_LeavesExistingValuesUntouched()
+        {
+            using var dir = new TempDirectory();
+            var configPath = Path.Combine(dir.Path, "routejumper.conf");
+            File.WriteAllLines(configPath, new[] { "JournalDirectory=D:\\Journals", "LogRetentionDays=30" });
+            var store = new AppConfigStore(dir.Path);
+
+            _ = store.SpanshAutocompleteDebounceMs; // triggers the backfill
+
+            Assert.Equal("D:\\Journals", store.JournalDirectory);
+            Assert.Equal(30, store.LogRetentionDays);
+        }
+
+        [Fact]
+        public void ExistingFileMissingMultipleSettings_BackfillsAllOfThemInOnePass()
+        {
+            using var dir = new TempDirectory();
+            var configPath = Path.Combine(dir.Path, "routejumper.conf");
+            File.WriteAllLines(configPath, new[] { "JournalDirectory=D:\\Journals" });
+            var store = new AppConfigStore(dir.Path);
+
+            _ = store.LogRetentionDays;
+
+            var written = File.ReadAllText(configPath);
+            Assert.Contains("LogRetentionDays=7", written);
+            Assert.Contains("LogMaxFileSizeMB=10", written);
+            Assert.Contains("LogMaxTotalSizeMB=100", written);
+            Assert.Contains("EdsmUnresolvedRetryHours=12", written);
+            Assert.Contains("SpanshAutocompleteDebounceMs=250", written);
+        }
+
+        [Fact]
+        public void ExistingFileWithEveryKeyAlready_NoWriteOnNextRead()
+        {
+            using var dir = new TempDirectory();
+            var configPath = Path.Combine(dir.Path, "routejumper.conf");
+            var store = new AppConfigStore(dir.Path);
+            _ = store.SpanshAutocompleteDebounceMs; // creates the file with every key already present
+            var writtenAfterCreate = File.ReadAllText(configPath);
+
+            _ = store.SpanshAutocompleteDebounceMs; // a second read of an already-complete file
+
+            Assert.Equal(writtenAfterCreate, File.ReadAllText(configPath));
+        }
     }
 }

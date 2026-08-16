@@ -501,6 +501,23 @@ namespace RouteJumper.Tests.Services
             Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
             Assert.Equal("G (White-Yellow)", fake.StarTypes["Sol"]);
             Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
+            Assert.Equal(10477373803, fake.SystemAddresses["Sol"]);
+            Assert.Equal(1, fake.SystemAddresses["Deciat"]);
+        }
+
+        [Fact]
+        public async Task ProcessLine_LiveFsdTargetWithSystemAddress_SeedsSystemAddress()
+        {
+            var fake = new FakeStarSystemLookupService();
+            var (watcher, _) = CreateLive(starSystemLookupService: fake);
+            using var _w = watcher;
+
+            watcher.ProcessLine(
+                "{\"timestamp\":\"" + JournalFile.TimestampOf(DateTime.UtcNow) + "\",\"event\":\"FSDTarget\",\"Name\":\"Deciat\",\"SystemAddress\":1}",
+                isLive: true);
+            await watcher.WaitForPendingCacheSeedAsync();
+
+            Assert.Equal(1, fake.SystemAddresses["Deciat"]);
         }
 
         [Fact]

@@ -1,0 +1,94 @@
+<Window x:Class="RouteJumper.Views.SpanshImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:converters="clr-namespace:RouteJumper.Converters"
+        xmlns:views="clr-namespace:RouteJumper.Views"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Style="{StaticResource MaterialDesignWindow}"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{materialDesign:MaterialDesignFont}"
+        Title="Spansh"
+        Width="480"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        d:DesignHeight="420" d:DesignWidth="480">
+
+    <Window.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+    </Window.Resources>
+
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Tabs on the left, matching MainWindow's own TabControl - just one tab for now
+             (Fleet Carrier), leaving room to add further Spansh tools as further tabs later. -->
+        <TabControl Grid.Row="0" TabStripPlacement="Left" Height="260">
+            <TabItem Header="Fleet Carrier">
+                <StackPanel Margin="16">
+
+                    <!-- A custom TextBox+Popup/ListBox autocomplete (SpanshSystemAutocompleteBox),
+                         not an editable ComboBox - confirmed live that a stock ComboBox bound the
+                         way this needs (Text two-way, SelectedItem two-way, an async-populated
+                         ItemsSource) auto-selected-and-highlighted the whole text box the instant
+                         typed text exactly matched a suggestion (so the next keystroke wiped out
+                         what was already typed), and closed the dropdown after the very first
+                         arrow-key press (WPF ties a ComboBox's SelectedItem to every arrow press,
+                         not just a final Enter/click). See that control's own doc comment. -->
+                    <views:SpanshSystemAutocompleteBox x:Name="SourceBox"
+                                                        Picker="{Binding Source}"
+                                                        Hint="Source system"
+                                                        Margin="0,0,0,16" />
+
+                    <views:SpanshSystemAutocompleteBox Picker="{Binding Destination}"
+                                                        Hint="Destination system"
+                                                        Margin="0,0,0,20" />
+
+                    <Button Content="Calculate"
+                            Command="{Binding CalculateCommand}"
+                            HorizontalAlignment="Left"
+                            Width="120"
+                            Padding="4"
+                            Margin="0,0,0,16" />
+
+                    <!-- Indefinite - there's no way to know in advance how long Spansh's own
+                         queue/calculation will take (same "indeterminate, not a countdown"
+                         convention the Route tab's own "Plotting" status uses, §4.4). -->
+                    <ProgressBar IsIndeterminate="True"
+                                 Height="4"
+                                 Visibility="{Binding IsCalculating, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 Margin="0,0,0,8" />
+
+                    <TextBlock Text="{Binding StatusMessage}"
+                               TextWrapping="Wrap"
+                               Opacity="0.8" />
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="1" Margin="16,8,16,8">
+            <TextBlock TextWrapping="Wrap"
+                       Opacity="0.7"
+                       FontSize="11"
+                       TextAlignment="Left"
+                       Margin="0,0,0,12">
+                Thanks to Gareth Harper for kindly granting permission to use Spansh's internal
+                route-plotting API to power this feature.
+            </TextBlock>
+            <Button Content="Close"
+                    Width="90"
+                    Padding="4"
+                    HorizontalAlignment="Right"
+                    IsCancel="True"
+                    Click="OnCloseClick" />
+        </StackPanel>
+    </Grid>
+</Window>

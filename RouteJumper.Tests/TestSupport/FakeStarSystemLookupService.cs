@@ -19,6 +19,8 @@ namespace RouteJumper.Tests.TestSupport
 
         public Dictionary<string, string?> StarTypes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        public Dictionary<string, long?> SystemAddresses { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public List<string> StarTypeCallOrder { get; } = new();
 
         public TaskCompletionSource? Gate { get; set; }
@@ -65,6 +67,9 @@ namespace RouteJumper.Tests.TestSupport
         public bool TryGetCachedStarType(string systemName, out string? starType) =>
             StarTypes.TryGetValue(systemName, out starType);
 
+        public bool TryGetCachedSystemAddress(string systemName, out long? systemAddress) =>
+            SystemAddresses.TryGetValue(systemName, out systemAddress);
+
         public event EventHandler? DataSeeded;
 
         public void SeedCoordinates(string systemName, GalacticCoordinates coordinates)
@@ -76,6 +81,12 @@ namespace RouteJumper.Tests.TestSupport
         public void SeedStarType(string systemName, string starType)
         {
             StarTypes[systemName] = starType;
+            RaiseDataSeeded();
+        }
+
+        public void SeedSystemAddress(string systemName, long systemAddress)
+        {
+            SystemAddresses[systemName] = systemAddress;
             RaiseDataSeeded();
         }
 
