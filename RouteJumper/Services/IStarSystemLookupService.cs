@@ -42,9 +42,13 @@ namespace RouteJumper.Services
         /// <summary>
         /// Seeds the star-type cache for a system directly, without a network call - e.g. from a
         /// Ship-mode CMDR's own FSDTarget event (its own StarClass field) or NavRoute.json (see
-        /// ShipRouteJournalWatcher). Always overwrites any existing cached value.
+        /// ShipRouteJournalWatcher). Takes the raw journal `StarClass` code itself (e.g. "K",
+        /// "TTS"), not pre-formatted display text - the implementation caches it as the canonical
+        /// value and formats it for display on read (StarClassNames.ToDisplayName), the same
+        /// canonical-code treatment an EDSM-resolved value gets. Always overwrites any existing
+        /// cached value.
         /// </summary>
-        void SeedStarType(string systemName, string starType);
+        void SeedStarType(string systemName, string starClassCode);
 
         /// <summary>
         /// Seeds a system's real, stable Elite Dangerous system address (id64) directly, without a

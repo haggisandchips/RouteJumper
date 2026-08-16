@@ -192,7 +192,9 @@ namespace RouteJumper.Tests.Services
             // of racing a fire-and-forget Task.Run.
             await watcher.WaitForPendingCacheSeedAsync();
 
-            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
+            // SeedStarType now takes the raw journal StarClass code, not pre-formatted display
+            // text - formatting happens on read (StarClassNames.ToDisplayName).
+            Assert.Equal("K", fake.StarTypes["Deciat"]);
             Assert.Empty(events);
         }
 

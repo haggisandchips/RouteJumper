@@ -11,11 +11,11 @@ namespace RouteJumper.Tests.Services
     {
         private static (EdsmStarSystemLookupService Service, FakeHttpMessageHandler Handler) Create(TempDirectory dir)
         {
-            var settings = new AppSettingsStore(dir.Path);
             var config = new AppConfigStore(dir.Path);
             var attemptStore = new EdsmLookupAttemptStore(dir.Path);
+            var resolvedLookups = new EdsmResolvedLookupStore(dir.Path);
             var handler = new FakeHttpMessageHandler();
-            var service = new EdsmStarSystemLookupService(settings, config, attemptStore, new HttpClient(handler));
+            var service = new EdsmStarSystemLookupService(config, attemptStore, resolvedLookups, new HttpClient(handler));
             return (service, handler);
         }
 
@@ -23,9 +23,9 @@ namespace RouteJumper.Tests.Services
         private static (EdsmStarSystemLookupService Service, FakeHttpMessageHandler Handler) CreateFresh(
             TempDirectory dir, AppConfigStore config, EdsmLookupAttemptStore attemptStore)
         {
-            var settings = new AppSettingsStore(dir.Path);
+            var resolvedLookups = new EdsmResolvedLookupStore(dir.Path);
             var handler = new FakeHttpMessageHandler();
-            var service = new EdsmStarSystemLookupService(settings, config, attemptStore, new HttpClient(handler));
+            var service = new EdsmStarSystemLookupService(config, attemptStore, resolvedLookups, new HttpClient(handler));
             return (service, handler);
         }
 
@@ -325,14 +325,50 @@ namespace RouteJumper.Tests.Services
         [Fact]
         public async Task SeedStarType_ThenGetMainStarTypeAsync_ReturnsSeededValueWithoutHttpCall()
         {
+            // SeedStarType takes the raw journal StarClass code (as FSDTarget/NavRoute.json
+            // supply it), not pre-formatted display text - GetMainStarTypeAsync formats it on
+            // the way back out via StarClassNames.
             using var dir = new TempDirectory();
             var (service, handler) = Create(dir);
 
-            service.SeedStarType("Sol", "G (White-Yellow) Star");
+            service.SeedStarType("Sol", "G");
             var result = await service.GetMainStarTypeAsync("Sol");
 
-            Assert.Equal("G (White-Yellow) Star", result);
+            Assert.Equal("G (White-Yellow)", result);
             Assert.Empty(handler.RequestedUrls);
+        }
+
+        [Fact]
+        public async Task SeedStarType_UnmappedCode_RoundTripsAsTheRawCodeUnchanged()
+        {
+            // A code StarClassNames doesn't recognize (e.g. a real journal code this app hasn't
+            // been taught yet, or a test placeholder) round-trips as itself - the same
+            // don't-guess degrade ToDisplayName already applies elsewhere.
+            using var dir = new TempDirectory();
+            var (service, _) = Create(dir);
+
+            service.SeedStarType("Sol", "ZZUnmapped");
+            var result = await service.GetMainStarTypeAsync("Sol");
+
+            Assert.Equal("ZZUnmapped", result);
+        }
+
+        [Fact]
+        public async Task SeedStarType_ThenEdsmResolvesSameStarElsewhere_ProducesIdenticalDisplayText()
+        {
+            // The mismatch this whole design fixes: a journal-seeded T Tauri ("TTS") and an
+            // EDSM-resolved T Tauri ("T Tauri Star") must converge on the same displayed text,
+            // regardless of which source resolved which system first.
+            using var dir = new TempDirectory();
+            var (service, handler) = Create(dir);
+            handler.Respond = _ => (HttpStatusCode.OK, """[{"name":"Alpha","primaryStar":{"type":"T Tauri Star"}}]""");
+
+            service.SeedStarType("Sol", "TTS");
+            var seeded = await service.GetMainStarTypeAsync("Sol");
+            var edsmResolved = await service.GetMainStarTypeAsync("Alpha");
+
+            Assert.Equal(seeded, edsmResolved);
+            Assert.Equal("T Tauri", seeded);
         }
 
         [Fact]
@@ -369,7 +405,7 @@ namespace RouteJumper.Tests.Services
             var raised = 0;
             service.DataSeeded += (_, _) => raised++;
 
-            service.SeedStarType("Sol", "G (White-Yellow) Star");
+            service.SeedStarType("Sol", "G");
 
             Assert.Equal(1, raised);
         }
@@ -417,13 +453,13 @@ namespace RouteJumper.Tests.Services
             using var dir = new TempDirectory();
             var (service, _) = Create(dir);
 
-            service.SeedStarType("Sol", "G (White-Yellow) Star");
+            service.SeedStarType("Sol", "G");
             await service.WaitForPendingPersistAsync();
 
             var (freshService, freshHandler) = Create(dir);
             var result = await freshService.GetMainStarTypeAsync("Sol");
 
-            Assert.Equal("G (White-Yellow) Star", result);
+            Assert.Equal("G (White-Yellow)", result);
             Assert.Empty(freshHandler.RequestedUrls);
         }
 

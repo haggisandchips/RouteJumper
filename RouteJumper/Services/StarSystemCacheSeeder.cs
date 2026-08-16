@@ -34,9 +34,8 @@ namespace RouteJumper.Services
 
             if (fsdTargetRoot.TryGetProperty("StarClass", out var scEl) && scEl.GetString() is { } starClass)
             {
-                var starType = StarClassNames.ToDisplayName(starClass);
-                Log.Info("Journal", $"FSDTarget seeded star type for \"{targetSystem}\": {starType}.");
-                lookupService.SeedStarType(targetSystem, starType);
+                Log.Info("Journal", $"FSDTarget seeded star type for \"{targetSystem}\": {StarClassNames.ToDisplayName(starClass)}.");
+                lookupService.SeedStarType(targetSystem, starClass);
             }
 
             if (fsdTargetRoot.TryGetProperty("SystemAddress", out var saEl) && saEl.TryGetInt64(out var systemAddress))
@@ -109,6 +108,7 @@ namespace RouteJumper.Services
         /// distinction (SeedFromNavRoute above treats every entry identically, since it's only
         /// ever seeding a coordinate/star-type cache, not building a route to paste).
         /// </summary>
+        /// <param name="StarType">The raw journal `StarClass` code (e.g. "K", "TTS"), not formatted display text - forwarded as-is into IStarSystemLookupService.SeedStarType, which caches it as the canonical value.</param>
         public readonly record struct NavRouteEntry(string SystemName, GalacticCoordinates? Coordinates, string? StarType, long? SystemAddress);
 
         /// <summary>
@@ -167,7 +167,7 @@ namespace RouteJumper.Services
                     string? starType = null;
                     if (entry.TryGetProperty("StarClass", out var classEl) && classEl.GetString() is { } starClass)
                     {
-                        starType = StarClassNames.ToDisplayName(starClass);
+                        starType = starClass;
                     }
 
                     long? systemAddress = null;

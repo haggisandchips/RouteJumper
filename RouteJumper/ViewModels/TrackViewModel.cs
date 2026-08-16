@@ -42,8 +42,8 @@ namespace RouteJumper.ViewModels
         /// see ShipRouteJournalWatcher. Defaults to a real EDSM-backed instance sharing this
         /// ViewModel's own AppSettingsStore, the same "real default unless a test overrides it"
         /// pattern RouteViewModel's own constructor already uses - no cross-ViewModel instance
-        /// sharing is needed for the cache itself to be shared, since AppSettingsStore is a
-        /// stateless wrapper over the same on-disk SQLite table regardless of which
+        /// sharing is needed for the cache itself to be shared, since EdsmResolvedLookupStore is
+        /// a stateless wrapper over the same on-disk SQLite table regardless of which
         /// EdsmStarSystemLookupService instance is writing through it.
         /// </summary>
         public TrackViewModel(
@@ -55,7 +55,7 @@ namespace RouteJumper.ViewModels
             _routeEventTrigger = routeEventTrigger;
             _settings = settings;
             _scanner = scanner;
-            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService();
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);

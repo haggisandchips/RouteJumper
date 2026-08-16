@@ -32,8 +32,11 @@ namespace RouteJumper.Services
     /// same chunked request. EDSM's exact per-request batch-size cap isn't publicly documented, so
     /// requests are defensively chunked (<see cref="CoordinatesBatchSize"/>) the same as before.
     ///
-    /// Both are cached indefinitely in <see cref="AppSettingsStore"/> once resolved (a named
-    /// system's coordinates/star type never change) - only positive results are cached there. An
+    /// Both are cached indefinitely in <see cref="EdsmResolvedLookupStore"/> once resolved (a
+    /// named system's coordinates/star type never change) - only positive results are cached
+    /// there; star type is cached as a canonical StarClass code, not pre-formatted display text
+    /// (see StarClassNames), so a caller always sees the current mapping table's own output
+    /// rather than whatever text happened to be cached the first time. An
     /// unresolved name is a different story: EDSM confirming it simply has no record for a system
     /// is itself remembered - see <see cref="EdsmLookupAttemptStore"/> and
     /// <see cref="AppConfigStore.EdsmUnresolvedRetryHours"/> - both in-memory for the rest of this
@@ -47,7 +50,7 @@ namespace RouteJumper.Services
     ///
     /// A resolved value is visible immediately via an in-memory cache (<see cref="_coordsMemoryCache"/>/
     /// <see cref="_starTypeMemoryCache"/>) - every read checks memory first, falling back to
-    /// <see cref="AppSettingsStore"/> only on a miss (and back-filling memory from that DB read for
+    /// <see cref="EdsmResolvedLookupStore"/> only on a miss (and back-filling memory from that DB read for
     /// next time). Writing to disk is deliberately decoupled from both the memory update and
     /// <see cref="DataSeeded"/> - see <see cref="EnqueuePersist"/> - so a burst of seeds (e.g. every
     /// system in a freshly-read NavRoute.json, SPEC §4.9) updates the UI essentially instantly,
@@ -57,15 +60,11 @@ namespace RouteJumper.Services
     public class EdsmStarSystemLookupService : IStarSystemLookupService
     {
         private const string BaseUrl = "https://www.edsm.net";
-        private const string CoordsCacheKeyPrefix = "EdsmCoords:";
-        private const string StarTypeCacheKeyPrefix = "EdsmStarType:";
 
-        /// <summary>Not "Edsm"-prefixed - unlike coordinates/star type, a system address is never resolved via EDSM, only ever seeded from journal/Spansh data (see IStarSystemLookupService.SeedSystemAddress).</summary>
-        private const string SystemAddressCacheKeyPrefix = "SystemAddress:";
-
-        /// <summary>Attempt-tracking "kind" discriminators - see EdsmLookupAttemptStore. Internal (not private) so tests can drive EdsmLookupAttemptStore directly with the real values rather than a hardcoded duplicate.</summary>
+        /// <summary>"Kind" discriminators shared by EdsmResolvedLookupStore (resolved values) and EdsmLookupAttemptStore (unresolved-attempt cooldown). Internal (not private) so tests can drive either store directly with the real values rather than a hardcoded duplicate.</summary>
         internal const string CoordsKind = "Coords";
         internal const string StarTypeKind = "StarType";
+        internal const string SystemAddressKind = "SystemAddress";
 
         /// <summary>Internal (not private) so tests can assert chunking against the real value rather than a hardcoded duplicate.</summary>
         internal const int CoordinatesBatchSize = 10;
@@ -74,18 +73,17 @@ namespace RouteJumper.Services
 
         private static readonly HttpClient SharedHttpClient = CreateHttpClient();
 
-        private readonly AppSettingsStore _settings;
-
-        // Lazy: a caller that only ever needs the single-AppSettingsStore convenience
-        // constructor (several ViewModels' own "?? new EdsmStarSystemLookupService(settings)"
-        // fallback, only actually reachable in tests that don't care about EDSM at all) must
-        // never eagerly construct AppConfigStore/EdsmLookupAttemptStore - both default to
+        // Lazy: a caller that only ever needs the no-arg convenience constructor (several
+        // ViewModels' own "?? new EdsmStarSystemLookupService()" fallback, only actually
+        // reachable in tests that don't care about EDSM at all) must never eagerly construct
+        // AppConfigStore/EdsmLookupAttemptStore/EdsmResolvedLookupStore - all default to
         // AppPaths.DataDirectory, whose static initializer requires a real Velopack app host
         // (VelopackApp.Build().Run(), App.xaml.cs) and throws outside one, which a plain unit
         // test never runs. Deferring construction until a lookup is actually attempted (the only
-        // place these are read) means that fallback path never touches either.
+        // place these are read) means that fallback path never touches any of them.
         private readonly Lazy<AppConfigStore> _config;
         private readonly Lazy<EdsmLookupAttemptStore> _attemptStore;
+        private readonly Lazy<EdsmResolvedLookupStore> _resolvedLookups;
         private readonly HttpClient _httpClient;
 
         private readonly ConcurrentDictionary<string, GalacticCoordinates> _coordsMemoryCache = new();
@@ -102,28 +100,28 @@ namespace RouteJumper.Services
         private readonly object _persistChainLock = new();
         private Task _persistChain = Task.CompletedTask;
 
-        public EdsmStarSystemLookupService(AppSettingsStore settings)
-            : this(settings, new Lazy<AppConfigStore>(() => new AppConfigStore()), new Lazy<EdsmLookupAttemptStore>(() => new EdsmLookupAttemptStore()), SharedHttpClient)
+        public EdsmStarSystemLookupService()
+            : this(new Lazy<AppConfigStore>(() => new AppConfigStore()), new Lazy<EdsmLookupAttemptStore>(() => new EdsmLookupAttemptStore()), new Lazy<EdsmResolvedLookupStore>(() => new EdsmResolvedLookupStore()), SharedHttpClient)
         {
         }
 
-        public EdsmStarSystemLookupService(AppSettingsStore settings, AppConfigStore config)
-            : this(settings, new Lazy<AppConfigStore>(() => config), new Lazy<EdsmLookupAttemptStore>(() => new EdsmLookupAttemptStore()), SharedHttpClient)
+        public EdsmStarSystemLookupService(AppConfigStore config)
+            : this(new Lazy<AppConfigStore>(() => config), new Lazy<EdsmLookupAttemptStore>(() => new EdsmLookupAttemptStore()), new Lazy<EdsmResolvedLookupStore>(() => new EdsmResolvedLookupStore()), SharedHttpClient)
         {
         }
 
-        /// <summary>Test-only seam: lets RouteJumper.Tests inject a fake HttpMessageHandler (and directory-scoped config/attempt stores) instead of making real network calls or touching the real per-user AppData location.</summary>
-        internal EdsmStarSystemLookupService(AppSettingsStore settings, AppConfigStore config, EdsmLookupAttemptStore attemptStore, HttpClient httpClient)
-            : this(settings, new Lazy<AppConfigStore>(() => config), new Lazy<EdsmLookupAttemptStore>(() => attemptStore), httpClient)
+        /// <summary>Test-only seam: lets RouteJumper.Tests inject a fake HttpMessageHandler (and directory-scoped config/attempt/resolved-lookup stores) instead of making real network calls or touching the real per-user AppData location.</summary>
+        internal EdsmStarSystemLookupService(AppConfigStore config, EdsmLookupAttemptStore attemptStore, EdsmResolvedLookupStore resolvedLookups, HttpClient httpClient)
+            : this(new Lazy<AppConfigStore>(() => config), new Lazy<EdsmLookupAttemptStore>(() => attemptStore), new Lazy<EdsmResolvedLookupStore>(() => resolvedLookups), httpClient)
         {
         }
 
         private EdsmStarSystemLookupService(
-            AppSettingsStore settings, Lazy<AppConfigStore> config, Lazy<EdsmLookupAttemptStore> attemptStore, HttpClient httpClient)
+            Lazy<AppConfigStore> config, Lazy<EdsmLookupAttemptStore> attemptStore, Lazy<EdsmResolvedLookupStore> resolvedLookups, HttpClient httpClient)
         {
-            _settings = settings;
             _config = config;
             _attemptStore = attemptStore;
+            _resolvedLookups = resolvedLookups;
             _httpClient = httpClient;
         }
 
@@ -248,7 +246,16 @@ namespace RouteJumper.Services
 
                     if (entry.PrimaryStar?.Type is { } rawSubType)
                     {
-                        CacheStarType(name, StripRedundantStarWord(rawSubType));
+                        // EDSM never returns a raw journal StarClass code, only this formatted
+                        // display text - recovered back into the same canonical code the journal
+                        // path caches (see StarClassNames.TryGetCode) wherever a mapping is known,
+                        // so both sources converge on identical display text at read time
+                        // regardless of which one resolved a given system. Falls back to caching
+                        // the stripped display text itself when unrecognized - the same
+                        // don't-guess degrade StarClassNames.ToDisplayName already applies to an
+                        // unrecognized journal code.
+                        var stripped = StripRedundantStarWord(rawSubType);
+                        CacheStarType(name, StarClassNames.TryGetCode(stripped, out var code) ? code : stripped);
                     }
                 }
             }
@@ -288,9 +295,9 @@ namespace RouteJumper.Services
             DataSeeded?.Invoke(this, EventArgs.Empty);
         }
 
-        public void SeedStarType(string systemName, string starType)
+        public void SeedStarType(string systemName, string starClassCode)
         {
-            CacheStarType(systemName, starType);
+            CacheStarType(systemName, starClassCode);
             DataSeeded?.Invoke(this, EventArgs.Empty);
         }
 
@@ -352,7 +359,7 @@ namespace RouteJumper.Services
                 return true;
             }
 
-            var raw = _settings.GetString(CoordsCacheKeyPrefix + key);
+            var raw = _resolvedLookups.Value.GetValue(CoordsKind, key);
             var parts = raw?.Split('|');
             if (parts is { Length: 3 }
                 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
@@ -374,15 +381,15 @@ namespace RouteJumper.Services
             var key = NormalizeKey(systemName);
             if (_starTypeMemoryCache.TryGetValue(key, out var memoized))
             {
-                starType = memoized;
+                starType = StarClassNames.ToDisplayName(memoized);
                 return true;
             }
 
-            var raw = _settings.GetString(StarTypeCacheKeyPrefix + key);
+            var raw = _resolvedLookups.Value.GetValue(StarTypeKind, key);
             if (raw != null)
             {
-                _starTypeMemoryCache[key] = raw; // back-fill memory so the next read skips the DB
-                starType = raw;
+                _starTypeMemoryCache[key] = raw; // back-fill memory (the canonical code/fallback text, not the display string) so the next read skips the DB
+                starType = StarClassNames.ToDisplayName(raw);
                 return true;
             }
 
@@ -399,7 +406,7 @@ namespace RouteJumper.Services
                 return true;
             }
 
-            var raw = _settings.GetString(SystemAddressCacheKeyPrefix + key);
+            var raw = _resolvedLookups.Value.GetValue(SystemAddressKind, key);
             if (raw != null && long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
             {
                 _systemAddressMemoryCache[key] = parsed; // back-fill memory so the next read skips the DB
@@ -431,21 +438,21 @@ namespace RouteJumper.Services
                     coordinates.X.ToString(CultureInfo.InvariantCulture),
                     coordinates.Y.ToString(CultureInfo.InvariantCulture),
                     coordinates.Z.ToString(CultureInfo.InvariantCulture));
-                _settings.SetString(CoordsCacheKeyPrefix + key, raw);
+                _resolvedLookups.Value.SetValue(CoordsKind, key, raw);
                 _attemptStore.Value.Clear(CoordsKind, key);
             });
         }
 
-        /// <summary>See CacheCoordinates's own doc comment - identical shape (including clearing any recorded unresolved-attempt) for the star-type cache.</summary>
-        private void CacheStarType(string systemName, string starType)
+        /// <summary>See CacheCoordinates's own doc comment - identical shape (including clearing any recorded unresolved-attempt) for the star-type cache. <paramref name="starClassCode"/> is the canonical value cached and later rendered via StarClassNames.ToDisplayName on read (TryGetCachedStarType) - a raw journal StarClass code from the journal-seeding path, or the equivalent code recovered from EDSM's own display text (see FetchSystemInfoChunkAsync/StarClassNames.TryGetCode).</summary>
+        private void CacheStarType(string systemName, string starClassCode)
         {
             var key = NormalizeKey(systemName);
-            _starTypeMemoryCache[key] = starType;
+            _starTypeMemoryCache[key] = starClassCode;
             _unresolvedStarTypeThisSession.TryRemove(key, out _);
 
             EnqueuePersist(() =>
             {
-                _settings.SetString(StarTypeCacheKeyPrefix + key, starType);
+                _resolvedLookups.Value.SetValue(StarTypeKind, key, starClassCode);
                 _attemptStore.Value.Clear(StarTypeKind, key);
             });
         }
@@ -456,7 +463,7 @@ namespace RouteJumper.Services
             var key = NormalizeKey(systemName);
             _systemAddressMemoryCache[key] = systemAddress;
 
-            EnqueuePersist(() => _settings.SetString(SystemAddressCacheKeyPrefix + key, systemAddress.ToString(CultureInfo.InvariantCulture)));
+            EnqueuePersist(() => _resolvedLookups.Value.SetValue(SystemAddressKind, key, systemAddress.ToString(CultureInfo.InvariantCulture)));
         }
 
         /// <summary>
@@ -465,8 +472,8 @@ namespace RouteJumper.Services
         /// called synchronously from a journal watcher's own background thread while reading
         /// NavRoute.json - SPEC §4.9) is never blocked on disk I/O, and the in-memory cache update
         /// + DataSeeded notification that already happened by the time this is called are never
-        /// delayed by it either. Chained (not parallelized) deliberately: AppSettingsStore opens
-        /// and closes its own SQLite connection per call, and concurrent writers would just
+        /// delayed by it either. Chained (not parallelized) deliberately: EdsmResolvedLookupStore
+        /// opens and closes its own SQLite connection per call, and concurrent writers would just
         /// contend/fail against each other for no benefit - a strictly serial background queue
         /// avoids that while still keeping every write off of whichever thread is calling in.
         /// </summary>

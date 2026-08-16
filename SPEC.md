@@ -654,12 +654,20 @@ might pause en route rather than something either mode tracks.
   around, e.g. escorting the carrier or running their own errands, while
   the carrier itself jumps on its own schedule):
   - `FSDTarget`'s own `StarClass` field seeds `Star Type` for whichever
-    system was just targeted, formatted to match EDSM's own naming, minus
-    its redundant trailing "Star" word (e.g. `K` → "K (Yellow-Orange)") -
-    reformatted only where that mapping is well-established (main-sequence
-    classes, neutron stars, black holes, white dwarf subclasses); anything
-    more exotic is cached as the raw journal code rather than guessing at
-    an unverified format.
+    system was just targeted. The raw code itself (e.g. `K`, `TTS`) is what
+    gets cached (§7) - display formatting to match EDSM's own naming, minus
+    its redundant trailing "Star" word (e.g. `K` → "K (Yellow-Orange)"), is
+    computed fresh from that code every time it's shown, via a single
+    shared mapping also used to recover a code from EDSM's own resolved
+    text (EDSM never returns a code itself, only display text) - so both
+    sources always render identically for the same real star regardless of
+    which one resolved it first, and a later addition to that mapping
+    retroactively improves every already-cached system with nothing to
+    invalidate. Reformatted only where that mapping is well-established
+    (main-sequence classes, neutron stars, black holes, white dwarf
+    subclasses, T Tauri, Herbig Ae/Be, Wolf-Rayet variants, and the carbon
+    star family); anything more exotic is cached as the raw journal code
+    rather than guessing at an unverified format.
   - Two independent triggers read the companion `NavRoute.json` file
     (beside the journal, the same convention every other Frontier
     companion file uses) and seed both `Distance`'s coordinates and
@@ -1410,12 +1418,23 @@ operation opens and closes its own short-lived connection. A persistence
 failure (e.g. a permissions issue) degrades to "nothing persisted" rather
 than the app failing to start.
 
-A second table in the same database, `UnresolvedLookups (Kind TEXT,
+A second table in the same database, `ResolvedLookups (Kind TEXT,
+SystemKey TEXT, Value TEXT, PRIMARY KEY (Kind, SystemKey))`, holds the
+EDSM/journal-seeded coordinate, star-type, and system-address cache (§4.9)
+- one row per `(Kind, SystemKey)`, `Kind` one of `Coords`/`StarType`/
+`SystemAddress`. Deliberately its own table rather than more `Settings`
+rows (which is where this cache used to live, as prefixed keys like
+`EdsmCoords:SOL`) - its access pattern (a point lookup keyed by
+`(Kind, SystemKey)` on essentially every route row) is different enough to
+benefit from its own schema, the same rationale as `UnresolvedLookups`
+below; the composite primary key is already the only index this needs.
+`StarType`'s own `Value` is a canonical `StarClass` code (e.g. `K`, `TTS`),
+never pre-formatted display text - see §4.9's own note on why.
+
+A third table in the same database, `UnresolvedLookups (Kind TEXT,
 SystemKey TEXT, LastAttemptUtc TEXT, PRIMARY KEY (Kind, SystemKey))`,
-backs the EDSM retry cooldown (§4.9) - deliberately its own table rather
-than more `Settings` rows, since its access pattern (a point lookup keyed
-by `(Kind, SystemKey)` on essentially every uncached lookup) is different
-enough to benefit from its own schema; the composite primary key is
+backs the EDSM retry cooldown (§4.9) - deliberately its own table for the
+same reason as `ResolvedLookups` above; the composite primary key is
 already the only index this needs.
 
 A separate, deliberately hand-editable `routejumper.conf` sits beside the
@@ -1430,7 +1449,7 @@ the table below.
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
 | Route table column widths (icon, `#`, `System`, `Distance`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
-| EDSM system coordinates/star type cache (§4.9) | First successful lookup of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
+| EDSM/journal-seeded system coordinates/star type/address cache, in `ResolvedLookups` (§4.9) | First successful lookup/seed of that system | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached |
 | EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |

@@ -76,7 +76,7 @@ namespace RouteJumper.ViewModels
         {
             _settings = settings;
             _canEngageAutoPilot = canEngageAutoPilot ?? (() => true);
-            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService();
             _enrichmentService = new RouteRowEnrichmentService(_starSystemLookupService);
             _getOriginSystemName = getOriginSystemName ?? (() => null);
             _getJournalDirectory = getJournalDirectory ?? (() => new AppConfigStore().JournalDirectory);

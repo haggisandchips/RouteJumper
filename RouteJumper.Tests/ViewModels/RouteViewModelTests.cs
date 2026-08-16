@@ -777,8 +777,8 @@ namespace RouteJumper.Tests.ViewModels
             // "as we go": every entry (including the skipped origin) is seeded into the cache.
             Assert.Equal(new GalacticCoordinates(0, 0, 0), fake.Coordinates["Sol"]);
             Assert.Equal(new GalacticCoordinates(3, 4, 0), fake.Coordinates["Deciat"]);
-            Assert.Equal("K (Yellow-Orange)", fake.StarTypes["Deciat"]);
-            Assert.Equal("M (Red dwarf)", fake.StarTypes["Wolf 359"]);
+            Assert.Equal("K", fake.StarTypes["Deciat"]);
+            Assert.Equal("M", fake.StarTypes["Wolf 359"]);
         }
 
         // ===================== ImportFromSpansh (Integrations > Spansh) =====================

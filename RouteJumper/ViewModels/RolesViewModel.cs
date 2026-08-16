@@ -52,7 +52,7 @@ namespace RouteJumper.ViewModels
             _settings = settings;
             _scanner = scanner;
             _getMacros = getMacros;
-            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService(settings);
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService();
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
