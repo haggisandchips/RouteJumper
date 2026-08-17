@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using RouteJumper.Models;
 using RouteJumper.Services;
 using RouteJumper.ViewModels;
 
@@ -126,9 +127,12 @@ namespace RouteJumper.Views
         }
 
         /// <summary>
-        /// "Trim for FC": same confirm-then-apply-unconditionally shape as
-        /// OnImportFromNavRouteClick above - see its own doc comment for why there's no
-        /// follow-up/outcome dialog.
+        /// "Trim for FC": same confirm-then-apply shape as OnImportFromNavRouteClick above - see
+        /// its own doc comment for why most outcomes get no follow-up dialog. The two precondition
+        /// failures below (no Captain assigned / carrier location unknown) are the deliberate
+        /// exceptions - unlike a route that simply can't be trimmed yet (coordinates still
+        /// resolving), these are actionable "go do X, then retry" states worth surfacing rather
+        /// than silently logging, since without them the trim's first hop could plot inefficiently.
         /// </summary>
         private void OnTrimToJumpRangeClick(object sender, RoutedEventArgs e)
         {
@@ -141,7 +145,20 @@ namespace RouteJumper.Views
                 return;
             }
 
-            ((RouteViewModel)DataContext).TrimToJumpRange();
+            var result = ((RouteViewModel)DataContext).TrimToJumpRange();
+            switch (result.Outcome)
+            {
+                case RouteTrimOutcome.CaptainNotAssigned:
+                    MessageBox.Show(Window.GetWindow(this),
+                        "Trim for FC needs a Captain assigned on the Roles tab first - it uses their carrier's own real current location to plot an efficient first hop.",
+                        "Trim for FC", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
+                case RouteTrimOutcome.CarrierLocationUnknown:
+                    MessageBox.Show(Window.GetWindow(this),
+                        "Your fleet carrier's current location isn't known yet this session. Open Carrier Management in-game, then try again.",
+                        "Trim for FC", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    break;
+            }
         }
     }
 }

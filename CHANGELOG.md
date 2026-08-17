@@ -53,10 +53,17 @@ and this project follows [Semantic Versioning](https://semver.org/).
   longer than 500ly each, dropping whichever intermediate systems aren't
   actually needed to stay within a fleet carrier's real jump range — a
   planning aid for a route pasted or imported with many closely-spaced
-  waypoints (e.g. a neutron-highway plotter's own output). Both confirm
-  via a Yes/No dialog first (each replaces/rewrites the saved route
-  outright) and then apply immediately, left-to-right in the order
-  you'd actually use them: Import Current Route, Trim for FC, Auto Pilot.
+  waypoints (e.g. a neutron-highway plotter's own output). Requires a
+  Captain currently assigned with their carrier's own current location
+  known (prompting to assign one, or to open Carrier Management in-game,
+  otherwise) — that real location becomes the trimmed route's new first
+  entry and anchors the trim itself, rather than the pasted route's own
+  row 1, since the carrier may already be mid-route by the time this is
+  clicked and trimming from the wrong assumed starting point risks an
+  inefficient first hop. Both confirm via a Yes/No dialog first (each
+  replaces/rewrites the saved route outright) and then apply immediately,
+  left-to-right in the order you'd actually use them: Import Current
+  Route, Trim for FC, Auto Pilot.
 - **Spansh integration**: a new **Integrations > Spansh…** dialog to
   calculate a route between two systems (autocomplete Source/Destination
   fields) via Spansh's own route-plotting API and import it straight

@@ -94,6 +94,13 @@ only), and **Edit** buttons.
   closer-together waypoints into `NavRoute.json` for Trim to choose
   from, so the resulting carrier hops land closer to the full 500ly
   than plotting the same route with a long-range explorer would.
+  Requires a Captain assigned (Roles tab) with their carrier's own current
+  location known — if not, a message tells you to assign one or open
+  Carrier Management in-game first. That real location becomes the
+  trimmed route's own new first entry and is what the trim is anchored
+  from, rather than the pasted route's own row 1, since the carrier may
+  already be mid-route by the time you click Trim; anchoring from the
+  wrong assumed starting point risks plotting an inefficient first hop.
 - Clicking a row copies its system name to the clipboard (with a
   confirmation sound and a small clipboard icon on the row).
 - Right-clicking a row offers **"Set next system"** — a manual override

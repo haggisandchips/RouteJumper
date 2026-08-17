@@ -75,7 +75,9 @@ namespace RouteJumper.ViewModels
                 () => _mode == TrackingMode.Ship
                     ? TrackViewModel!.Instances.FirstOrDefault(i => i.IsTracked)?.CurrentSystem
                     : RolesViewModel!.CaptainInstance?.CurrentSystem,
-                () => config.JournalDirectory);
+                () => config.JournalDirectory,
+                () => RolesViewModel!.CaptainInstance != null,
+                () => RolesViewModel!.CaptainInstance?.CarrierSystem);
             RolesViewModel = new RolesViewModel(
                 routeEventTrigger,
                 _settings,

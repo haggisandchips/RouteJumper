@@ -21,11 +21,15 @@ namespace RouteJumper.Tests.ViewModels
             Func<bool>? canEngageAutoPilot = null,
             IStarSystemLookupService? starSystemLookupService = null,
             Func<string?>? getOriginSystemName = null,
-            Func<string>? getJournalDirectory = null) =>
+            Func<string>? getJournalDirectory = null,
+            Func<bool>? isCaptainAssigned = null,
+            Func<string?>? getCarrierSystemName = null) =>
             new(new AppSettingsStore(dir.Path), trigger, canEngageAutoPilot,
                 starSystemLookupService ?? new FakeStarSystemLookupService(),
                 getOriginSystemName,
-                getJournalDirectory ?? (() => dir.Path));
+                getJournalDirectory ?? (() => dir.Path),
+                isCaptainAssigned,
+                getCarrierSystemName);
 
         [Fact]
         public void SaveCommand_DisabledForBlankText()
@@ -924,13 +928,73 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void TrimToJumpRange_NoCaptainAssigned_ReturnsCaptainNotAssigned()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => false);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.CaptainNotAssigned, result.Outcome);
+        }
+
+        [Fact]
+        public void TrimToJumpRange_CarrierLocationUnknown_ReturnsCarrierLocationUnknown()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
+            // Captain is assigned, but their carrier's own current location hasn't been
+            // established yet this session (e.g. Carrier Management never opened).
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => null);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.CarrierLocationUnknown, result.Outcome);
+        }
+
+        [Fact]
+        public void TrimToJumpRange_CarrierNotAtRouteStart_PrependsCarrierLocationAndAnchorsFromIt()
+        {
+            using var dir = new TempDirectory();
+            var fake = new FakeStarSystemLookupService();
+            // The pasted route's own row 1 ("Mid") isn't where the carrier actually is - it's
+            // sitting at "Base" instead. Trimming must anchor the greedy walk from the carrier's
+            // real position, not the pasted route's row 1, so the first hop it plots is efficient:
+            // from Base, "Far" (150ly) is directly reachable in one hop, so "Mid" - a waypoint the
+            // carrier's real position never needed - is dropped entirely, something a walk anchored
+            // on "Mid" itself could never discover.
+            fake.Coordinates["Base"] = new GalacticCoordinates(0, 0, 0);
+            fake.Coordinates["Mid"] = new GalacticCoordinates(100, 0, 0);
+            fake.Coordinates["Far"] = new GalacticCoordinates(150, 0, 0);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => "Base");
+            vm.RouteText = "Mid\nFar";
+            vm.SaveCommand.Execute(null);
+
+            var result = vm.TrimToJumpRange();
+
+            Assert.Equal(RouteTrimOutcome.Success, result.Outcome);
+            Assert.Equal(1, result.RemovedCount);
+            Assert.Equal("Base\nFar", vm.RouteText);
+            Assert.Equal(2, vm.Rows.Count);
+            Assert.Equal("Base", vm.Rows[0].SystemText);
+            Assert.Equal("Far", vm.Rows[1].SystemText);
+        }
+
+        [Fact]
         public void TrimToJumpRange_UnresolvedRowCoordinates_ReturnsCoordinatesUnavailable()
         {
             using var dir = new TempDirectory();
             var fake = new FakeStarSystemLookupService();
             fake.Coordinates["Sol"] = new GalacticCoordinates(0, 0, 0);
             // "Deciat" deliberately left unseeded - its coordinates aren't known.
-            var vm = Create(dir, starSystemLookupService: fake);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => "Sol");
             vm.RouteText = "Sol\nDeciat";
             vm.SaveCommand.Execute(null);
 
@@ -945,11 +1009,12 @@ namespace RouteJumper.Tests.ViewModels
             using var dir = new TempDirectory();
             var fake = new FakeStarSystemLookupService();
             // Each consecutive hop (300ly) is within range, but A->C directly (600ly) is not -
-            // B can't be skipped, so nothing is removable.
+            // B can't be skipped, so nothing is removable. Carrier is already sitting at A (row
+            // 1), so no synthetic leading entry is added either.
             fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
             fake.Coordinates["B"] = new GalacticCoordinates(300, 0, 0);
             fake.Coordinates["C"] = new GalacticCoordinates(600, 0, 0);
-            var vm = Create(dir, starSystemLookupService: fake);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => "A");
             vm.RouteText = "A\nB\nC";
             vm.SaveCommand.Execute(null);
 
@@ -966,11 +1031,11 @@ namespace RouteJumper.Tests.ViewModels
             using var dir = new TempDirectory();
             var fake = new FakeStarSystemLookupService();
             // A straight line, entirely within a single 500ly hop from A to C - B adds nothing a
-            // fleet carrier actually needs, so it's dropped.
+            // fleet carrier actually needs, so it's dropped. Carrier is already at A.
             fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
             fake.Coordinates["B"] = new GalacticCoordinates(100, 0, 0);
             fake.Coordinates["C"] = new GalacticCoordinates(200, 0, 0);
-            var vm = Create(dir, starSystemLookupService: fake);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => "A");
             vm.RouteText = "A\nB\nC";
             vm.SaveCommand.Execute(null);
 
@@ -996,12 +1061,12 @@ namespace RouteJumper.Tests.ViewModels
             // A straight line, 200ly apart per original hop - A -> D is 600ly (3 * 200), so a
             // single 500ly-max hop can reach at most B->? Actually A->C is 400ly (within range),
             // A->D is 600ly (out of range) - the farthest-reachable greedy walk should keep A, C,
-            // then D (C->D is 200ly, within range), dropping only B.
+            // then D (C->D is 200ly, within range), dropping only B. Carrier is already at A.
             fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
             fake.Coordinates["B"] = new GalacticCoordinates(200, 0, 0);
             fake.Coordinates["C"] = new GalacticCoordinates(400, 0, 0);
             fake.Coordinates["D"] = new GalacticCoordinates(600, 0, 0);
-            var vm = Create(dir, starSystemLookupService: fake);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => "A");
             vm.RouteText = "A\nB\nC\nD";
             vm.SaveCommand.Execute(null);
 
@@ -1020,7 +1085,7 @@ namespace RouteJumper.Tests.ViewModels
             var fake = new FakeStarSystemLookupService();
             fake.Coordinates["A"] = new GalacticCoordinates(0, 0, 0);
             fake.Coordinates["B"] = new GalacticCoordinates(900, 0, 0); // 900ly - exceeds the 500ly max on its own
-            var vm = Create(dir, starSystemLookupService: fake);
+            var vm = Create(dir, starSystemLookupService: fake, isCaptainAssigned: () => true, getCarrierSystemName: () => "A");
             vm.RouteText = "A\nB";
             vm.SaveCommand.Execute(null);
 

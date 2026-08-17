@@ -826,29 +826,57 @@ might pause en route rather than something either mode tracks.
   many closely-spaced waypoints (e.g. a neutron-highway plotter's own
   output), simplified down to only the systems a fleet carrier genuinely
   needs to jump via. A greedy "farthest-reachable waypoint" walk: starting
-  from row 1 (always kept), it repeatedly advances to the farthest-along
-  row still within 500ly in a straight line of the last kept one, never
-  skipping past a genuine &gt;500ly gap between two adjacent rows (that
-  row is kept too - there's no way to skip it regardless). The route's
-  last row is always kept as well.
+  from the Captain's carrier's own real current location (always kept -
+  see below), it repeatedly advances to the farthest-along row still
+  within 500ly in a straight line of the last kept one, never skipping
+  past a genuine &gt;500ly gap between two adjacent rows (that row is kept
+  too - there's no way to skip it regardless). The route's last row is
+  always kept as well.
+- **Requires a Captain currently assigned** (Roles tab, §5.4) **with their
+  carrier's own current location known** (§5.3's Fleet carrier location
+  field) - the pasted route's own row 1 is only ever wherever the CMDR
+  *started* planning the route, not necessarily where the carrier
+  genuinely is right now (it may already be mid-route, or have detoured
+  for a tritium depot), so trimming from that assumed starting point
+  instead of the carrier's real one risks plotting an inefficient first
+  hop. Clicking the button with no Captain assigned shows a message box
+  explaining this and does not proceed - no Yes/No confirmation is even
+  reached. With a Captain assigned but their carrier's own location not
+  yet known this session (§5.3: it's resolved from `CarrierJump`/
+  `CarrierLocation`, confirmed against `CarrierStats`, which only fires
+  once the Carrier Management panel has been opened), a message box
+  instead tells the CMDR to open Carrier Management in-game and try
+  again, also without proceeding.
+- The carrier's real current location becomes the trimmed route's own new
+  first entry, and the greedy walk above is anchored from it instead of
+  the pasted route's row 1 - unless the carrier is already sitting at row
+  1's own system, in which case nothing is prepended (there's nothing for
+  a same-system entry to anchor differently). This is what keeps the
+  first jump efficient: a walk anchored on the carrier's real position can
+  discover that row 1 itself is skippable if the carrier can already
+  reach further ahead in a single hop, something a walk anchored on row 1
+  itself could never find.
 - Applies **immediately** once confirmed - the same effect as if the
-  trimmed list had been pasted and Save clicked, with no Edit-state
-  review step in between. The trim itself is a deterministic, purely
-  mechanical distance calculation with nothing for the CMDR to judge or
-  second-guess once they've agreed to run it at all.
+  trimmed list (with the carrier's own location prepended, per above) had
+  been pasted and Save clicked, with no Edit-state review step in
+  between. The trim itself is a deterministic, purely mechanical distance
+  calculation with nothing for the CMDR to judge or second-guess once
+  they've agreed to run it at all.
 - **Confirmation**: since this permanently discards whatever rows get
-  dropped, clicking it first shows the same kind of plain Yes/No
+  dropped, clicking it - once the Captain/carrier-location preconditions
+  above are satisfied - first shows the same kind of plain Yes/No
   confirmation dialog Import Current Route (§4.10) uses; declining leaves
   the route untouched. Once confirmed, it's applied with no further
   dialog either way - including "every row was already within range,
   nothing removed" - logged (Help > Logs) rather than surfaced as its own
   message box.
-- Requires every row's own coordinates to already be known (§4.9's
-  Distance column, resolved via EDSM or seeded from a journal) - a route
-  with any row whose coordinates are still resolving, or confirmed
-  unavailable, can't be trimmed reliably, since a leg distance involving
-  it isn't known; this, too, is logged rather than shown as a dialog, and
-  leaves the route untouched.
+- Requires every row's own coordinates, and the carrier's own current
+  system's coordinates, to already be known (§4.9's Distance column,
+  resolved via EDSM or seeded from a journal) - a route with any row
+  whose coordinates are still resolving, or confirmed unavailable, can't
+  be trimmed reliably, since a leg distance involving it isn't known;
+  this, too, is logged rather than shown as a dialog, and leaves the
+  route untouched.
 
 ### 4.12 Spansh Integration
 
@@ -2312,13 +2340,22 @@ outright the instant Ship mode is switched on.
     changes and the outcome is logged rather than shown as a dialog.
 79. In Fleet Carrier mode only, Table state's **"Trim for FC"** button
     (immediately after Import Current Route and before Auto Pilot in the
-    same left-aligned group) shows the same kind of Yes/No confirmation first;
-    declining leaves the route untouched. Confirming collapses the saved
-    route down to a series of hops no longer than 500ly each, dropping
-    only the intermediate rows not actually needed to stay within that
-    reach, and applies it immediately (equivalent to pasting the trimmed
-    list and clicking Save, with no Edit-state review step and no further
-    dialog). Hidden entirely in Ship mode. If any row's own coordinates
+    same left-aligned group) requires a Captain currently assigned with
+    their carrier's own current location known - clicking it with no
+    Captain assigned shows a message box saying so and does not proceed;
+    with a Captain assigned but their carrier's location not yet known
+    this session, a message box instead says to open Carrier Management
+    in-game and does not proceed either. With both satisfied, it shows the
+    same kind of Yes/No confirmation first; declining leaves the route
+    untouched. Confirming prepends the carrier's own real current location
+    as the route's new first entry (unless it's already row 1's own
+    system) and collapses the result down to a series of hops no longer
+    than 500ly each, anchored from that real location rather than the
+    pasted route's own row 1, dropping only the rows not actually needed
+    to stay within that reach, and applies it immediately (equivalent to
+    pasting the trimmed list and clicking Save, with no Edit-state review
+    step and no further dialog). Hidden entirely in Ship mode. If any
+    row's own coordinates (including the carrier's own current system)
     aren't yet known, nothing is changed and the outcome is logged rather
     than shown as a dialog.
 80. **Integrations > Spansh…** (§4.12) opens a modal dialog, in either

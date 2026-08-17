@@ -27,6 +27,8 @@ namespace RouteJumper.ViewModels
         private readonly RouteRowEnrichmentService _enrichmentService;
         private readonly Func<string?> _getOriginSystemName;
         private readonly Func<string> _getJournalDirectory;
+        private readonly Func<bool> _isCaptainAssigned;
+        private readonly Func<string?> _getCarrierSystemName;
         private CancellationTokenSource? _enrichmentCts;
 
         private string _routeText = string.Empty;
@@ -67,6 +69,14 @@ namespace RouteJumper.ViewModels
         /// not something a specific running instance's own journal path could reliably resolve
         /// anyway. Defaults to a real AppConfigStore read, so existing callers/tests that don't
         /// care about Import keep working unchanged.
+        ///
+        /// <paramref name="isCaptainAssigned"/>/<paramref name="getCarrierSystemName"/> gate and
+        /// feed TrimToJumpRange - trimming needs the Captain's own fleet carrier's real current
+        /// location (never the pasted route's own row 1, which may no longer be where the carrier
+        /// actually is) to anchor the first hop efficiently, so both are required before it will
+        /// run at all. Default to always-assigned/unknown-location respectively - a caller that
+        /// doesn't care about Trim for FC never needs to supply real closures, though TrimToJumpRange
+        /// itself won't proceed past its own gating with the unknown-location default.
         /// </summary>
         public RouteViewModel(
             AppSettingsStore settings,
@@ -74,7 +84,9 @@ namespace RouteJumper.ViewModels
             Func<bool>? canEngageAutoPilot = null,
             IStarSystemLookupService? starSystemLookupService = null,
             Func<string?>? getOriginSystemName = null,
-            Func<string>? getJournalDirectory = null)
+            Func<string>? getJournalDirectory = null,
+            Func<bool>? isCaptainAssigned = null,
+            Func<string?>? getCarrierSystemName = null)
         {
             _settings = settings;
             _canEngageAutoPilot = canEngageAutoPilot ?? (() => true);
@@ -82,6 +94,8 @@ namespace RouteJumper.ViewModels
             _enrichmentService = new RouteRowEnrichmentService(_starSystemLookupService);
             _getOriginSystemName = getOriginSystemName ?? (() => null);
             _getJournalDirectory = getJournalDirectory ?? (() => new AppConfigStore().JournalDirectory);
+            _isCaptainAssigned = isCaptainAssigned ?? (() => true);
+            _getCarrierSystemName = getCarrierSystemName ?? (() => null);
             Rows = new ObservableCollection<RouteRowViewModel>();
 
             // Debounced live refresh: a live FSDTarget/NavRoute.json seed (Ship mode) or a
@@ -465,12 +479,22 @@ namespace RouteJumper.ViewModels
         /// column) - a route with any still-unresolved/confirmed-unavailable row can't be trimmed
         /// reliably, since a leg distance involving it isn't known.
         ///
+        /// Also requires a Captain currently assigned (Roles tab) with their carrier's own current
+        /// location known - the pasted route's own row 1 is only ever where the CMDR *started*
+        /// planning the route, not necessarily where the carrier genuinely is right now (it may
+        /// already be mid-route, or have detoured). Trimming from the wrong assumed starting point
+        /// would make the very first hop it plots inefficient - possibly a short hop when a much
+        /// longer one straight from the carrier's real position was available. The carrier's real
+        /// location is therefore added as the route's own new first entry (unless it's already the
+        /// same system as row 1, in which case nothing is added - there's nothing for a same-system
+        /// entry to anchor differently) and the greedy walk below is anchored from there instead.
+        ///
         /// Greedy "farthest reachable waypoint" simplification, the standard shape for this kind
-        /// of route-thinning: starting from row 1 (always kept), repeatedly jumps to the
-        /// farthest-along row still within range in a straight line, never skipping past a genuine
-        /// &gt;MaxCarrierJumpLightYears gap (that row is kept too - there's no way to skip it
-        /// regardless). The route's last row is always kept as well, as a natural consequence of
-        /// the loop always advancing until it reaches the end. Unlike ImportFromNavRoute, this
+        /// of route-thinning: starting from the carrier's own real location (always kept), repeatedly
+        /// jumps to the farthest-along row still within range in a straight line, never skipping
+        /// past a genuine &gt;MaxCarrierJumpLightYears gap (that row is kept too - there's no way to
+        /// skip it regardless). The route's last row is always kept as well, as a natural consequence
+        /// of the loop always advancing until it reaches the end. Unlike ImportFromNavRoute, this
         /// applies immediately (calling Save() itself) rather than leaving the result in Edit state
         /// for review - the trim is a deterministic, purely mechanical distance calculation with no
         /// judgment call for the CMDR to make, so there's nothing a manual confirmation step would
@@ -484,10 +508,33 @@ namespace RouteJumper.ViewModels
                 return new RouteTrimResult(RouteTrimOutcome.NoRoute);
             }
 
-            var coordinates = new List<GalacticCoordinates>(Rows.Count);
-            foreach (var row in Rows)
+            if (!_isCaptainAssigned())
             {
-                if (!_starSystemLookupService.TryGetCachedCoordinates(row.SystemText, out var rowCoords) || rowCoords is not { } resolved)
+                Log.Warn("Route", "Trim for FC skipped - no Captain assigned; the carrier's real current location is needed to anchor the first hop.");
+                return new RouteTrimResult(RouteTrimOutcome.CaptainNotAssigned);
+            }
+
+            var carrierSystem = _getCarrierSystemName();
+            if (string.IsNullOrWhiteSpace(carrierSystem))
+            {
+                Log.Warn("Route", "Trim for FC skipped - the Captain's carrier's current location isn't known yet; open Carrier Management in-game to establish it.");
+                return new RouteTrimResult(RouteTrimOutcome.CarrierLocationUnknown);
+            }
+
+            // Skip prepending a duplicate leading entry when the carrier is already sitting at
+            // row 1's own system - there's nothing for a same-system anchor to change.
+            var prependCarrierLocation = !string.Equals(carrierSystem, Rows[0].SystemText, StringComparison.OrdinalIgnoreCase);
+            var systemNames = new List<string>(Rows.Count + (prependCarrierLocation ? 1 : 0));
+            if (prependCarrierLocation)
+            {
+                systemNames.Add(carrierSystem);
+            }
+            systemNames.AddRange(Rows.Select(r => r.SystemText));
+
+            var coordinates = new List<GalacticCoordinates>(systemNames.Count);
+            foreach (var systemName in systemNames)
+            {
+                if (!_starSystemLookupService.TryGetCachedCoordinates(systemName, out var rowCoords) || rowCoords is not { } resolved)
                 {
                     Log.Warn("Route", "Trim for FC skipped - not every row's coordinates are known yet.");
                     return new RouteTrimResult(RouteTrimOutcome.CoordinatesUnavailable);
@@ -498,10 +545,10 @@ namespace RouteJumper.ViewModels
 
             var keptIndexes = new List<int> { 0 };
             var currentIndex = 0;
-            while (currentIndex < Rows.Count - 1)
+            while (currentIndex < systemNames.Count - 1)
             {
                 var farthestIndex = currentIndex + 1;
-                for (var candidate = currentIndex + 1; candidate < Rows.Count; candidate++)
+                for (var candidate = currentIndex + 1; candidate < systemNames.Count; candidate++)
                 {
                     if (coordinates[currentIndex].DistanceTo(coordinates[candidate]) <= MaxCarrierJumpLightYears)
                     {
@@ -513,13 +560,13 @@ namespace RouteJumper.ViewModels
                 currentIndex = farthestIndex;
             }
 
-            var removedCount = Rows.Count - keptIndexes.Count;
-            if (removedCount == 0)
+            var removedCount = systemNames.Count - keptIndexes.Count;
+            if (removedCount == 0 && !prependCarrierLocation)
             {
                 return new RouteTrimResult(RouteTrimOutcome.Success);
             }
 
-            RouteText = string.Join("\n", keptIndexes.Select(i => Rows[i].SystemText));
+            RouteText = string.Join("\n", keptIndexes.Select(i => systemNames[i]));
             Save();
             Log.Info("Route", $"Trimmed route to {keptIndexes.Count} row(s) (removed {removedCount}), max {MaxCarrierJumpLightYears:0} ly/hop.");
             return new RouteTrimResult(RouteTrimOutcome.Success, removedCount);
