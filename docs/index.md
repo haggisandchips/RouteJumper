@@ -128,8 +128,11 @@ only), and **Edit** buttons.
   assigned with a macro selected for them — see the Roles tab) drives
   the whole route to completion: it plays the Captain's macro to plot
   each jump, waits out each cooldown, and (with an Engineer assigned)
-  plays the Engineer's macro to refuel in between. It stops itself once
-  every row is Complete, or immediately if you click it again, if the
+  plays the Engineer's macro to refuel in between — except for the
+  route's own last row, which never gets a refuel (there's no next jump
+  left to fuel for). It stops itself once every row is Complete —
+  speaking a one-off "You have arrived at your destination..."
+  announcement as it does — or immediately if you click it again, if the
   underlying Captain/Engineer/macro requirements stop being met
   mid-run, or if its own "panic mode" trips — see below.
 

@@ -82,6 +82,10 @@ and this project follows [Semantic Versioning](https://semver.org/).
   enrichment finishes with one or more systems still showing "Plot
   needed"/"Target needed" — points at those per-row hints instead of
   leaving it to be noticed row by row. Resets on every fresh Save.
+- A spoken "You have arrived at your destination. Thank you for flying
+  with ED F.C. Auto Pilot." announcement when Auto Pilot stops itself
+  because the whole route reached Complete — not spoken for a manual
+  Stop or a panic-mode stop, both already self-explanatory on their own.
 
 ### Changed
 
@@ -140,6 +144,12 @@ and this project follows [Semantic Versioning](https://semver.org/).
   which fell back to one EDSM request per row. Star Type now always
   resolves via a single batched request covering every system in the
   route.
+- Auto Pilot's last row spoke "Refueling in 30 seconds"/"Refueling in 5
+  seconds" for a refuel that then never actually happened — the route
+  completing (which stops Auto Pilot) raced the scheduled refuel and
+  cancelled it out from under itself. The Engineer's refuel (and its own
+  announcements) is no longer scheduled at all for the route's own last
+  row, since there's no next row left to jump anywhere with regardless.
 - Auto Pilot's Engineer-refuel panic mode could falsely trigger after a
   real, successful refuel — confirmed against a real session's own
   journal, where a genuine deposit reaching a full 1000t was flagged as

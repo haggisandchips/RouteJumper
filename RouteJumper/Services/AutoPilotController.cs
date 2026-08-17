@@ -46,7 +46,14 @@ namespace RouteJumper.Services
     /// Also announces each trigger via <see cref="_speak"/> (SpeechAnnouncer.Speak) ahead of
     /// time - "Plotting in 30 seconds"/"Plotting in 5 seconds" before the Captain's macro plays,
     /// and the same wording with "Refueling" before the Engineer's - see
-    /// AnnounceBeforeTrigger.
+    /// AnnounceBeforeTrigger. None of this - the Engineer's refuel itself, nor its own advance
+    /// announcements - is ever scheduled for the route's own last row (see the "Jumping" branch
+    /// of EvaluateAndMaybeTrigger): there's no next row left to jump anywhere with, so a refuel
+    /// there serves no purpose, and the route completing moments later would cancel it out from
+    /// under itself regardless (a race, not a deliberate design choice worth relying on). Instead,
+    /// the moment the route completes - the same real-world instant a next row's own Cooldown
+    /// would otherwise have started - <see cref="_speak"/> announces
+    /// "You have arrived at your destination..." once, right alongside <see cref="_onRouteComplete"/>.
     ///
     /// "Panic mode": deliberately paranoid, by design - the failure mode this exists to prevent
     /// is a CMDR who's stopped paying close attention (that's the whole point of Auto Pilot)
@@ -263,6 +270,7 @@ namespace RouteJumper.Services
                 if (_rows.Count > 0 && _rows.All(r => r.Icon == RowIcon.Complete))
                 {
                     Stop();
+                    _speak("You have arrived at your destination. Thank you for flying with ED F.C. Auto Pilot.");
                     _onRouteComplete();
                 }
 
@@ -300,7 +308,16 @@ namespace RouteJumper.Services
                 // against it exactly once per row, the same real-world target
                 // ("AutoPilotDelayMs after Cooldown starts") as before, just computed minutes
                 // early instead of at the moment Cooldown itself is actually observed starting.
-                if (!ReferenceEquals(_refuelTriggeredForRow, currentRow) && currentRow.PhaseEndUtc is { } estimatedCooldownStartUtc)
+                //
+                // Skipped entirely for the route's own last row: there is no next row left to
+                // jump anywhere with, so refueling here serves no purpose - and worse, the route
+                // completing (see the "no in-progress row" branch above) Stops Auto Pilot, which
+                // cancels this same _cts token, right around the same real-world moment this
+                // would otherwise fire - a race that either silently drops the refuel mid-flight
+                // or leaves an already-spoken "Refueling in..." announcement never actually
+                // followed through on.
+                var isLastRow = ReferenceEquals(currentRow, _rows[^1]);
+                if (!isLastRow && !ReferenceEquals(_refuelTriggeredForRow, currentRow) && currentRow.PhaseEndUtc is { } estimatedCooldownStartUtc)
                 {
                     _refuelTriggeredForRow = currentRow;
                     var delay = TimeSpan.FromMilliseconds(Math.Max(0, _getAutoPilotDelayMs()));

@@ -454,7 +454,13 @@ the whole route reaches Complete or Auto Pilot is stopped:
   announcements this schedules). This fires once per row (not repeatedly
   while it remains `Jumping`). With no Engineer assigned, nothing plays
   here — Auto Pilot's own requirements (§4.2) already mean an assigned
-  Engineer always has a macro selected too.
+  Engineer always has a macro selected too. **Never scheduled at all for
+  the route's own last row** - there is no row after it to ever need
+  fueling for, and the route completing moments later (below) would only
+  cancel an in-flight refuel out from under itself regardless (nothing to
+  actually protect by racing it). Skipping it here also means neither
+  Engineer announcement below (§4.8) is ever spoken for that final row -
+  they would otherwise promise a refuel that was never going to happen.
 - Both the Captain's plot and the Engineer's refuel play through the same
   single mechanism as a manual Play (§6.5) — visible via `IsPlaying`,
   stoppable via **Stop**, and reported through the same closeable warning
@@ -521,7 +527,13 @@ the whole route reaches Complete or Auto Pilot is stopped:
   assigned, Engineer) stops meeting Auto Pilot's own requirements (§4.2)
   partway through a run - a role or macro selection changing out from
   under an active run halts it immediately rather than continuing
-  regardless - and also on either panic-mode failure above.
+  regardless - and also on either panic-mode failure above. Reaching the
+  end of the route this way - and only this way, not a manual Stop or
+  either panic-mode failure - speaks a one-off "You have arrived at your
+  destination. Thank you for flying with ED F.C. Auto Pilot." announcement
+  (§4.8's own muting/volume/voice apply the same as any other
+  announcement), at the same real-world instant the row after the last
+  one would otherwise have started `Cooldown` at, had there been one.
 - A `CarrierJumpCancelled` (§5.7) reverting a row's `Status` back to
   blank does not, on its own, cause a further macro play for that same
   row - Auto Pilot only ever plays the Captain's macro once per row it
@@ -560,7 +572,17 @@ the whole route reaches Complete or Auto Pilot is stopped:
   silently none at all.
 - The Engineer's announcements are only actually spoken if an Engineer is
   still assigned with a macro selected by the time each is due - checked
-  fresh at that moment, not just when first scheduled.
+  fresh at that moment, not just when first scheduled. Neither Engineer
+  announcement is ever scheduled for the route's own last row at all
+  (§4.7) - there is no refuel actually coming for it, so announcing one
+  would just be a promise Auto Pilot was never going to keep.
+- A final, one-off "You have arrived at your destination. Thank you for
+  flying with ED F.C. Auto Pilot." announcement is spoken when Auto Pilot
+  stops itself because the whole route reached Complete (§4.7) - never
+  for a manual Stop or a panic-mode stop, both of which are already
+  self-explanatory (the button's own label change, or the warning banner,
+  respectively) rather than a genuine "you're done" moment worth
+  announcing.
 - Muting (§3.4) silently suppresses every announcement described here;
   it has no effect on the Preferences dialog's own Test control (§3.5).
 
@@ -2404,6 +2426,15 @@ outright the instant Ship mode is switched on.
     per-row placeholders it refers to are unaffected. A fresh Save
     re-evaluates and, if the same or a different gap is still there,
     shows the banner again regardless of an earlier dismissal.
+83. The Engineer's refuel (and its own "Refueling in 30/5 seconds"
+    announcements) is never scheduled for the route's own last row - a
+    route that reaches its last row's `Jumping` status with Engineer
+    assigned neither speaks a "Refueling..." announcement nor plays the
+    Engineer's macro for it. When Auto Pilot stops itself because the
+    whole route reached Complete (not a manual Stop, not a panic-mode
+    stop), a one-off "You have arrived at your destination. Thank you
+    for flying with ED F.C. Auto Pilot." announcement is spoken, muted the
+    same as any other announcement (§3.4).
 
 ---
 

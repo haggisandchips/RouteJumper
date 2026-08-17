@@ -442,6 +442,90 @@ namespace RouteJumper.Tests.Services
             Assert.False(refreshed); // no point rescanning - the game's state is already unknown
         }
 
+        /// <summary>Single-row route whose only row is already "Jumping" - i.e. it's simultaneously the route's first and last row.</summary>
+        private static ObservableCollection<RouteRowViewModel> RowsWithJumpingLastRow() => new(new[]
+        {
+            new RouteRowViewModel
+            {
+                SystemText = "Sol",
+                Icon = RowIcon.InProgress,
+                Status = "Jumping",
+                PhaseEndUtc = DateTime.UtcNow.AddSeconds(-10)
+            }
+        });
+
+        [Fact]
+        public async Task EngineerRefuel_LastRowJumping_NeverScheduledOrTriggered()
+        {
+            // There's no next row left to jump anywhere with, so refueling here would serve no
+            // purpose - and the route completing moments later would just cancel it out from
+            // under itself regardless (see the class doc comment's own note on this).
+            var rows = RowsWithJumpingLastRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var playMacroCalled = false;
+            var refreshed = false;
+            var spoken = new List<string>();
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => Instance(carrierFuelLevel: 500),
+                () => 0,
+                (_, _) => { playMacroCalled = true; return Task.FromResult(true); },
+                () => { refreshed = true; return Task.CompletedTask; },
+                () => { },
+                () => { },
+                _ => { },
+                spoken.Add,
+                new ManualRowEventTrigger());
+
+            controller.Start();
+            await Task.Delay(200);
+
+            Assert.False(playMacroCalled);
+            Assert.False(refreshed);
+            Assert.DoesNotContain(spoken, s => s.Contains("Refueling", StringComparison.OrdinalIgnoreCase));
+        }
+
+        [Fact]
+        public async Task RouteCompletes_SpeaksArrivalAnnouncementOnce()
+        {
+            var rows = new ObservableCollection<RouteRowViewModel>(new[]
+            {
+                new RouteRowViewModel { SystemText = "Sol", Icon = RowIcon.Complete }
+            });
+            var routeCompleted = false;
+            var spoken = new List<string>();
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => null,
+                () => null,
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () => Task.CompletedTask,
+                () => routeCompleted = true,
+                () => { },
+                _ => { },
+                spoken.Add,
+                new ManualRowEventTrigger());
+
+            controller.Start();
+
+            for (var i = 0; i < 20 && !routeCompleted; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(routeCompleted);
+            Assert.Single(spoken);
+            Assert.Contains("arrived", spoken[0], StringComparison.OrdinalIgnoreCase);
+        }
+
         [Fact]
         public void ComputeAnnounceDelay_ReturnsThePositiveDelay_WhenDueTimeIsInTheFuture()
         {
