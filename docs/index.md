@@ -119,7 +119,11 @@ only), and **Edit** buttons.
   actual gap rather than a knock-on effect of the one before it. In-game,
   plotting a route to that system — or simply targeting it — fills in the
   missing `Distance`/`Star Type` live, straight from the game's own data,
-  with no re-save needed.
+  with no re-save needed. If a lookup pass finishes with any row still
+  showing "Plot needed"/"Target needed", a dismissible banner appears
+  above the table pointing you at them — dismissing it only hides the
+  banner, not the per-row hints themselves, and a fresh Save re-evaluates
+  from scratch.
 - **Auto Pilot** (Fleet Carrier mode only; enabled once a Captain is
   assigned with a macro selected for them — see the Roles tab) drives
   the whole route to completion: it plays the Captain's macro to plot
@@ -149,11 +153,16 @@ Pilot immediately and shows a banner explaining why, rather than
 guessing "probably fine", if a plot/refuel macro is interrupted for any
 reason, if the Captain's macro finishes but no jump request actually
 followed, or if the Engineer's macro finishes but a fresh check doesn't
-show the carrier's fuel level having actually gone up. This is important
-because if a macro does not complete normally it is likely the game is
-not in the right state for the start of the next macro. We wouldn't want
-to continue plotting jumps if the game had somehow clicked Auto Launch,
-would we 🙂.
+find a genuine new fuel deposit for the carrier since the macro started
+playing. (This is deliberately *not* just "is the fuel level higher than
+before" — Elite's own journal never logs the fuel a jump itself
+consumes, so the last known level often still reflects however things
+stood *before* the jump this refuel is recovering from; comparing
+against that stale number could wrongly panic on a refuel that actually
+worked.) This is important because if a macro does not complete
+normally it is likely the game is not in the right state for the start
+of the next macro. We wouldn't want to continue plotting jumps if the
+game had somehow clicked Auto Launch, would we 🙂.
 
 ### Roles tab
 
