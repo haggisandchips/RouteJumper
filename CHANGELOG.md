@@ -140,6 +140,18 @@ and this project follows [Semantic Versioning](https://semver.org/).
   which fell back to one EDSM request per row. Star Type now always
   resolves via a single batched request covering every system in the
   route.
+- Auto Pilot's Engineer-refuel panic mode could falsely trigger after a
+  real, successful refuel — confirmed against a real session's own
+  journal, where a genuine deposit reaching a full 1000t was flagged as
+  "not replenished" because the carrier had also read 1000t the last
+  time its fuel was checked, *before* the jump that this refuel was
+  topping back up after. Elite's journal never logs the fuel a jump
+  itself consumes, so that last known reading routinely predates the
+  jump the refuel exists to recover from, and a depot refilled back to
+  that stale ceiling showed no numeric increase despite a real deposit
+  having just happened. The check now confirms a genuine
+  `CarrierDepositFuel` event for the carrier timestamped after the
+  macro started playing, rather than comparing fuel levels before/after.
 
 ## [1.3.0] - 2026-08-13
 

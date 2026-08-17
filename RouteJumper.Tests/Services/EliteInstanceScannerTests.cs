@@ -184,6 +184,40 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
+        public void ReadJournalSummary_CarrierDepositFuel_ResolvesLastDepositTimestampAgainstOwnedCarrier()
+        {
+            // AutoPilotController's Engineer-refuel panic check (see its own class doc comment)
+            // relies on this timestamp, not a before/after CarrierFuelLevel comparison, since a
+            // jump's own fuel consumption is never itself logged to the journal.
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"timestamp\":\"2026-08-16T22:18:10Z\",\"event\":\"CarrierStats\",\"CarrierID\":555,\"Name\":\"Serenity\"}",
+                "{\"timestamp\":\"2026-08-16T22:18:20Z\",\"event\":\"CarrierLocation\",\"CarrierID\":555,\"CarrierType\":\"FleetCarrier\",\"StarSystem\":\"Deciat\"}",
+                "{\"timestamp\":\"2026-08-16T22:59:18Z\",\"event\":\"CarrierDepositFuel\",\"CarrierID\":555,\"Amount\":85,\"Total\":1000}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Equal(new DateTime(2026, 8, 16, 22, 59, 18, DateTimeKind.Utc), summary.CarrierLastDepositUtc);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_CarrierDepositFuel_IntoUnownedCarrier_LeavesLastDepositTimestampNull()
+        {
+            // Same ownership-agnostic-until-resolved guard as CarrierFuelLevel itself - a deposit
+            // into a squadron carrier this commander doesn't own must never look like proof of
+            // their own Engineer refuel having happened.
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"timestamp\":\"2026-08-16T22:18:10Z\",\"event\":\"CarrierStats\",\"CarrierID\":555,\"Name\":\"Serenity\"}",
+                "{\"timestamp\":\"2026-08-16T22:18:20Z\",\"event\":\"CarrierLocation\",\"CarrierID\":555,\"CarrierType\":\"FleetCarrier\",\"StarSystem\":\"Deciat\"}",
+                "{\"timestamp\":\"2026-08-16T22:59:18Z\",\"event\":\"CarrierDepositFuel\",\"CarrierID\":999,\"Amount\":85,\"Total\":1000}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Null(summary.CarrierLastDepositUtc);
+        }
+
+        [Fact]
         public void ReadJournalSummary_MarketBuyTritium_IncreasesTracked()
         {
             using var dir = new TempDirectory();

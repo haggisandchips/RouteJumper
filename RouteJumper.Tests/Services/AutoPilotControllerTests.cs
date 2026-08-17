@@ -11,7 +11,7 @@ namespace RouteJumper.Tests.Services
     {
         private static readonly DateTime NowUtc = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        private static EliteInstanceViewModel Instance(int? carrierFuelLevel = null) => new(
+        private static EliteInstanceViewModel Instance(int? carrierFuelLevel = null, DateTime? carrierLastDepositUtc = null) => new(
             processId: 1,
             commanderName: "Jameson",
             fid: "F1",
@@ -29,7 +29,8 @@ namespace RouteJumper.Tests.Services
             carrierBody: null,
             journalFilePath: null,
             carrierId: null,
-            carrierFuelLevel: carrierFuelLevel);
+            carrierFuelLevel: carrierFuelLevel,
+            carrierLastDepositUtc: carrierLastDepositUtc);
 
         /// <summary>
         /// Exercises the real EvaluateAndMaybeTrigger/TriggerCaptainPlotAsync path end to end
@@ -218,7 +219,7 @@ namespace RouteJumper.Tests.Services
         });
 
         [Fact]
-        public async Task EngineerRefuel_MacroCompletesButFuelUnchanged_PanicsAndStopsAutoPilot()
+        public async Task EngineerRefuel_MacroCompletesButNoDepositObserved_PanicsAndStopsAutoPilot()
         {
             var rows = RowsWithJumpingFirstRow();
             var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
@@ -238,7 +239,7 @@ namespace RouteJumper.Tests.Services
                 () =>
                 {
                     refreshed = true;
-                    currentEngineerInstance = Instance(carrierFuelLevel: 500); // rescanned, but unchanged
+                    currentEngineerInstance = Instance(carrierFuelLevel: 500); // rescanned - no fresh deposit observed, e.g. genuinely nothing was deposited
                     return Task.CompletedTask;
                 },
                 () => { },
@@ -261,7 +262,7 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task EngineerRefuel_MacroCompletesAndFuelIncreased_DoesNotPanic()
+        public async Task EngineerRefuel_FreshDepositObservedAfterMacroStarted_DoesNotPanic()
         {
             var rows = RowsWithJumpingFirstRow();
             var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
@@ -278,7 +279,8 @@ namespace RouteJumper.Tests.Services
                 (_, _) => Task.FromResult(true),
                 () =>
                 {
-                    currentEngineerInstance = Instance(carrierFuelLevel: 620); // genuinely increased
+                    // A genuine CarrierDepositFuel, timestamped now (after the macro started).
+                    currentEngineerInstance = Instance(carrierFuelLevel: 620, carrierLastDepositUtc: DateTime.UtcNow);
                     return Task.CompletedTask;
                 },
                 () => { },
@@ -294,12 +296,51 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
-        public async Task EngineerRefuel_DepotAlreadyFullBeforehand_StillPanicsBecauseFuelDidNotIncrease()
+        public async Task EngineerRefuel_DepositTimestampRefillsToAPreviouslyKnownCeiling_StillDoesNotPanic()
         {
-            // Deliberately paranoid: a real jump always consumes some fuel, so a depot that was
-            // already believed full (TRITIUM_LOOPS would have resolved to 0 for this run) is
-            // itself the anomaly - most likely evidence the jump never actually happened - not a
-            // benign "nothing to do" case to wave through.
+            // The real-world bug this guards against: Elite's journal never logs the fuel a jump
+            // itself consumes, so the last known CarrierFuelLevel can easily still read the
+            // pre-jump ceiling (e.g. 1000, from before the very jump that made this refuel
+            // necessary) - a depot genuinely refilled back to that exact same number must not be
+            // mistaken for "nothing was deposited" just because the number itself didn't move.
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            EliteInstanceViewModel currentEngineerInstance = Instance(carrierFuelLevel: 1000); // stale pre-jump ceiling
+            var stopped = false;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => currentEngineerInstance,
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () =>
+                {
+                    // Refilled back to the same 1000 - but with a fresh deposit timestamp proving it's real.
+                    currentEngineerInstance = Instance(carrierFuelLevel: 1000, carrierLastDepositUtc: DateTime.UtcNow);
+                    return Task.CompletedTask;
+                },
+                () => { },
+                () => stopped = true,
+                _ => { },
+                _ => { },
+                new ManualRowEventTrigger());
+
+            controller.Start();
+            await Task.Delay(200);
+
+            Assert.False(stopped);
+        }
+
+        [Fact]
+        public async Task EngineerRefuel_DepotAlreadyFullBeforehand_StillPanicsBecauseNoFreshDepositObserved()
+        {
+            // Deliberately paranoid: a real jump always consumes some fuel, so a rescan showing
+            // no fresh CarrierDepositFuel event at all for this carrier is itself the anomaly -
+            // most likely evidence nothing was actually deposited - not a benign "nothing to do"
+            // case to wave through, even though the depot happens to already read as full.
             var rows = RowsWithJumpingFirstRow();
             var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
             var refreshed = false;
@@ -311,7 +352,7 @@ namespace RouteJumper.Tests.Services
                 () => null,
                 () => null,
                 () => macro,
-                () => Instance(carrierFuelLevel: 1000), // already full
+                () => Instance(carrierFuelLevel: 1000), // already full, no deposit timestamp at all
                 () => 0,
                 (_, _) => Task.FromResult(true),
                 () => { refreshed = true; return Task.CompletedTask; },

@@ -33,7 +33,8 @@ namespace RouteJumper.ViewModels
             string? carrierBody,
             string? journalFilePath,
             long? carrierId,
-            int? carrierFuelLevel)
+            int? carrierFuelLevel,
+            DateTime? carrierLastDepositUtc = null)
         {
             ProcessId = processId;
             CommanderName = commanderName;
@@ -53,6 +54,7 @@ namespace RouteJumper.ViewModels
             JournalFilePath = journalFilePath;
             CarrierId = carrierId;
             CarrierFuelLevel = carrierFuelLevel;
+            CarrierLastDepositUtc = carrierLastDepositUtc;
         }
 
         public int ProcessId { get; }
@@ -187,6 +189,20 @@ namespace RouteJumper.ViewModels
         /// seen yet this session (most commonly: Carrier Management hasn't been opened yet).
         /// </summary>
         public int? CarrierFuelLevel { get; }
+
+        /// <summary>
+        /// UTC timestamp of the most recent CarrierDepositFuel event resolved against this
+        /// carrier's own confirmed CarrierID - see EliteInstanceScanner. Null if no deposit into
+        /// this carrier has been seen yet this session. Elite's journal never logs the fuel a
+        /// jump itself consumes (only CarrierStats and a fresh deposit report an absolute level),
+        /// so CarrierFuelLevel alone can go stale across a jump - AutoPilotController's own
+        /// Engineer-refuel panic check uses this timestamp, not a before/after CarrierFuelLevel
+        /// comparison, to confirm a real deposit actually happened during a given playback
+        /// window, since a depot refilled back to a previously-known ceiling (or already at the
+        /// last known ceiling because no CarrierStats/deposit fired since before the jump that
+        /// dropped it) would otherwise show no numeric increase despite a genuine deposit.
+        /// </summary>
+        public DateTime? CarrierLastDepositUtc { get; }
 
         /// <summary>
         /// Empty (not "Unknown") when the fuel level isn't known - same

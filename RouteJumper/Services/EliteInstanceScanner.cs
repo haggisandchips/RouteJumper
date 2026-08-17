@@ -149,7 +149,8 @@ namespace RouteJumper.Services
                 summary.CarrierBody,
                 journalPath,
                 summary.CarrierId,
-                summary.CarrierFuelLevel);
+                summary.CarrierFuelLevel,
+                summary.CarrierLastDepositUtc);
         }
 
         private static DateTime? TryReadFileheaderTimestampUtc(string path)
@@ -252,6 +253,15 @@ namespace RouteJumper.Services
             /// has been seen for this carrier yet this session.
             /// </summary>
             public int? CarrierFuelLevel { get; init; }
+
+            /// <summary>
+            /// UTC timestamp of the most recent CarrierDepositFuel event for the resolved owned
+            /// CarrierID - see EliteInstanceViewModel.CarrierLastDepositUtc for why this, not a
+            /// before/after CarrierFuelLevel comparison, is what AutoPilotController's Engineer-
+            /// refuel panic check relies on. Null if no deposit into this carrier has been seen
+            /// yet this session.
+            /// </summary>
+            public DateTime? CarrierLastDepositUtc { get; init; }
         }
 
         internal static JournalSummary ReadJournalSummary(string path)
@@ -294,6 +304,15 @@ namespace RouteJumper.Services
             // level for whichever carrier their own CarrierID names, not necessarily this
             // commander's own.
             var carrierFuelById = new Dictionary<long, int>();
+
+            // Same ownership-agnostic-until-resolved pattern as carrierFuelById above - the
+            // timestamp of the most recent deposit into whichever CarrierID it names, resolved
+            // against ownedCarrierId once the full pass is done. This is what lets a refuel be
+            // confirmed by "did a deposit genuinely happen just now" rather than "did the fuel
+            // number end up higher than whatever was last known" - the latter goes stale the
+            // moment a jump (which consumes fuel with no journal event of its own) happens
+            // between the last known reading and this deposit.
+            var carrierLastDepositUtcById = new Dictionary<long, DateTime>();
 
             try
             {
@@ -407,10 +426,17 @@ namespace RouteJumper.Services
                                 {
                                     trackedTritium = Math.Max(0, trackedTritium - depositAmountValue);
                                 }
-                                if (root.TryGetProperty("CarrierID", out var depositCarrierId) && depositCarrierId.TryGetInt64(out var depositCarrierIdValue) &&
-                                    root.TryGetProperty("Total", out var depositTotal) && depositTotal.TryGetInt32(out var depositTotalValue))
+                                if (root.TryGetProperty("CarrierID", out var depositCarrierId) && depositCarrierId.TryGetInt64(out var depositCarrierIdValue))
                                 {
-                                    carrierFuelById[depositCarrierIdValue] = depositTotalValue;
+                                    if (root.TryGetProperty("Total", out var depositTotal) && depositTotal.TryGetInt32(out var depositTotalValue))
+                                    {
+                                        carrierFuelById[depositCarrierIdValue] = depositTotalValue;
+                                    }
+
+                                    if (TryReadEventTimestampUtc(root, out var depositTimestampUtc))
+                                    {
+                                        carrierLastDepositUtcById[depositCarrierIdValue] = depositTimestampUtc;
+                                    }
                                 }
                                 break;
 
@@ -540,6 +566,9 @@ namespace RouteJumper.Services
             var carrierFuelLevel = resolvedCarrierId.HasValue && carrierFuelById.TryGetValue(resolvedCarrierId.Value, out var fuel)
                 ? fuel
                 : (int?)null;
+            var carrierLastDepositUtc = resolvedCarrierId.HasValue && carrierLastDepositUtcById.TryGetValue(resolvedCarrierId.Value, out var depositUtc)
+                ? depositUtc
+                : (DateTime?)null;
 
             return new JournalSummary
             {
@@ -554,8 +583,27 @@ namespace RouteJumper.Services
                 CarrierId = resolvedCarrierId,
                 CarrierSystem = carrierSystem,
                 CarrierBody = carrierBody,
-                CarrierFuelLevel = carrierFuelLevel
+                CarrierFuelLevel = carrierFuelLevel,
+                CarrierLastDepositUtc = carrierLastDepositUtc
             };
+        }
+
+        /// <summary>Parses an event's own "timestamp" field the same way TryReadFileheaderTimestampUtc does for the journal's first line.</summary>
+        private static bool TryReadEventTimestampUtc(JsonElement root, out DateTime timestampUtc)
+        {
+            timestampUtc = default;
+            if (root.TryGetProperty("timestamp", out var ts) && ts.GetString() is { } text &&
+                DateTime.TryParse(
+                    text,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                    out var parsed))
+            {
+                timestampUtc = parsed;
+                return true;
+            }
+
+            return false;
         }
 
         private static string? GetString(JsonElement root, string propertyName) =>

@@ -490,13 +490,27 @@ the whole route reaches Complete or Auto Pilot is stopped:
     panics unless a fresh rescan of the Engineer's own instance
     immediately afterward - never just whatever was last known, since the
     deposit that just happened is exactly what that rescan needs to pick
-    up - shows a *strictly higher* carrier fuel level (§5.3) than right
-    before the macro started. No exception for a depot that was already
-    believed full, or a fuel level that wasn't known at all beforehand: a
-    real jump always consumes some fuel, so a depot that isn't confirmed
-    to have gone up is itself the anomaly worth surfacing (most likely
-    meaning the jump never actually happened at all), not a benign case
-    to wave through.
+    up - shows a genuine `CarrierDepositFuel` event for this carrier
+    timestamped after the macro actually started playing (a small grace
+    window absorbs the journal's own whole-second timestamp resolution).
+    Deliberately **not** a before/after comparison of the carrier fuel
+    level (§5.3) itself: Elite's own journal never logs the fuel a jump
+    consumes - only `CarrierStats` and a fresh deposit report an absolute
+    level - so the last known level routinely still reflects whatever it
+    was *before* the very jump this refuel exists to recover from, not
+    the genuinely-lower level the jump actually left behind. A depot
+    refilled back to that stale, already-believed-full ceiling (most
+    commonly: back to exactly 1000, the same number last seen before the
+    jump) would show no numeric increase at all despite a real deposit
+    having just happened, wrongly panicking on a run that actually
+    succeeded. A confirmed-fresh deposit timestamp has no such blind
+    spot, while still panicking exactly when it should: no exception for
+    a depot that was already believed full, or a fuel level that wasn't
+    known at all beforehand - a real jump always consumes some fuel, so a
+    rescan showing no fresh deposit for this carrier at all is itself the
+    anomaly worth surfacing (most likely meaning the jump never actually
+    happened, or the deposit itself failed), not a benign case to wave
+    through.
   - Any of the above stops Auto Pilot the same way reaching the end of
     the route does (below), and reports what went wrong via the same
     closeable, tab-independent warning banner a manual macro's own
@@ -2262,11 +2276,16 @@ outright the instant Ship mode is switched on.
     still stops Auto Pilot and shows the equivalent banner unless: for
     the Captain's plot, the row has actually left `Plotting` (a real
     `CarrierJumpRequest` was observed); for the Engineer's refuel, a
-    fresh rescan of their instance immediately afterward shows a
-    strictly higher carrier fuel level than right before the macro
-    started — with no exception for a depot already believed full or a
-    fuel level not known at all beforehand; both are themselves treated
-    as suspicious rather than skipped.
+    fresh rescan of their instance immediately afterward shows a genuine
+    `CarrierDepositFuel` event for their carrier timestamped after the
+    macro started playing — not a before/after comparison of the carrier
+    fuel level itself, since a jump's own fuel consumption is never
+    logged, so the last known level routinely predates the very jump this
+    refuel is for and a depot refilled back to that stale ceiling would
+    show no numeric increase despite a real deposit; with no exception
+    for a depot already believed full or a fuel level not known at all
+    beforehand — a rescan showing no fresh deposit at all is itself
+    treated as suspicious rather than skipped.
 69. An Auto Pilot-triggered resolution of `{TRITIUM_LOOPS}` never resolves
     to a value whose script would take longer than 4 minutes 45 seconds
     to actually play, even when the CMDR's own cargo/fuel data implies a

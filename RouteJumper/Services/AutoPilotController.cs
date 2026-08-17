@@ -73,16 +73,29 @@ namespace RouteJumper.Services
     ///   TriggerCaptainPlotAsync).
     /// - Engineer's refuel: even a macro that runs to completion still panics unless a fresh
     ///   rescan (<see cref="_refreshInstances"/>) - never just whatever was last known - shows a
-    ///   *strictly higher* carrier fuel level than right before the macro started (see
-    ///   TriggerEngineerRefuelAsync). No exception for "the depot was probably already full" or
-    ///   "the fuel level just isn't known yet": a real jump always consumes some fuel, so a
-    ///   depot that isn't known to have gone up is itself the anomaly worth surfacing, not a
-    ///   benign case to wave through.
+    ///   genuine new CarrierDepositFuel event for this carrier timestamped after the macro
+    ///   started playing (see TriggerEngineerRefuelAsync and
+    ///   EliteInstanceViewModel.CarrierLastDepositUtc). Deliberately *not* a before/after
+    ///   CarrierFuelLevel comparison - Elite's journal never logs the fuel a jump itself consumes
+    ///   (only CarrierStats and a fresh deposit report an absolute level), so the last known
+    ///   level routinely predates the very jump that made this refuel necessary; a depot refilled
+    ///   back to that stale, already-believed-full ceiling would show no numeric increase despite
+    ///   a real deposit having just happened. A confirmed-fresh deposit timestamp doesn't have
+    ///   this blind spot, and still panics exactly when it should: no deposit at all really did
+    ///   happen.
     /// </summary>
     public sealed class AutoPilotController
     {
         private static readonly TimeSpan ShortlyLeadTime = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan ImminentLeadTime = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Absorbs the journal's own whole-second timestamp resolution when confirming a
+        /// CarrierDepositFuel event happened during the Engineer's refuel playback - without
+        /// this, a deposit that truly happened a moment after macroStartUtc could still parse to
+        /// a timestamp truncated back into the same second, or the one before it.
+        /// </summary>
+        private static readonly TimeSpan DepositTimestampGrace = TimeSpan.FromSeconds(2);
 
         private readonly ObservableCollection<RouteRowViewModel> _rows;
         private readonly Func<RecordedMacroViewModel?> _getCaptainMacro;
@@ -398,10 +411,14 @@ namespace RouteJumper.Services
         /// Panics if the macro doesn't run all the way to its own end for any reason, or if it
         /// does but a fresh rescan (<see cref="_refreshInstances"/>) - never just whatever's
         /// already cached, since the deposit that just happened is exactly what that rescan needs
-        /// to pick up - doesn't show a strictly higher carrier fuel level than right before the
-        /// macro started. No exception for a depot that was already believed full, or a fuel
-        /// level that wasn't known at all beforehand - see the class doc comment's own "Panic
-        /// mode" section for why neither is treated as a safe case to wave through.
+        /// to pick up - doesn't show a genuine CarrierDepositFuel event for this carrier
+        /// timestamped after the macro actually started playing (a small grace window absorbs the
+        /// journal's own whole-second timestamp resolution). Deliberately not a before/after
+        /// CarrierFuelLevel comparison - see the class doc comment's own "Panic mode" section for
+        /// why that's unreliable here (a jump's own fuel consumption is never logged, so the last
+        /// known level routinely predates the very jump this refuel is for) and why a confirmed
+        /// fresh deposit timestamp doesn't share that blind spot while still catching a genuine
+        /// non-deposit.
         /// </summary>
         private async Task TriggerEngineerRefuelAsync(DateTime triggerAtUtc, CancellationToken cancellationToken)
         {
@@ -417,6 +434,7 @@ namespace RouteJumper.Services
                 {
                     Log.Info("AutoPilot", $"Playing Engineer macro \"{macro.Name}\" to refuel.");
                     var fuelBefore = instance.CarrierFuelLevel;
+                    var macroStartUtc = DateTime.UtcNow;
                     var ranToCompletion = await _playMacro(macro, instance);
 
                     cancellationToken.ThrowIfCancellationRequested();
@@ -430,14 +448,17 @@ namespace RouteJumper.Services
                     await _refreshInstances();
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var fuelAfter = _getEngineerInstance()?.CarrierFuelLevel;
-                    if (fuelBefore is not { } before || fuelAfter is not { } after || after <= before)
+                    var refreshed = _getEngineerInstance();
+                    var fuelAfter = refreshed?.CarrierFuelLevel;
+                    var depositConfirmed = refreshed?.CarrierLastDepositUtc is { } depositUtc &&
+                                            depositUtc >= macroStartUtc - DepositTimestampGrace;
+                    if (!depositConfirmed)
                     {
                         Panic("Auto Pilot stopped: the Engineer's macro finished, but the carrier's fuel depot was not replenished.");
                     }
                     else
                     {
-                        Log.Info("AutoPilot", $"Engineer macro completed - carrier fuel {before}t -> {after}t.");
+                        Log.Info("AutoPilot", $"Engineer macro completed - carrier fuel {fuelBefore?.ToString() ?? "unknown"}t -> {fuelAfter}t.");
                     }
                 }
             }
