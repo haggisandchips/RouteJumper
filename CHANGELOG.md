@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-18
+
 ### Added
 
 - Logs window: an **Open Logs Folder** button opens the on-disk log
