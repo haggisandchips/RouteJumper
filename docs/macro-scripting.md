@@ -171,8 +171,8 @@ EXIT
 Refuels the carrier by transferring Tritium straight out of the
 carrier's own cargo hold, rather than buying it — only appropriate when
 the Engineer's commander is the carrier's owner. Reliable only when
-Tritium is the *only* commodity in both the ship's and the carrier's
-holds (otherwise its position in the transfer screen isn't fixed).
+Tritium is the *only* commodity in the carrier's hold (otherwise its position in the
+transfer screen isn't fixed).
 
 ```
 #######################################################################
