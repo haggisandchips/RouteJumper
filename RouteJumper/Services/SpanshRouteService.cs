@@ -48,6 +48,27 @@ namespace RouteJumper.Services
     ///   name under "system" (not "name"), and only the route's own waypoints (neutron boost stops
     ///   plus the final destination), each carrying how many ordinary jumps separate it from the
     ///   previous one - not a line for every single hop the CMDR will actually fly.
+    /// - POST /api/generic/route (the Spansh &gt; Galaxy Plotter… tab) - Spansh's own "exact"
+    ///   router, confirmed live via curl (one real request, polled to completion). Form fields:
+    ///   "source"/"destination" (id64s, like the fleet-carrier endpoint), six route-option booleans
+    ///   ("is_supercharged"/"use_supercharge"/"use_injections"/"use_injections_when_required"/
+    ///   "exclude_secondary"/"refuel_every_scoopable", as "1"/"0"), the ship-derived numbers
+    ///   Services\Spansh\ShipBuildDerivation resolves ("fuel_power"/"fuel_multiplier"/
+    ///   "optimal_mass"/"base_mass"/"tank_size"/"internal_tank_size"/"max_fuel_per_jump"/
+    ///   "range_boost"/"supercharge_multiplier"/"injection_multiplier"), "reserve_size"/"cargo"
+    ///   (plain user-entered text, same convention as the neutron endpoint's own range/efficiency),
+    ///   a fixed "max_time=60", and "algorithm" (one of fuel/fuel_jumps/guided/optimistic/
+    ///   pessimistic). Deliberately no "ship_build"/SLEF field is sent - confirmed live that a real
+    ///   request with ship_build set to a bare "{}" computed a full, correct route using only the
+    ///   numeric fields above, and a second request with the field omitted entirely queued
+    ///   identically, so Spansh's own server-side computation never actually parses it. Queues a
+    ///   job and returns its id the same way the fleet-carrier endpoint does (never an outright
+    ///   HTTP 400 rejection in what was observed - defensively handled the same way regardless,
+    ///   see StartGenericRouteAsync). Polled via the same /api/results/{job} endpoint; the
+    ///   completed result was confirmed live to carry the same result.jumps[].{id64,name,x,y,z}
+    ///   shape as the fleet-carrier endpoint (plus extra per-jump fields this app doesn't need,
+    ///   e.g. fuel_used/must_refuel), so GetGenericJobResultAsync reuses the fleet-carrier
+    ///   response DTOs.
     /// </summary>
     public sealed class SpanshRouteService : ISpanshRouteService
     {
@@ -274,6 +295,90 @@ namespace RouteJumper.Services
 
             var jumps = (parsed.Result?.SystemJumps ?? new List<SpanshNeutronWaypointDto>())
                 .Select(j => new SpanshRouteJump(j.Id64, j.SystemName ?? string.Empty, j.X, j.Y, j.Z))
+                .ToList();
+
+            return SpanshRouteJobStatus.Completed(jumps);
+        }
+
+        public async Task<string> StartGenericRouteAsync(SpanshGenericRouteRequest request, CancellationToken cancellationToken = default)
+        {
+            var url = $"{BaseUrl}/api/generic/route";
+            using var content = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("source", request.SourceId),
+                new KeyValuePair<string, string>("destination", request.DestinationId),
+                new KeyValuePair<string, string>("is_supercharged", request.IsSupercharged ? "1" : "0"),
+                new KeyValuePair<string, string>("use_supercharge", request.UseSupercharge ? "1" : "0"),
+                new KeyValuePair<string, string>("use_injections", request.UseInjections ? "1" : "0"),
+                new KeyValuePair<string, string>("use_injections_when_required", request.UseInjectionsWhenRequired ? "1" : "0"),
+                new KeyValuePair<string, string>("exclude_secondary", request.ExcludeSecondary ? "1" : "0"),
+                new KeyValuePair<string, string>("refuel_every_scoopable", request.RefuelEveryScoopable ? "1" : "0"),
+                new KeyValuePair<string, string>("fuel_power", request.FuelPower.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("fuel_multiplier", request.FuelMultiplier.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("optimal_mass", request.OptimalMass.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("base_mass", request.BaseMass.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("tank_size", request.TankSize.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("internal_tank_size", request.InternalTankSize.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("reserve_size", request.ReserveSize),
+                new KeyValuePair<string, string>("max_fuel_per_jump", request.MaxFuelPerJump.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("range_boost", request.RangeBoost.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("max_time", "60"),
+                new KeyValuePair<string, string>("cargo", request.Cargo),
+                new KeyValuePair<string, string>("algorithm", request.Algorithm),
+                new KeyValuePair<string, string>("supercharge_multiplier", request.SuperchargeMultiplier.ToString(CultureInfo.InvariantCulture)),
+                new KeyValuePair<string, string>("injection_multiplier", request.InjectionMultiplier.ToString(CultureInfo.InvariantCulture))
+            });
+
+            using var response = await _httpClient.PostAsync(url, content, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                // Never observed live (the one real request made while building this queued
+                // successfully), but handled defensively the same way StartNeutronRouteAsync
+                // handles its own outright-rejection case, in case this endpoint can reject too.
+                var reason = await TryReadSpanshErrorAsync(response, cancellationToken);
+                throw new InvalidOperationException(reason ?? $"Spansh returned HTTP {(int)response.StatusCode}.");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var parsed = await JsonSerializer.DeserializeAsync<SpanshJobResponse>(stream, JsonOptions, cancellationToken);
+            if (parsed?.Job is not { } jobId)
+            {
+                throw new InvalidOperationException("Spansh did not return a job id.");
+            }
+
+            return jobId;
+        }
+
+        public async Task<SpanshRouteJobStatus> GetGenericJobResultAsync(string jobId, CancellationToken cancellationToken = default)
+        {
+            // Reuses SpanshResultResponse/SpanshJumpDto (the fleet-carrier shape) - see this
+            // class's own doc comment on why, and the caveat that it wasn't directly observed.
+            var url = $"{BaseUrl}/api/results/{Uri.EscapeDataString(jobId)}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return SpanshRouteJobStatus.Failed($"HTTP {(int)response.StatusCode}");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var parsed = await JsonSerializer.DeserializeAsync<SpanshResultResponse>(stream, JsonOptions, cancellationToken);
+            if (parsed is null)
+            {
+                return SpanshRouteJobStatus.Failed("Empty response.");
+            }
+
+            if (!string.Equals(parsed.State, "completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return SpanshRouteJobStatus.Pending(parsed.State ?? "unknown");
+            }
+
+            if (!string.Equals(parsed.Status, "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                return SpanshRouteJobStatus.Failed($"Spansh reported status \"{parsed.Status ?? "unknown"}\".");
+            }
+
+            var jumps = (parsed.Result?.Jumps ?? new List<SpanshJumpDto>())
+                .Select(j => new SpanshRouteJump(j.Id64, j.Name ?? string.Empty, j.X, j.Y, j.Z))
                 .ToList();
 
             return SpanshRouteJobStatus.Completed(jumps);

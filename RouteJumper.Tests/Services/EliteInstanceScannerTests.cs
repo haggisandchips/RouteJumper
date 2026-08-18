@@ -532,4 +532,96 @@ namespace RouteJumper.Tests.Services
             Assert.Null(match);
         }
     }
+
+    public class EliteInstanceScannerReadLoadoutSnapshotTests
+    {
+        private static string WriteJournal(TempDirectory dir, params string[] lines)
+        {
+            var path = dir.CombinePath($"Journal.{Guid.NewGuid():N}.log");
+            File.WriteAllLines(path, lines);
+            return path;
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_NoLoadoutEventAtAll_ReturnsNull()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Commander\",\"FID\":\"F123\",\"Name\":\"Jameson\"}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            Assert.Null(snapshot);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_UnreadableFile_ReturnsNull()
+        {
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(@"Z:\does-not-exist\Journal.log");
+
+            Assert.Null(snapshot);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_FullEngineeredLoadout_CapturesShipModulesMassAndFuel()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"event\":\"Loadout\",\"Ship\":\"anaconda\",\"UnladenMass\":1000.5," +
+                "\"FuelCapacity\":{\"Main\":32.0,\"Reserve\":0.63}," +
+                "\"Modules\":[" +
+                "{\"Slot\":\"MainEngines\",\"Item\":\"int_engine_size6_class5\"}," +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_size6_class5\"," +
+                "\"Engineering\":{\"BlueprintName\":\"FSD_LongRange\",\"Level\":5,\"Quality\":0.98," +
+                "\"ExperimentalEffect\":\"special_fsd_heavy\"," +
+                "\"Modifiers\":[{\"Label\":\"FSDOptimalMass\",\"Value\":1150.0,\"OriginalValue\":900.0,\"LessIsGood\":0}," +
+                "{\"Label\":\"FSDHeatRate\",\"Value\":180.0,\"OriginalValue\":200.0,\"LessIsGood\":1}]}}" +
+                "]}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            Assert.NotNull(snapshot);
+            Assert.Equal("anaconda", snapshot!.Value.Ship);
+            Assert.Equal(1000.5, snapshot.Value.UnladenMass);
+            Assert.Equal(32.0, snapshot.Value.FuelCapacityMain);
+            Assert.Equal(0.63, snapshot.Value.FuelCapacityReserve);
+            Assert.Equal(2, snapshot.Value.Modules.Count);
+
+            var fsd = snapshot.Value.Modules.Single(m => m.Slot == "FrameShiftDrive");
+            Assert.Equal("int_hyperdrive_size6_class5", fsd.Item);
+            Assert.NotNull(fsd.Engineering);
+            Assert.Equal("FSD_LongRange", fsd.Engineering!.Value.BlueprintName);
+            Assert.Equal(5, fsd.Engineering.Value.Level);
+            Assert.Equal(0.98, fsd.Engineering.Value.Quality);
+            Assert.Equal("special_fsd_heavy", fsd.Engineering.Value.ExperimentalEffect);
+            Assert.Equal(2, fsd.Engineering.Value.Modifiers.Count);
+            Assert.Contains(fsd.Engineering.Value.Modifiers, m => m.Label == "FSDOptimalMass" && m.Value == 1150.0);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_ModuleWithNoEngineering_HasNullEngineering()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"Ship\":\"sidewinder\",\"Modules\":[" +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_size2_class1\"}" +
+                "]}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            var fsd = Assert.Single(snapshot!.Value.Modules);
+            Assert.Null(fsd.Engineering);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_MultipleLoadoutEvents_LatestWins()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"event\":\"Loadout\",\"Ship\":\"sidewinder\"}",
+                "{\"event\":\"Loadout\",\"Ship\":\"anaconda\"}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            Assert.Equal("anaconda", snapshot!.Value.Ship);
+        }
+    }
 }

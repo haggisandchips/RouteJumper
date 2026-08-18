@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using RouteJumper.Models;
 using RouteJumper.Services.Logging;
 using RouteJumper.ViewModels;
 
@@ -666,6 +667,140 @@ namespace RouteJumper.Services
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// A second, on-demand read of one journal file - unlike ReadJournalSummary (called on
+        /// every scan for every instance), this is only called when the Galaxy Plotter tab needs
+        /// a full ship build (Services/Spansh/ShipBuildDerivation, SlefSerializer), so it isn't
+        /// worth folding into the regular scan pass. Same "latest Loadout event wins" rule as
+        /// ReadJournalSummary's own CargoCapacity/MaxJumpRange/HasOverchargedFsd fields, but keeps
+        /// the full Modules array (including Engineering) plus Ship/UnladenMass/FuelCapacity that
+        /// ReadJournalSummary discards. Returns null if the file couldn't be read, or no Loadout
+        /// event has been logged in it at all this session - a Galaxy Plotter route genuinely
+        /// cannot be built without one. Internal (not private) so RouteJumper.Tests can exercise
+        /// it directly, same precedent as ReadJournalSummary.
+        /// </summary>
+        internal static LoadoutSnapshot? ReadLoadoutSnapshot(string path)
+        {
+            LoadoutSnapshot? snapshot = null;
+
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+
+                string? line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (JournalEventName.Extract(line) != "Loadout")
+                    {
+                        continue;
+                    }
+
+                    JsonDocument doc;
+                    try
+                    {
+                        doc = JsonDocument.Parse(line);
+                    }
+                    catch (JsonException)
+                    {
+                        continue;
+                    }
+
+                    using (doc)
+                    {
+                        snapshot = ParseLoadoutSnapshot(doc.RootElement);
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+
+            return snapshot;
+        }
+
+        private static LoadoutSnapshot ParseLoadoutSnapshot(JsonElement root)
+        {
+            var ship = GetString(root, "Ship") ?? string.Empty;
+
+            double unladenMass = 0;
+            if (root.TryGetProperty("UnladenMass", out var unladenEl) && unladenEl.TryGetDouble(out var unladenValue))
+            {
+                unladenMass = unladenValue;
+            }
+
+            double fuelMain = 0, fuelReserve = 0;
+            if (root.TryGetProperty("FuelCapacity", out var fuelCapacity) && fuelCapacity.ValueKind == JsonValueKind.Object)
+            {
+                if (fuelCapacity.TryGetProperty("Main", out var mainEl) && mainEl.TryGetDouble(out var mainValue))
+                {
+                    fuelMain = mainValue;
+                }
+                if (fuelCapacity.TryGetProperty("Reserve", out var reserveEl) && reserveEl.TryGetDouble(out var reserveValue))
+                {
+                    fuelReserve = reserveValue;
+                }
+            }
+
+            var modules = new List<LoadoutModule>();
+            if (root.TryGetProperty("Modules", out var modulesEl) && modulesEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var module in modulesEl.EnumerateArray())
+                {
+                    var slot = GetString(module, "Slot");
+                    var item = GetString(module, "Item");
+                    if (slot is null || item is null)
+                    {
+                        continue;
+                    }
+
+                    modules.Add(new LoadoutModule(slot, item, ParseEngineering(module)));
+                }
+            }
+
+            return new LoadoutSnapshot(ship, modules, unladenMass, fuelMain, fuelReserve);
+        }
+
+        private static LoadoutModuleEngineering? ParseEngineering(JsonElement module)
+        {
+            if (!module.TryGetProperty("Engineering", out var engineering) || engineering.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var blueprintName = GetString(engineering, "BlueprintName");
+
+            var level = 0;
+            if (engineering.TryGetProperty("Level", out var levelEl) && levelEl.TryGetInt32(out var levelValue))
+            {
+                level = levelValue;
+            }
+
+            double quality = 0;
+            if (engineering.TryGetProperty("Quality", out var qualityEl) && qualityEl.TryGetDouble(out var qualityValue))
+            {
+                quality = qualityValue;
+            }
+
+            var experimentalEffect = GetString(engineering, "ExperimentalEffect");
+
+            var modifiers = new List<LoadoutModuleModifier>();
+            if (engineering.TryGetProperty("Modifiers", out var modifiersEl) && modifiersEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var modifier in modifiersEl.EnumerateArray())
+                {
+                    var label = GetString(modifier, "Label");
+                    if (label != null && modifier.TryGetProperty("Value", out var valueEl) && valueEl.TryGetDouble(out var value))
+                    {
+                        modifiers.Add(new LoadoutModuleModifier(label, value));
+                    }
+                }
+            }
+
+            return new LoadoutModuleEngineering(blueprintName, level, quality, experimentalEffect, modifiers);
         }
 
         /// <summary>

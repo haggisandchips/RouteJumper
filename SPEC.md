@@ -37,7 +37,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
 | Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Preferences (voice/volume/test, plus an update-check opt-out) and Exit, a Help menu with Logs (§3.8), Check for Updates (§3.7), and About (§3.6), a Fleet Carrier/Ship mode toggle, and an always-visible mute button | |
 | **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
-| A top-level **Spansh** menu (§3.4) holding **Fleet Carrier…**/**Neutron Plotter…** (§4.12): calculate a route between two systems via Spansh's own route-plotting API and import it straight into the Route tab, available in both tracking modes | Proper on-screen credit for EDSM specifically (§4.9) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet. (Spansh, §4.12, already carries its own in-dialog credit.) |
+| A top-level **Spansh** menu (§3.4) holding **Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…** (§4.12): calculate a route between two systems via Spansh's own route-plotting API and import it straight into the Route tab, available in both tracking modes - the Galaxy Plotter tab additionally uses the CMDR's own real ship build (re-read from that instance's journal in the background) to plot an exact route accounting for fuel usage and supercharge/injection options | Proper on-screen credit for EDSM specifically (§4.9) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet. (Spansh, §4.12, already carries its own in-dialog credit.) |
 | Material Design styling | |
 | Importing whatever route is currently plotted in-game ("Import Current Route", §4.10), unconditionally, in both tracking modes; trimming a saved route down to a max-500ly-per-hop series of jumps (§4.11, "Trim for FC", Fleet Carrier mode only) - both apply immediately after a Yes/No confirmation, with no in-between review step | |
 
@@ -90,11 +90,13 @@ See §6.
       window with its own Fleet Carrier tab already selected.
     - **Neutron Plotter…** opens the same dialog with its Neutron
       Plotter tab already selected instead.
+    - **Galaxy Plotter…** opens the same dialog with its Galaxy Plotter
+      tab already selected instead.
     - Either way, the dialog itself is available regardless of which
       main-window tab is currently showing, and in either tracking mode
-      - only which of its own two tabs starts selected differs between
-      the two menu items; both tabs remain reachable from inside the
-      dialog either way (§4.12).
+      - only which of its own three tabs starts selected differs between
+      the three menu items; all three tabs remain reachable from inside
+      the dialog either way (§4.12).
   - **Help**:
     - **Logs** opens the non-modal Logs window (§3.8) - unlike Preferences/
       About, this stays open (and keeps live-updating) alongside the rest
@@ -928,29 +930,32 @@ might pause en route rather than something either mode tracks.
 
 ### 4.12 Spansh Integration
 
-- **Spansh > Fleet Carrier…**/**Neutron Plotter…** (§3.4) each open the
-  same small modal dialog to calculate a route between two systems via
-  [Spansh](https://spansh.co.uk)'s own route-plotting API and import it
-  straight into the Route tab - available regardless of which tab is
-  currently showing, and in both tracking modes (unlike Auto Pilot,
-  Trim for FC, or any other Fleet-Carrier-only feature) - differing only
-  in which of the dialog's own two tabs (below) starts selected. Used
-  with the express permission of Spansh's own author, Gareth Harper -
-  credited directly in the dialog, in a footer shared by both tabs below
-  (unlike each tab's own footnote, below), so it's visible regardless of
-  which one is currently showing (EDSM, §4.9, carries no equivalent
-  in-app credit yet - see the Scope table's own out-of-scope note on
-  this).
-- The dialog holds two tabs (left room for further Spansh tools as
-  further tabs later): **Fleet Carrier** and **Neutron Plotter** - each
-  its own **Source** and **Destination** system field, a live
-  autocomplete search against Spansh as the CMDR types (debounced -
-  `SpanshAutocompleteDebounceMs` in `routejumper.conf`, §5.2's own
-  hand-editable convention, defaulting to 250ms), and its own
-  **Calculate** button; the two tabs' Calculate operations are
-  independent of each other (starting one doesn't cancel the other).
-  Both tabs stay reachable via the dialog's own tab strip regardless of
-  which menu item opened it.
+- **Spansh > Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…**
+  (§3.4) each open the same small modal dialog to calculate a route
+  between two systems via [Spansh](https://spansh.co.uk)'s own
+  route-plotting API and import it straight into the Route tab -
+  available regardless of which tab is currently showing, and in both
+  tracking modes (unlike Auto Pilot, Trim for FC, or any other
+  Fleet-Carrier-only feature) - differing only in which of the dialog's
+  own three tabs (below) starts selected. Used with the express
+  permission of Spansh's own author, Gareth Harper - who has separately
+  confirmed any of Spansh's undocumented endpoints may be used this way,
+  discovered via browser developer tools, on the sole condition that the
+  app itself never spams the site - credited directly in the dialog, in
+  a footer shared by all three tabs below (unlike each tab's own
+  footnote, below), so it's visible regardless of which one is currently
+  showing (EDSM, §4.9, carries no equivalent in-app credit yet - see the
+  Scope table's own out-of-scope note on this).
+- The dialog holds three tabs (left room for further Spansh tools as
+  further tabs later): **Fleet Carrier**, **Neutron Plotter**, and
+  **Galaxy Plotter** - each its own **Source** and **Destination** system
+  field, a live autocomplete search against Spansh as the CMDR types
+  (debounced - `SpanshAutocompleteDebounceMs` in `routejumper.conf`,
+  §5.2's own hand-editable convention, defaulting to 250ms), and its own
+  **Calculate** button; the three tabs' Calculate operations are
+  independent of each other (starting one doesn't cancel the others).
+  All three tabs stay reachable via the dialog's own tab strip regardless
+  of which menu item opened it.
 - A custom autocomplete control (not a stock `ComboBox`) is used
   deliberately - a `ComboBox` bound the way this needs (two-way `Text`,
   two-way `SelectedItem`, an async-populated `ItemsSource`) was confirmed
@@ -959,10 +964,12 @@ might pause en route rather than something either mode tracks.
   close its dropdown after the very first arrow-key press, since WPF ties
   a `ComboBox`'s `SelectedItem` to every arrow press, not just a final
   Enter/click.
-- On both tabs, **Calculate** is enabled only once both Source and
+- On every tab, **Calculate** is enabled only once both Source and
   Destination have an actual selected suggestion (not just typed,
   unconfirmed text) - on the Neutron Plotter tab, also only once Range
-  and Efficiency (below) are both non-blank. Clicking it requests a
+  and Efficiency (below) are both non-blank; on the Galaxy Plotter tab,
+  also only once the CMDR's own ship loadout has resolved into a usable
+  ship build (below) and Cargo is non-blank. Clicking it requests a
   route from Spansh and polls the result every 5 seconds - an
   indeterminate progress bar (§4.4's own "no known duration" cue) plus a
   status message ("Requesting route from Spansh…", "Queued…", a
@@ -971,10 +978,10 @@ might pause en route rather than something either mode tracks.
   each tab. Starting a new Calculate on a tab while that same tab's own
   previous one is still in flight cancels the previous one first, the
   same "starting a new one cancels whichever was running" convention
-  macro Play already uses (§6.5); closing the dialog while either tab's
-  calculation is in flight cancels both, rather than leaving either
+  macro Play already uses (§6.5); closing the dialog while any tab's
+  calculation is in flight cancels all three, rather than leaving any
   running against nothing.
-- **On success** (either tab), every jump Spansh returns seeds the same
+- **On success** (any tab), every jump Spansh returns seeds the same
   Distance/Star Type cache EDSM lookups populate (§4.9) - coordinates
   and the system's real, stable system address (id64) - before the
   route itself replaces the currently-saved route (the System text of
@@ -991,14 +998,14 @@ might pause en route rather than something either mode tracks.
   already named the exact position of. An empty jump list (Spansh's own
   job somehow completing with nothing to import) is logged and leaves
   the route untouched rather than replacing it with nothing.
-- **On failure** (either tab - Spansh reports the job itself failed, the
-  request/poll couldn't reach Spansh at all, or - Neutron Plotter only -
-  Spansh rejected the request outright before ever queuing a job, e.g.
-  an out-of-range Range/Efficiency or a Source/Destination it has no
-  record of), the status message explains why (Spansh's own reported
-  reason, verbatim, for an outright rejection) and the dialog is left
-  open and otherwise unchanged - no route replacement happens, and
-  Calculate can be retried.
+- **On failure** (any tab - Spansh reports the job itself failed, the
+  request/poll couldn't reach Spansh at all, or - Neutron Plotter/Galaxy
+  Plotter only - Spansh rejected the request outright before ever
+  queuing a job, e.g. an out-of-range Range/Efficiency or a
+  Source/Destination it has no record of), the status message explains
+  why (Spansh's own reported reason, verbatim, for an outright
+  rejection) and the dialog is left open and otherwise unchanged - no
+  route replacement happens, and Calculate can be retried.
 - The **Fleet Carrier** tab's own Calculate is deliberately a single,
   direct source → destination hop sequence - it has no notion of a
   fleet carrier's tritium capacity or restock planning along the way. A
@@ -1081,6 +1088,53 @@ might pause en route rather than something either mode tracks.
     Plotter** (`https://spansh.co.uk/plotter`) for anything this tab's
     own plain source → destination Calculate doesn't cover (waypoint/via
     planning, visualising the route, ...).
+- The **Galaxy Plotter** tab calculates an *exact* route instead - one
+  that accounts for the CMDR's own real ship build (fuel usage, jump
+  range, supercharge/injection options), unlike the Neutron Plotter
+  tab's own flat Range figure. The same Source/Destination fields, plus
+  an editable **Cargo** (t, pre-filled from that same instance's own
+  currently-tracked cargo total, §5.3/§8) and **Reserve tank size** (t,
+  always starts at Spansh's own default of 0), an **Algorithm** dropdown
+  (Spansh's own `fuel`/`fuel_jumps`/`guided`/`optimistic`/`pessimistic`
+  route-planning strategies, pre-filled with its own default,
+  `optimistic`), and six independent checkboxes for Spansh's own route
+  options - already supercharged at the start, use supercharge boosts,
+  use FSD injections, use FSD injections only when required, exclude
+  secondary-economy systems, and refuel at every scoopable star (Spansh's
+  own defaults: off, on, off, off, off, on respectively) - all always
+  freely editable.
+  - Unlike the other two tabs, this one needs the CMDR's own ship build,
+    not just a system name/number - resolved by re-reading that same
+    instance's own journal in the background (its latest `Loadout`
+    event's `Ship`, `Modules` array including any `Engineering`,
+    `UnladenMass`, and `FuelCapacity`) the moment this ViewModel is
+    constructed (i.e. as soon as the Spansh dialog is opened, regardless
+    of which tab is initially selected), so it's ready before Calculate
+    would actually be clicked. While that resolution is still in
+    progress, or if it fails, the tab's own status message explains why
+    (e.g. "Reading ship loadout…", "No ship loadout logged yet this
+    session - open the in-game Outfitting or Ship screen once, then
+    reopen this dialog.", or a specific reason like "No Frame Shift
+    Drive found in this ship's loadout.") and Calculate stays disabled
+    until it resolves - the same "explain why blocked" convention Trim
+    for FC's own preconditions already follow (§4.11).
+  - The resolved ship build feeds Spansh's own request purely as derived
+    numbers (fuel range/mass/tank-capacity figures, resolved by
+    reproducing Spansh's own client-side calculation from the ship's
+    `Loadout` data, confirmed against Spansh's production client) -
+    there is deliberately no separate "ship build" upload of any kind:
+    confirmed live that Spansh's own server-side route computation only
+    ever uses those derived numbers, never anything else about the ship.
+  - On success, only the route's own waypoints are kept (mirroring the
+    Neutron Plotter tab's own result, not a line for every single
+    ordinary hop) - a route to feed into **Trim for FC** (§4.11) or fly
+    manually in Ship mode, not a full turn-by-turn flight plan.
+  - A footnote - positioned below the tab area at the parent dialog's own
+    full width, the same as the other two tabs' own footnotes, but
+    conditional on *this* tab being the one currently active - explains
+    in plain text (no outbound link - Spansh hosts no standalone page for
+    this specific endpoint) that this plots an exact route using the
+    CMDR's own real ship build rather than a flat range figure.
 
 ---
 
@@ -1977,9 +2031,12 @@ outright the instant Ship mode is switched on.
   names, never commander/journal data.
   The Spansh dialog (§4.12) is the app's second such integration - unlike
   EDSM, it's used with Spansh's own author's express permission against
-  undocumented, internal endpoints, and only ever sends the two system
-  names/ids the CMDR themselves selected, never commander/journal data
-  either.
+  undocumented, internal endpoints. The Fleet Carrier and Neutron Plotter
+  tabs only ever send the two system names/ids the CMDR themselves
+  selected, never commander/journal data. The Galaxy Plotter tab
+  additionally sends numeric fuel/mass/tank-capacity figures derived from
+  the CMDR's own ship's `Loadout` journal event (§4.12) - never the raw
+  journal data itself, and never anything commander-identifying.
 
 ---
 
@@ -2501,29 +2558,34 @@ outright the instant Ship mode is switched on.
     row's own coordinates (including the carrier's own current system)
     aren't yet known, nothing is changed and the outcome is logged rather
     than shown as a dialog.
-80. **Spansh > Fleet Carrier…**/**Neutron Plotter…** (§4.12) each open the
-    same modal dialog, in either tracking mode, with a Fleet Carrier tab
-    and a Neutron Plotter tab, each with its own Source/Destination
-    autocomplete fields and its own
-    Calculate button, enabled only once both have an actual selected
+80. **Spansh > Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…**
+    (§4.12) each open the same modal dialog, in either tracking mode,
+    with a Fleet Carrier tab, a Neutron Plotter tab, and a Galaxy Plotter
+    tab, each with its own Source/Destination autocomplete fields and its
+    own Calculate button, enabled only once both have an actual selected
     suggestion (the Neutron Plotter tab's own Calculate also requires
-    its Range and Efficiency fields to be non-blank). Clicking either
-    polls Spansh every 5 seconds (indeterminate progress + status text)
-    until that tab's own job completes or fails; on completion, every
-    returned jump's coordinates/system address are seeded into the
-    Distance/Star Type cache and the saved route is replaced with the
-    jump list, applying immediately with no confirmation dialog (opening
-    Calculate is itself the deliberate action) - on failure, the route
-    is left untouched and the status message explains why (the Neutron
-    Plotter tab's own outright-rejection failures, e.g. an out-of-range
-    Range, show Spansh's own reported reason verbatim). Starting a new
-    Calculate on a tab, or closing the dialog, while that tab's own job
-    is already in flight cancels it first; the two tabs' own Calculate
-    operations don't cancel each other.
+    its Range and Efficiency fields to be non-blank; the Galaxy Plotter
+    tab's own Calculate also requires its own ship-build resolution to
+    have completed and Cargo to be non-blank - see criterion 87).
+    Clicking any of them polls Spansh every 5 seconds (indeterminate
+    progress + status text) until that tab's own job completes or fails;
+    on completion, every returned jump's coordinates/system address are
+    seeded into the Distance/Star Type cache and the saved route is
+    replaced with the jump list, applying immediately with no
+    confirmation dialog (opening Calculate is itself the deliberate
+    action) - on failure, the route is left untouched and the status
+    message explains why (the Neutron Plotter/Galaxy Plotter tabs' own
+    outright-rejection failures, e.g. an out-of-range Range, show
+    Spansh's own reported reason verbatim). Starting a new Calculate on
+    a tab, or closing the dialog, while that tab's own job is already in
+    flight cancels it first; the three tabs' own Calculate operations
+    don't cancel each other.
 81. **Spansh > Fleet Carrier…** opens the dialog with the Fleet Carrier
     tab already selected; **Spansh > Neutron Plotter…** opens it with
-    the Neutron Plotter tab already selected instead - either way, both
-    tabs remain reachable from inside the dialog afterward. The Fleet
+    the Neutron Plotter tab already selected instead; **Spansh > Galaxy
+    Plotter…** opens it with the Galaxy Plotter tab already selected
+    instead - either way, all three tabs remain reachable from inside
+    the dialog afterward. The Fleet
     Carrier tab's own **Source** is pre-filled, when known, from the
     Captain's own fleet carrier's real current location (Fleet Carrier
     mode only - never in Ship mode) via a background search for that
@@ -2550,7 +2612,8 @@ outright the instant Ship mode is switched on.
 83. Each tab's own footnote (Fleet Carrier's link to Spansh's hosted
     Fleet&nbsp;Carrier&nbsp;Router; Neutron Plotter's link to Spansh's
     hosted Neutron&nbsp;Plotter - each link's own text uses non-breaking
-    spaces between its words so it never wraps mid-name) is shown only
+    spaces between its words so it never wraps mid-name; Galaxy Plotter's
+    own plain-text explanation, with no outbound link) is shown only
     while that specific tab is the one currently selected, and is
     positioned below the tab area at the dialog's own full width - the
     same width the shared Gareth Harper credit beneath it uses - rather
@@ -2580,6 +2643,33 @@ outright the instant Ship mode is switched on.
     stop), a one-off "You have arrived at your destination. Thank you
     for flying with ED F.C. Auto Pilot." announcement is spoken, muted the
     same as any other announcement (§3.4).
+87. The Galaxy Plotter tab's own Calculate stays disabled, with an
+    explanatory status message, until the CMDR's own ship build has
+    resolved from a background re-read of the relevant instance's
+    journal (the Captain's in Fleet Carrier mode, the tracked instance's
+    in Ship mode - the same instance the Neutron Plotter tab's own
+    Source pre-fills from) - a session with no `Loadout` event logged
+    yet, or a `Loadout` whose `FrameShiftDrive` slot module isn't
+    recognised, each show their own specific reason rather than a
+    generic failure. Once resolved, Calculate also requires Source,
+    Destination, and Cargo to be set, the same as the other two tabs'
+    own requirements.
+88. The Galaxy Plotter tab's own Cargo field is pre-filled, when known,
+    from that same instance's own currently-tracked cargo total (§5.3/
+    §8), and Reserve tank size always starts at Spansh's own default of
+    0 - both remain freely editable. Its own Algorithm dropdown defaults
+    to Spansh's own default, `optimistic`, and its six route-option
+    checkboxes each default to Spansh's own defaults for that option -
+    all seven remain freely editable regardless of how they started.
+89. The numeric fields the Galaxy Plotter tab sends Spansh (fuel
+    range/mass/tank-capacity figures) are derived entirely from the
+    resolved ship build, reproducing Spansh's own client-side
+    calculation - confirmed live that Spansh's own server-side route
+    computation for this endpoint never uses anything else about the
+    ship (a request whose ship-build upload was replaced with an empty
+    placeholder, and a second with it omitted entirely, both computed an
+    identical route using only these derived numbers), so no such upload
+    is sent at all.
 
 ---
 

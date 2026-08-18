@@ -189,25 +189,31 @@ namespace RouteJumper
         /// <summary>Spansh &gt; Neutron Plotter… - opens the Spansh dialog with the Neutron Plotter tab already selected.</summary>
         private void OnSpanshNeutronPlotterClick(object sender, RoutedEventArgs e) => OpenSpanshDialog(initialTabIndex: 1);
 
+        /// <summary>Spansh &gt; Galaxy Plotter… - opens the Spansh dialog with the Galaxy Plotter tab already selected.</summary>
+        private void OnSpanshGalaxyPlotterClick(object sender, RoutedEventArgs e) => OpenSpanshDialog(initialTabIndex: 2);
+
         /// <summary>
         /// Opens the modal Spansh dialog (Spansh menu) - a fresh SpanshImportViewModel each time
         /// (unlike Preferences/About, this one has real per-open state: in-flight searches/a
         /// calculation), wired to RouteViewModel.ImportFromSpansh so a successfully calculated
         /// route replaces the currently-saved one, the same view-layer carve-out as the other
         /// dialogs opened from here. <paramref name="initialTabIndex"/> is 0 for Fleet Carrier, 1
-        /// for Neutron Plotter (SpanshImportWindow.xaml's own TabControl order) - matches whichever
-        /// menu item was actually clicked, rather than always defaulting to the first tab.
+        /// for Neutron Plotter, 2 for Galaxy Plotter (SpanshImportWindow.xaml's own TabControl
+        /// order) - matches whichever menu item was actually clicked, rather than always
+        /// defaulting to the first tab.
         /// </summary>
         private void OpenSpanshDialog(int initialTabIndex)
         {
             var mainViewModel = (MainViewModel)DataContext;
-            var (knownCurrentSystem, knownCarrierSystem, hasOverchargedFsd) = mainViewModel.GetKnownShipState();
+            var (knownCurrentSystem, knownCarrierSystem, hasOverchargedFsd, knownJournalFilePath, knownCurrentCargo) = mainViewModel.GetKnownShipState();
             var viewModel = new SpanshImportViewModel(
                 new SpanshRouteService(),
                 mainViewModel.RouteViewModel.ImportFromSpansh,
                 knownCurrentSystem: knownCurrentSystem,
                 knownCarrierSystem: knownCarrierSystem,
-                defaultToOvercharge: hasOverchargedFsd);
+                defaultToOvercharge: hasOverchargedFsd,
+                knownJournalFilePath: knownJournalFilePath,
+                knownCurrentCargo: knownCurrentCargo);
             new SpanshImportWindow(viewModel, initialTabIndex) { Owner = this }.ShowDialog();
         }
 

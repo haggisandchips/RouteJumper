@@ -201,14 +201,20 @@ namespace RouteJumper.ViewModels
         /// field Trim for FC anchors from), not the Captain's own ship's position. Used to pre-fill
         /// the Spansh dialog's Fleet Carrier tab's own Source. Always null in Ship mode - the
         /// tracked instance's own ship carries no fleet-carrier concept at all.
+        ///
+        /// JournalFilePath/CurrentCargo feed the Spansh dialog's Galaxy Plotter tab (SPEC §4.12):
+        /// JournalFilePath is what EliteInstanceScanner.ReadLoadoutSnapshot re-reads in the
+        /// background to build that tab's own SLEF ship build, and CurrentCargo pre-fills its own
+        /// Cargo field - both from the same resolved instance as CurrentSystem/HasOverchargedFsd
+        /// above, so no new resolution logic is needed for either.
         /// </summary>
-        public (string? CurrentSystem, string? KnownCarrierSystem, bool HasOverchargedFsd) GetKnownShipState()
+        public (string? CurrentSystem, string? KnownCarrierSystem, bool HasOverchargedFsd, string? JournalFilePath, int? CurrentCargo) GetKnownShipState()
         {
             var instance = _mode == TrackingMode.Ship
                 ? TrackViewModel.Instances.FirstOrDefault(i => i.IsTracked)
                 : RolesViewModel.CaptainInstance;
             var knownCarrierSystem = _mode == TrackingMode.Ship ? null : RolesViewModel.CaptainInstance?.CarrierSystem;
-            return (instance?.CurrentSystem, knownCarrierSystem, instance?.HasOverchargedFsd ?? false);
+            return (instance?.CurrentSystem, knownCarrierSystem, instance?.HasOverchargedFsd ?? false, instance?.JournalFilePath, instance?.CurrentCargo);
         }
 
         /// <summary>Owns spoken-announcement voice/volume/mute state - bound directly by MainWindow's mute button and the Preferences dialog.</summary>

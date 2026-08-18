@@ -8,7 +8,7 @@ namespace RouteJumper.Views
     {
         private readonly SpanshImportViewModel _viewModel;
 
-        /// <summary><paramref name="initialTabIndex"/> selects which tab is showing when the dialog opens (0 = Fleet Carrier, 1 = Neutron Plotter, matching this XAML's own TabControl order) - MainWindow's Spansh menu passes the tab the CMDR actually clicked, rather than always defaulting to the first one.</summary>
+        /// <summary><paramref name="initialTabIndex"/> selects which tab is showing when the dialog opens (0 = Fleet Carrier, 1 = Neutron Plotter, 2 = Galaxy Plotter, matching this XAML's own TabControl order) - MainWindow's Spansh menu passes the tab the CMDR actually clicked, rather than always defaulting to the first one.</summary>
         public SpanshImportWindow(SpanshImportViewModel viewModel, int initialTabIndex = 0)
         {
             InitializeComponent();
@@ -17,7 +17,12 @@ namespace RouteJumper.Views
             _viewModel.RouteApplied += OnRouteApplied;
             Closed += OnClosed;
             SpanshTabs.SelectedIndex = initialTabIndex;
-            Loaded += (_, _) => (initialTabIndex == 1 ? NeutronSourceBox : SourceBox).FocusQueryBox();
+            Loaded += (_, _) => (initialTabIndex switch
+            {
+                1 => NeutronSourceBox,
+                2 => GalaxySourceBox,
+                _ => SourceBox
+            }).FocusQueryBox();
         }
 
         private void OnRouteApplied(object? sender, EventArgs e) => Dispatcher.BeginInvoke(Close);

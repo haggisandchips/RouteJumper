@@ -1,16 +1,21 @@
+using System.Globalization;
 using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Services;
 using RouteJumper.Services.Logging;
+using RouteJumper.Services.Spansh;
 
 namespace RouteJumper.ViewModels
 {
     /// <summary>
     /// ViewModel for the "Spansh" modal dialog (Spansh menu) - a "Fleet Carrier" tab:
     /// pick a Source and Destination system (SpanshSystemPickerViewModel), then Calculate
-    /// requests a route from Spansh and polls it to completion; and a "Neutron Plotter" tab (same
-    /// picker, plus an editable Range/Efficiency) calculating a neutron-highway route instead.
-    /// Both apply their result to the Route tab via <see cref="_applyRoute"/>
+    /// requests a route from Spansh and polls it to completion; a "Neutron Plotter" tab (same
+    /// picker, plus an editable Range/Efficiency) calculating a neutron-highway route instead;
+    /// and a "Galaxy Plotter" tab calculating an exact route using the CMDR's own real ship build
+    /// (re-read from that instance's journal in the background as soon as this ViewModel is
+    /// constructed - see LoadGalaxyLoadoutAsync) rather than a flat range.
+    /// All three apply their result to the Route tab via <see cref="_applyRoute"/>
     /// (RouteViewModel.ImportFromSpansh, in production - injected so this ViewModel has no direct
     /// reference to RouteViewModel, the same cross-tab decoupling principle MainViewModel already
     /// uses elsewhere).
@@ -28,11 +33,8 @@ namespace RouteJumper.ViewModels
         /// <summary>Spansh's own default efficiency (Neutron Plotter tab) - a route-optimisation/speed trade-off, editable but pre-filled with this until changed.</summary>
         private const string DefaultNeutronEfficiency = "60";
 
-        /// <summary>Spansh's own "supercharge_multiplier" value for a regular neutron/white dwarf supercharge - confirmed against Spansh's own web client's bundled JS.</summary>
-        private const int RegularSuperchargeMultiplier = 4;
-
-        /// <summary>Spansh's own "supercharge_multiplier" value for an overcharged FSD booster - see RegularSuperchargeMultiplier.</summary>
-        private const int OverchargeSuperchargeMultiplier = 6;
+        /// <summary>Spansh's own default route-planning algorithm (Galaxy Plotter tab).</summary>
+        private const string DefaultGalaxyAlgorithm = "optimistic";
 
         private readonly ISpanshRouteService _routeService;
         private readonly Func<IReadOnlyList<SpanshRouteJump>, bool> _applyRoute;
@@ -47,6 +49,21 @@ namespace RouteJumper.ViewModels
         private string _neutronEfficiency = DefaultNeutronEfficiency;
         private bool _isOvercharge;
         private CancellationTokenSource? _neutronCalculateCts;
+
+        private bool _isGalaxyCalculating;
+        private string _galaxyStatusMessage = string.Empty;
+        private string _galaxyCargo = "0";
+        private string _galaxyReserveTankSize = "0";
+        private bool _galaxyIsSupercharged;
+        private bool _galaxyUseSupercharge = true;
+        private bool _galaxyUseInjections;
+        private bool _galaxyUseInjectionsWhenRequired;
+        private bool _galaxyExcludeSecondary;
+        private bool _galaxyRefuelEveryScoopable = true;
+        private string _galaxyAlgorithm = DefaultGalaxyAlgorithm;
+        private LoadoutSnapshot? _galaxyLoadout;
+        private ShipBuildParameters? _galaxyParameters;
+        private CancellationTokenSource? _galaxyCalculateCts;
 
         /// <summary>
         /// <paramref name="config"/> defaults to a real AppConfigStore, read once here (a fresh
@@ -77,6 +94,20 @@ namespace RouteJumper.ViewModels
         /// Normal/Overcharge supercharge choice - true only when that same ship's FrameShiftDrive
         /// slot is filled with an overcharged FSD booster (EliteInstanceViewModel.
         /// HasOverchargedFsd) - editable via the two radio buttons regardless.
+        ///
+        /// <paramref name="knownJournalFilePath"/> is what the Galaxy Plotter tab re-reads in the
+        /// background (via <paramref name="readLoadoutSnapshot"/>) to derive that tab's own
+        /// ship-specific request fields (Services\Spansh\ShipBuildDerivation) - the same instance
+        /// <paramref name="knownCurrentSystem"/> already comes from. Null/blank leaves that tab
+        /// showing an explanatory GalaxyStatusMessage with Calculate disabled (see
+        /// LoadGalaxyLoadoutAsync) rather than silently doing nothing. Its own Source pre-fills
+        /// from <paramref name="knownCurrentSystem"/> the same way the Neutron Plotter tab's does,
+        /// but resolved to a real Spansh id first (PrefillGalaxySourceAsync) since this tab's own
+        /// Calculate posts an id like the Fleet Carrier tab's does, not a bare name.
+        /// <paramref name="knownCurrentCargo"/> pre-fills the Galaxy Plotter tab's own Cargo field.
+        /// <paramref name="readLoadoutSnapshot"/> defaults to a real EliteInstanceScanner.
+        /// ReadLoadoutSnapshot call on a background thread - overridable so tests can supply
+        /// deterministic results without touching disk.
         /// </summary>
         public SpanshImportViewModel(
             ISpanshRouteService routeService,
@@ -84,7 +115,10 @@ namespace RouteJumper.ViewModels
             AppConfigStore? config = null,
             string? knownCurrentSystem = null,
             string? knownCarrierSystem = null,
-            bool defaultToOvercharge = false)
+            bool defaultToOvercharge = false,
+            string? knownJournalFilePath = null,
+            int? knownCurrentCargo = null,
+            Func<string, Task<LoadoutSnapshot?>>? readLoadoutSnapshot = null)
         {
             _routeService = routeService;
             _applyRoute = applyRoute;
@@ -93,6 +127,7 @@ namespace RouteJumper.ViewModels
             OpenFleetCarrierRouterCommand = new RelayCommand(() => BrowserLauncher.Open(FleetCarrierRouterUrl));
             NeutronCalculateCommand = new AsyncRelayCommand(CalculateNeutronAsync, CanCalculateNeutron);
             OpenNeutronPlotterCommand = new RelayCommand(() => BrowserLauncher.Open(NeutronPlotterUrl));
+            GalaxyCalculateCommand = new AsyncRelayCommand(CalculateGalaxyAsync, CanCalculateGalaxy);
 
             var debounceDelay = TimeSpan.FromMilliseconds((config ?? new AppConfigStore()).SpanshAutocompleteDebounceMs);
             var cachedSearch = CreateCachingSearch(routeService.SearchSystemNamesAsync);
@@ -124,52 +159,90 @@ namespace RouteJumper.ViewModels
             }
 
             _isOvercharge = defaultToOvercharge;
+
+            GalaxySource = new SpanshSystemPickerViewModel(cachedSearch, debounceDelay);
+            GalaxyDestination = new SpanshSystemPickerViewModel(cachedSearch, debounceDelay);
+            GalaxySource.SelectionChanged += (_, _) => GalaxyCalculateCommand.RaiseCanExecuteChanged();
+            GalaxyDestination.SelectionChanged += (_, _) => GalaxyCalculateCommand.RaiseCanExecuteChanged();
+
+            if (!string.IsNullOrWhiteSpace(knownCurrentSystem))
+            {
+                _ = PrefillGalaxySourceAsync(cachedSearch, knownCurrentSystem);
+            }
+
+            GalaxyCargo = (knownCurrentCargo ?? 0).ToString(CultureInfo.InvariantCulture);
+
+            if (!string.IsNullOrWhiteSpace(knownJournalFilePath))
+            {
+                _ = LoadGalaxyLoadoutAsync(readLoadoutSnapshot ?? DefaultReadLoadoutSnapshot, knownJournalFilePath);
+            }
+            else
+            {
+                GalaxyStatusMessage = "No running instance available to read a ship loadout from.";
+            }
         }
 
+        private static Task<LoadoutSnapshot?> DefaultReadLoadoutSnapshot(string journalFilePath) =>
+            Task.Run(() => EliteInstanceScanner.ReadLoadoutSnapshot(journalFilePath));
+
         /// <summary>
-        /// Resolves the Captain's fleet carrier's own current location to a real Spansh suggestion
-        /// (via a live search for its exact name) and applies it to the Fleet Carrier tab's own
-        /// Source, so Calculate is ready to go without the CMDR needing to type/pick it themselves
-        /// - the same "pre-fill from what's already known" convention the Neutron Plotter tab's own
-        /// Source already follows, just requiring a real network round trip first here since this
-        /// tab's own Calculate needs a Spansh-assigned id, not just a name. Internal (not private)
-        /// so tests can await it directly rather than racing a fire-and-forget background task.
+        /// Resolves a known system name to a real Spansh suggestion (via a live search for its
+        /// exact name) and applies it to <paramref name="field"/>, so Calculate is ready to go
+        /// without the CMDR needing to type/pick it themselves - shared by the Fleet Carrier tab's
+        /// own Source (PrefillFleetCarrierSourceAsync) and the Galaxy Plotter tab's own Source
+        /// (PrefillGalaxySourceAsync), both of which need a real Spansh-assigned id rather than
+        /// just a name (unlike the Neutron Plotter tab's own Source, which posts a bare name and
+        /// so can be set directly in the constructor with no network round trip).
         ///
         /// Never overwrites anything the CMDR has already done themselves by the time the search
-        /// resolves (an actual pick, or text typed into Source) - a background pre-fill catching up
-        /// late must never clobber what's already the CMDR's own deliberate choice. Silently leaves
-        /// Source unfilled if the search fails, or turns up no suggestion whose name matches the
-        /// carrier's own system exactly (e.g. Spansh has no record of it) - the same "just leave it
-        /// blank" fallback an unresolved pre-fill already has everywhere else in this dialog.
+        /// resolves (an actual pick, or text typed into the field) - a background pre-fill catching
+        /// up late must never clobber what's already the CMDR's own deliberate choice. Silently
+        /// leaves the field unfilled if the search fails, or turns up no suggestion whose name
+        /// matches <paramref name="systemName"/> exactly (e.g. Spansh has no record of it) - the
+        /// same "just leave it blank" fallback an unresolved pre-fill already has everywhere else
+        /// in this dialog.
         /// </summary>
-        internal async Task PrefillFleetCarrierSourceAsync(
-            Func<string, CancellationToken, Task<IReadOnlyList<SpanshSystemSuggestion>>> search, string carrierSystem)
+        private async Task PrefillSourceAsync(
+            SpanshSystemPickerViewModel field,
+            Func<string, CancellationToken, Task<IReadOnlyList<SpanshSystemSuggestion>>> search,
+            string systemName,
+            string logContext)
         {
             IReadOnlyList<SpanshSystemSuggestion> results;
             try
             {
-                results = await search(carrierSystem, CancellationToken.None);
+                results = await search(systemName, CancellationToken.None);
             }
             catch (Exception ex)
             {
-                Log.Warn("Spansh", $"Failed to pre-fill Fleet Carrier Source from the carrier's current location ({carrierSystem}).", ex);
+                Log.Warn("Spansh", $"Failed to pre-fill {logContext} Source from {systemName}.", ex);
                 return;
             }
 
-            if (Source.Selected != null || !string.IsNullOrEmpty(Source.Query))
+            if (field.Selected != null || !string.IsNullOrEmpty(field.Query))
             {
                 return;
             }
 
             var match = results
-                .Where(r => string.Equals(r.Name, carrierSystem, StringComparison.OrdinalIgnoreCase))
+                .Where(r => string.Equals(r.Name, systemName, StringComparison.OrdinalIgnoreCase))
                 .Select(r => (SpanshSystemSuggestion?)r)
                 .FirstOrDefault();
             if (match is { } suggestion)
             {
-                Source.Selected = suggestion;
+                field.Selected = suggestion;
             }
         }
+
+        /// <summary>See PrefillSourceAsync. Internal (not private) so tests can await it directly rather than racing a fire-and-forget background task.</summary>
+        internal Task PrefillFleetCarrierSourceAsync(
+            Func<string, CancellationToken, Task<IReadOnlyList<SpanshSystemSuggestion>>> search, string carrierSystem) =>
+            PrefillSourceAsync(Source, search, carrierSystem, "Fleet Carrier");
+
+        /// <summary>See PrefillSourceAsync. Internal (not private) so tests can await it directly rather than racing a fire-and-forget background task.</summary>
+        internal Task PrefillGalaxySourceAsync(
+            Func<string, CancellationToken, Task<IReadOnlyList<SpanshSystemSuggestion>>> search, string currentSystem) =>
+            PrefillSourceAsync(GalaxySource, search, currentSystem, "Galaxy Plotter");
 
         /// <summary>
         /// Wraps SearchSystemNamesAsync with an in-memory cache keyed by query text (case-
@@ -299,7 +372,109 @@ namespace RouteJumper.ViewModels
             private set => SetProperty(ref _neutronStatusMessage, value);
         }
 
-        /// <summary>Raised once a route has been successfully calculated and applied to the Route tab - the view closes the dialog on this. Shared by both tabs, since either one succeeding is the same "done" moment from the dialog's own perspective.</summary>
+        public SpanshSystemPickerViewModel GalaxySource { get; }
+
+        public SpanshSystemPickerViewModel GalaxyDestination { get; }
+
+        public AsyncRelayCommand GalaxyCalculateCommand { get; }
+
+        /// <summary>Every algorithm Spansh's /api/generic/route accepts, in the same order (and with the same default, "optimistic") as its own web client.</summary>
+        public static IReadOnlyList<string> GalaxyAlgorithms { get; } = new[] { "fuel", "fuel_jumps", "guided", "optimistic", "pessimistic" };
+
+        /// <summary>Drives the Galaxy Plotter tab's own indeterminate progress bar - see IsCalculating.</summary>
+        public bool IsGalaxyCalculating
+        {
+            get => _isGalaxyCalculating;
+            private set
+            {
+                if (SetProperty(ref _isGalaxyCalculating, value))
+                {
+                    GalaxyCalculateCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Doubles as this tab's own explanation for why Calculate is disabled while no usable
+        /// ship loadout has been resolved yet (see LoadGalaxyLoadoutAsync) - not just a
+        /// Calculate-in-progress status, unlike StatusMessage/NeutronStatusMessage.
+        /// </summary>
+        public string GalaxyStatusMessage
+        {
+            get => _galaxyStatusMessage;
+            private set => SetProperty(ref _galaxyStatusMessage, value);
+        }
+
+        /// <summary>Cargo (tons) to plan the route around - free text, pre-filled from the CMDR's own currently-tracked cargo total (see the constructor) but always editable, same convention as NeutronRange. Required (non-blank) for Calculate to enable - see CanCalculateGalaxy.</summary>
+        public string GalaxyCargo
+        {
+            get => _galaxyCargo;
+            set
+            {
+                if (SetProperty(ref _galaxyCargo, value))
+                {
+                    GalaxyCalculateCommand.RaiseCanExecuteChanged();
+                }
+            }
+        }
+
+        /// <summary>Fuel reserve (tons) to keep back - free text, defaults to "0", always editable. Spansh's own "reserve_size" field.</summary>
+        public string GalaxyReserveTankSize
+        {
+            get => _galaxyReserveTankSize;
+            set => SetProperty(ref _galaxyReserveTankSize, value);
+        }
+
+        /// <summary>Spansh's own "is_supercharged" route option - default false.</summary>
+        public bool GalaxyIsSupercharged
+        {
+            get => _galaxyIsSupercharged;
+            set => SetProperty(ref _galaxyIsSupercharged, value);
+        }
+
+        /// <summary>Spansh's own "use_supercharge" route option - default true.</summary>
+        public bool GalaxyUseSupercharge
+        {
+            get => _galaxyUseSupercharge;
+            set => SetProperty(ref _galaxyUseSupercharge, value);
+        }
+
+        /// <summary>Spansh's own "use_injections" route option - default false.</summary>
+        public bool GalaxyUseInjections
+        {
+            get => _galaxyUseInjections;
+            set => SetProperty(ref _galaxyUseInjections, value);
+        }
+
+        /// <summary>Spansh's own "use_injections_when_required" route option - default false.</summary>
+        public bool GalaxyUseInjectionsWhenRequired
+        {
+            get => _galaxyUseInjectionsWhenRequired;
+            set => SetProperty(ref _galaxyUseInjectionsWhenRequired, value);
+        }
+
+        /// <summary>Spansh's own "exclude_secondary" route option - default false.</summary>
+        public bool GalaxyExcludeSecondary
+        {
+            get => _galaxyExcludeSecondary;
+            set => SetProperty(ref _galaxyExcludeSecondary, value);
+        }
+
+        /// <summary>Spansh's own "refuel_every_scoopable" route option - default true.</summary>
+        public bool GalaxyRefuelEveryScoopable
+        {
+            get => _galaxyRefuelEveryScoopable;
+            set => SetProperty(ref _galaxyRefuelEveryScoopable, value);
+        }
+
+        /// <summary>One of GalaxyAlgorithms - defaults to Spansh's own default, "optimistic".</summary>
+        public string GalaxyAlgorithm
+        {
+            get => _galaxyAlgorithm;
+            set => SetProperty(ref _galaxyAlgorithm, value);
+        }
+
+        /// <summary>Raised once a route has been successfully calculated and applied to the Route tab - the view closes the dialog on this. Shared by all three tabs, since any one succeeding is the same "done" moment from the dialog's own perspective.</summary>
         public event EventHandler? RouteApplied;
 
         private bool CanCalculate() => !IsCalculating && Source.Selected != null && Destination.Selected != null;
@@ -310,6 +485,13 @@ namespace RouteJumper.ViewModels
             && NeutronDestination.Selected != null
             && !string.IsNullOrWhiteSpace(NeutronRange)
             && !string.IsNullOrWhiteSpace(NeutronEfficiency);
+
+        private bool CanCalculateGalaxy() =>
+            !IsGalaxyCalculating
+            && GalaxySource.Selected != null
+            && GalaxyDestination.Selected != null
+            && _galaxyParameters != null
+            && !string.IsNullOrWhiteSpace(GalaxyCargo);
 
         private async Task CalculateAsync()
         {
@@ -398,7 +580,7 @@ namespace RouteJumper.ViewModels
 
             try
             {
-                var superchargeMultiplier = IsOvercharge ? OverchargeSuperchargeMultiplier : RegularSuperchargeMultiplier;
+                var superchargeMultiplier = IsOvercharge ? ShipBuildDerivation.OverchargeSuperchargeMultiplier : ShipBuildDerivation.RegularSuperchargeMultiplier;
                 var jobId = await _routeService.StartNeutronRouteAsync(source.Name, destination.Name, NeutronRange.Trim(), NeutronEfficiency.Trim(), superchargeMultiplier, cts.Token);
                 Log.Info("Spansh", $"Neutron route requested {source.Name} -> {destination.Name} (job {jobId}).");
                 NeutronStatusMessage = "Queued…";
@@ -459,11 +641,149 @@ namespace RouteJumper.ViewModels
             }
         }
 
+        /// <summary>
+        /// Re-reads <paramref name="journalFilePath"/> in the background (via
+        /// <paramref name="readLoadoutSnapshot"/>) and derives this tab's own ship-specific
+        /// request fields (Services\Spansh\ShipBuildDerivation), so Calculate is ready to go by
+        /// the time the CMDR would actually press it - called once from the constructor. Every
+        /// outcome sets GalaxyStatusMessage to something explaining the current state, rather than
+        /// leaving Calculate silently disabled with no reason given (SPEC's general "explain why
+        /// blocked" convention, e.g. Trim for FC's own precondition messages). Internal (not
+        /// private) so tests can await it directly rather than racing a fire-and-forget background
+        /// task.
+        /// </summary>
+        internal async Task LoadGalaxyLoadoutAsync(Func<string, Task<LoadoutSnapshot?>> readLoadoutSnapshot, string journalFilePath)
+        {
+            GalaxyStatusMessage = "Reading ship loadout…";
+
+            try
+            {
+                var loadout = await readLoadoutSnapshot(journalFilePath);
+                if (loadout is null)
+                {
+                    GalaxyStatusMessage = "No ship loadout logged yet this session - open the in-game Outfitting or Ship screen once, then reopen this dialog.";
+                    return;
+                }
+
+                var result = ShipBuildDerivation.Derive(loadout.Value);
+                if (!result.Success)
+                {
+                    GalaxyStatusMessage = $"Could not use this ship's loadout: {result.ErrorMessage}";
+                    return;
+                }
+
+                _galaxyLoadout = loadout;
+                _galaxyParameters = result.Parameters;
+                GalaxyStatusMessage = string.Empty;
+            }
+            catch (Exception ex)
+            {
+                GalaxyStatusMessage = "Could not read this ship's loadout.";
+                Log.Warn("Spansh", "Failed to read ship loadout for Galaxy Plotter.", ex);
+            }
+            finally
+            {
+                GalaxyCalculateCommand.RaiseCanExecuteChanged();
+            }
+        }
+
+        /// <summary>Internal (not private) - same testability precedent as CalculateNeutronAsync.</summary>
+        internal async Task CalculateGalaxyAsync()
+        {
+            if (GalaxySource.Selected is not { } source || GalaxyDestination.Selected is not { } destination || _galaxyParameters is not { } parameters)
+            {
+                return;
+            }
+
+            _galaxyCalculateCts?.Cancel();
+            var cts = new CancellationTokenSource();
+            _galaxyCalculateCts = cts;
+
+            IsGalaxyCalculating = true;
+            GalaxyStatusMessage = "Requesting route from Spansh…";
+
+            try
+            {
+                var request = new SpanshGenericRouteRequest(
+                    SourceId: source.Id,
+                    DestinationId: destination.Id,
+                    IsSupercharged: GalaxyIsSupercharged,
+                    UseSupercharge: GalaxyUseSupercharge,
+                    UseInjections: GalaxyUseInjections,
+                    UseInjectionsWhenRequired: GalaxyUseInjectionsWhenRequired,
+                    ExcludeSecondary: GalaxyExcludeSecondary,
+                    RefuelEveryScoopable: GalaxyRefuelEveryScoopable,
+                    FuelPower: parameters.FuelPower,
+                    FuelMultiplier: parameters.FuelMultiplier,
+                    OptimalMass: parameters.OptimalMass,
+                    BaseMass: parameters.BaseMass,
+                    TankSize: parameters.TankSize,
+                    InternalTankSize: parameters.InternalTankSize,
+                    ReserveSize: GalaxyReserveTankSize.Trim(),
+                    MaxFuelPerJump: parameters.MaxFuelPerJump,
+                    RangeBoost: parameters.RangeBoost,
+                    Cargo: GalaxyCargo.Trim(),
+                    Algorithm: GalaxyAlgorithm,
+                    SuperchargeMultiplier: parameters.SuperchargeMultiplier,
+                    InjectionMultiplier: parameters.InjectionMultiplier);
+
+                var jobId = await _routeService.StartGenericRouteAsync(request, cts.Token);
+                Log.Info("Spansh", $"Galaxy route requested {source.Name} -> {destination.Name} (job {jobId}).");
+                GalaxyStatusMessage = "Queued…";
+
+                while (true)
+                {
+                    await Task.Delay(PollInterval, cts.Token);
+
+                    var status = await _routeService.GetGenericJobResultAsync(jobId, cts.Token);
+                    if (status.State == SpanshJobState.Pending)
+                    {
+                        GalaxyStatusMessage = $"{Capitalize(status.StatusText ?? "unknown")}…";
+                        continue;
+                    }
+
+                    if (status.State == SpanshJobState.Failed)
+                    {
+                        GalaxyStatusMessage = $"Failed: {status.FailureReason}";
+                        Log.Warn("Spansh", $"Galaxy route calculation failed: {status.FailureReason}");
+                        return;
+                    }
+
+                    if (_applyRoute(status.Jumps))
+                    {
+                        Log.Info("Spansh", "Galaxy route calculated and applied.");
+                        GalaxyStatusMessage = "Route applied.";
+                        RouteApplied?.Invoke(this, EventArgs.Empty);
+                    }
+                    else
+                    {
+                        GalaxyStatusMessage = "Spansh returned an empty route.";
+                    }
+
+                    return;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancelled by the dialog closing (CancelInFlightWork) - nothing further to report.
+            }
+            catch (Exception ex)
+            {
+                GalaxyStatusMessage = "Failed: could not reach Spansh.";
+                Log.Warn("Spansh", "Galaxy route calculation failed.", ex);
+            }
+            finally
+            {
+                IsGalaxyCalculating = false;
+            }
+        }
+
         /// <summary>Called when the dialog is closed while a job is still in flight - cancels the outstanding request/poll wait rather than leaving it running against a ViewModel nothing is looking at any more.</summary>
         public void CancelInFlightWork()
         {
             _calculateCts?.Cancel();
             _neutronCalculateCts?.Cancel();
+            _galaxyCalculateCts?.Cancel();
         }
 
         /// <summary>Capitalizes just the first character - Spansh's own "state" field is always lowercase, but this dialog's other status wording is sentence-case. Internal (not private) so tests can exercise it directly.</summary>

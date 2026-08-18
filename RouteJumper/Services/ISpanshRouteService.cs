@@ -43,5 +43,18 @@ namespace RouteJumper.Services
 
         /// <summary>One poll of a previously-started neutron-route job - see SpanshRouteJobStatus for the three possible outcomes.</summary>
         Task<SpanshRouteJobStatus> GetNeutronJobResultAsync(string jobId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Requests an exact route (Spansh &gt; Galaxy Plotter…) be calculated between two
+        /// systems (by id64, like <see cref="StartFleetCarrierRouteAsync"/>), using the CMDR's own
+        /// real ship build (<paramref name="request"/>'s ship-derived fields, from
+        /// Services\Spansh\ShipBuildDerivation, and its SLEF ship_build, from Services\Spansh\
+        /// SlefSerializer) rather than a flat range. Returns the job id to poll via
+        /// <see cref="GetGenericJobResultAsync"/>.
+        /// </summary>
+        Task<string> StartGenericRouteAsync(SpanshGenericRouteRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>One poll of a previously-started Galaxy Plotter job - see SpanshRouteJobStatus for the three possible outcomes.</summary>
+        Task<SpanshRouteJobStatus> GetGenericJobResultAsync(string jobId, CancellationToken cancellationToken = default);
     }
 }

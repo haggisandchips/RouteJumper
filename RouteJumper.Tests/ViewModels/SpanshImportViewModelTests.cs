@@ -1,5 +1,7 @@
+using System.IO;
 using RouteJumper.Models;
 using RouteJumper.Services;
+using RouteJumper.Services.Spansh;
 using RouteJumper.Tests.TestSupport;
 using RouteJumper.ViewModels;
 using Xunit;
@@ -14,13 +16,27 @@ namespace RouteJumper.Tests.ViewModels
             Func<IReadOnlyList<SpanshRouteJump>, bool>? applyRoute = null,
             string? knownCurrentSystem = null,
             string? knownCarrierSystem = null,
-            bool defaultToOvercharge = false) => new(
+            bool defaultToOvercharge = false,
+            string? knownJournalFilePath = null,
+            int? knownCurrentCargo = null,
+            Func<string, Task<LoadoutSnapshot?>>? readLoadoutSnapshot = null) => new(
                 routeService ?? new FakeSpanshRouteService(),
                 applyRoute ?? (_ => true),
                 new AppConfigStore(dir.Path),
                 knownCurrentSystem,
                 knownCarrierSystem,
-                defaultToOvercharge);
+                defaultToOvercharge,
+                knownJournalFilePath,
+                knownCurrentCargo,
+                readLoadoutSnapshot);
+
+        /// <summary>A ship build ShipBuildDerivation.Derive can always resolve - a bare, unengineered standard FSD.</summary>
+        private static LoadoutSnapshot ValidLoadout() => new(
+            "anaconda",
+            new[] { new LoadoutModule("FrameShiftDrive", "Int_Hyperdrive_Size6_Class5", null) },
+            UnladenMass: 1000,
+            FuelCapacityMain: 32,
+            FuelCapacityReserve: 0.63);
 
         // ===================== Fleet Carrier tab - pre-fill Source from the Captain's own fleet
         // carrier's real current location. Unlike the Neutron Plotter tab's own Source (below),
@@ -302,6 +318,183 @@ namespace RouteJumper.Tests.ViewModels
 
             var request = Assert.Single(service.NeutronRequests);
             Assert.Equal(6, request.SuperchargeMultiplier);
+        }
+
+        // ===================== Galaxy Plotter tab - background loadout re-read on construction
+        // (LoadGalaxyLoadoutAsync), Source pre-fill (PrefillGalaxySourceAsync, same background-
+        // resolve-to-id mechanism as the Fleet Carrier tab's own Source), Cargo pre-fill, and
+        // CanExecute gating =====================
+
+        [Fact]
+        public async Task Constructor_KnownJournalFilePathResolvesValidLoadout_ClearsStatusMessageOnceLoaded()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir, knownJournalFilePath: "irrelevant.log", readLoadoutSnapshot: _ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()));
+
+            // The constructor's own LoadGalaxyLoadoutAsync call is fire-and-forget; awaiting it
+            // directly (internal, not private) avoids racing the background task the way
+            // Constructor_KnownCarrierSystem_KicksOffBackgroundPrefillThatSetsSource already
+            // relies on FakeSpanshRouteService resolving synchronously for.
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()), "irrelevant.log");
+
+            Assert.Equal(string.Empty, vm.GalaxyStatusMessage);
+        }
+
+        [Fact]
+        public void Constructor_NoKnownJournalFilePath_ShowsExplanatoryMessage()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            Assert.Contains("No running instance", vm.GalaxyStatusMessage);
+            Assert.False(vm.GalaxyCalculateCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task LoadGalaxyLoadoutAsync_NoLoadoutEverLogged_ShowsExplanatoryMessage()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(null), "irrelevant.log");
+
+            Assert.Contains("No ship loadout logged yet", vm.GalaxyStatusMessage);
+            Assert.False(vm.GalaxyCalculateCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task LoadGalaxyLoadoutAsync_DerivationFails_ShowsShipBuildDerivationsOwnErrorMessage()
+        {
+            using var dir = new TempDirectory();
+            var noFsd = new LoadoutSnapshot("sidewinder", Array.Empty<LoadoutModule>(), 10, 2, 0.04);
+            var vm = Create(dir);
+
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(noFsd), "irrelevant.log");
+
+            Assert.Contains("No Frame Shift Drive", vm.GalaxyStatusMessage);
+            Assert.False(vm.GalaxyCalculateCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task LoadGalaxyLoadoutAsync_ReaderThrows_ShowsGenericMessageRatherThanThrowing()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            await vm.LoadGalaxyLoadoutAsync(_ => throw new IOException("locked"), "irrelevant.log");
+
+            Assert.Contains("Could not read", vm.GalaxyStatusMessage);
+        }
+
+        [Fact]
+        public void Constructor_KnownCurrentCargo_PreFillsGalaxyCargo()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir, knownCurrentCargo: 128);
+
+            Assert.Equal("128", vm.GalaxyCargo);
+        }
+
+        [Fact]
+        public void Constructor_NoKnownCurrentCargo_GalaxyCargoDefaultsToZero()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            Assert.Equal("0", vm.GalaxyCargo);
+        }
+
+        [Fact]
+        public async Task PrefillGalaxySourceAsync_ExactNameMatchFound_SetsGalaxySourceSelected()
+        {
+            using var dir = new TempDirectory();
+            var suggestion = new SpanshSystemSuggestion("10477373803", 10477373803, "Sol");
+            var service = new FakeSpanshRouteService { SearchResults = new[] { suggestion } };
+            var vm = Create(dir, service);
+
+            await vm.PrefillGalaxySourceAsync(service.SearchSystemNamesAsync, "Sol");
+
+            Assert.Equal(suggestion, vm.GalaxySource.Selected);
+        }
+
+        [Fact]
+        public async Task PrefillGalaxySourceAsync_CmdrAlreadyPickedSource_DoesNotOverwrite()
+        {
+            using var dir = new TempDirectory();
+            var suggestion = new SpanshSystemSuggestion("10477373803", 10477373803, "Sol");
+            var service = new FakeSpanshRouteService { SearchResults = new[] { suggestion } };
+            var vm = Create(dir, service);
+            var manualPick = new SpanshSystemSuggestion("2", 2, "Deciat");
+            vm.GalaxySource.Selected = manualPick;
+
+            await vm.PrefillGalaxySourceAsync(service.SearchSystemNamesAsync, "Sol");
+
+            Assert.Equal(manualPick, vm.GalaxySource.Selected);
+        }
+
+        [Fact]
+        public async Task GalaxyCalculateCommand_LoadoutResolvedButNoDestination_CannotExecute()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            vm.GalaxySource.Selected = new SpanshSystemSuggestion("1", 1, "Sol");
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()), "irrelevant.log");
+
+            Assert.False(vm.GalaxyCalculateCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task GalaxyCalculateCommand_CargoBlank_CannotExecute()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            vm.GalaxySource.Selected = new SpanshSystemSuggestion("1", 1, "Sol");
+            vm.GalaxyDestination.Selected = new SpanshSystemSuggestion("2", 2, "Sirius");
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()), "irrelevant.log");
+
+            vm.GalaxyCargo = "  ";
+
+            Assert.False(vm.GalaxyCalculateCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task GalaxyCalculateCommand_SourceDestinationLoadoutCargoAllSet_CanExecute()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            vm.GalaxySource.Selected = new SpanshSystemSuggestion("1", 1, "Sol");
+            vm.GalaxyDestination.Selected = new SpanshSystemSuggestion("2", 2, "Sirius");
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()), "irrelevant.log");
+
+            Assert.True(vm.GalaxyCalculateCommand.CanExecute(null));
+        }
+
+        [Fact]
+        public async Task CalculateGalaxyAsync_BuildsRequestFromDerivedParametersAndToggles()
+        {
+            using var dir = new TempDirectory();
+            var service = new FakeSpanshRouteService();
+            var vm = Create(dir, service);
+            vm.GalaxySource.Selected = new SpanshSystemSuggestion("1", 1, "Sol");
+            vm.GalaxyDestination.Selected = new SpanshSystemSuggestion("2", 2, "Sirius");
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()), "irrelevant.log");
+            vm.GalaxyCargo = "16";
+            vm.GalaxyReserveTankSize = "2";
+            vm.GalaxyUseInjections = true;
+            vm.GalaxyAlgorithm = "pessimistic";
+            service.GalaxyResult = SpanshRouteJobStatus.Completed(Array.Empty<SpanshRouteJump>());
+
+            await vm.CalculateGalaxyAsync();
+
+            var request = Assert.Single(service.GalaxyRequests);
+            Assert.Equal("1", request.SourceId);
+            Assert.Equal("2", request.DestinationId);
+            Assert.Equal("16", request.Cargo);
+            Assert.Equal("2", request.ReserveSize);
+            Assert.True(request.UseInjections);
+            Assert.Equal("pessimistic", request.Algorithm);
+            Assert.Equal(ShipBuildDerivation.RegularSuperchargeMultiplier, request.SuperchargeMultiplier);
+            Assert.Equal("Route applied.", vm.GalaxyStatusMessage);
         }
 
         // ===================== Capitalize (job status wording, e.g. "queued" -> "Queued") =====================

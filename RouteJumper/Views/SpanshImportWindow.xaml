@@ -32,9 +32,9 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Tabs on the left, matching MainWindow's own TabControl - Fleet Carrier and Neutron
-             Plotter for now, leaving room to add further Spansh tools as further tabs later.
-             Height deliberately left Auto (not fixed): the window sizes to whichever tab is
+        <!-- Tabs on the left, matching MainWindow's own TabControl - Fleet Carrier, Neutron
+             Plotter, and Galaxy Plotter, still leaving room for further Spansh tools as further
+             tabs later. Height deliberately left Auto (not fixed): the window sizes to whichever tab is
              currently selected, rather than a fixed height sized for the taller of the two (or
              clipping it). Named so the shared footer below can show each tab's own footnote only
              while that tab is the one selected (IndexEqualsVisibilityConverter). -->
@@ -49,12 +49,22 @@
                          typed text exactly matched a suggestion (so the next keystroke wiped out
                          what was already typed), and closed the dropdown after the very first
                          arrow-key press (WPF ties a ComboBox's SelectedItem to every arrow press,
-                         not just a final Enter/click). See that control's own doc comment. -->
+                         not just a final Enter/click). See that control's own doc comment.
+
+                         Every field here has its own persistent caption above it, rather than
+                         relying solely on Material Design's own floating HintAssist.Hint (still
+                         set too, as in-box placeholder/accessibility text) - confirmed live that a
+                         field whose value is set programmatically before the user ever interacts
+                         with it (e.g. a pre-filled Source/Cargo) can leave that floating hint
+                         never actually floating up, so the field shows a bare pre-filled value
+                         with no visible indication of what it represents. -->
+                    <TextBlock Text="Source system" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
                     <views:SpanshSystemAutocompleteBox x:Name="SourceBox"
                                                         Picker="{Binding Source}"
                                                         Hint="Source system"
                                                         Margin="0,0,0,16" />
 
+                    <TextBlock Text="Destination system" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
                     <views:SpanshSystemAutocompleteBox Picker="{Binding Destination}"
                                                         Hint="Destination system"
                                                         Margin="0,0,0,20" />
@@ -82,11 +92,13 @@
             <TabItem Header="Neutron Plotter">
                 <StackPanel Margin="16">
 
+                    <TextBlock Text="Source system" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
                     <views:SpanshSystemAutocompleteBox x:Name="NeutronSourceBox"
                                                         Picker="{Binding NeutronSource}"
                                                         Hint="Source system"
                                                         Margin="0,0,0,16" />
 
+                    <TextBlock Text="Destination system" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
                     <views:SpanshSystemAutocompleteBox Picker="{Binding NeutronDestination}"
                                                         Hint="Destination system"
                                                         Margin="0,0,0,20" />
@@ -99,7 +111,9 @@
                          load-out, a hypothetical one, ...) - so it's left for them to judge and
                          type in rather than presumed. Neither is validated client-side - Spansh's
                          own response already reports a clear reason for anything it rejects (e.g.
-                         "range must be greater than 10 LY"), shown via NeutronStatusMessage below. -->
+                         "range must be greater than 10 LY"), shown via NeutronStatusMessage below.
+                         Each has its own persistent caption above it - see the Fleet Carrier tab's
+                         own doc comment above on why this doesn't rely on HintAssist.Hint alone. -->
                     <Grid Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -107,17 +121,19 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBox Grid.Column="0"
-                                 Text="{Binding NeutronRange, UpdateSourceTrigger=PropertyChanged}"
-                                 materialDesign:HintAssist.Hint="Range (ly)"
-                                 ToolTip="Your ship's jump range in light-years"
-                                 AutomationProperties.Name="Range" />
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Range (ly)" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding NeutronRange, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Your ship's jump range in light-years"
+                                     AutomationProperties.Name="Range" />
+                        </StackPanel>
 
-                        <TextBox Grid.Column="2"
-                                 Text="{Binding NeutronEfficiency, UpdateSourceTrigger=PropertyChanged}"
-                                 materialDesign:HintAssist.Hint="Efficiency"
-                                 ToolTip="Spansh's own route optimisation/speed trade-off (1-100), defaulting to 60"
-                                 AutomationProperties.Name="Efficiency" />
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Efficiency" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding NeutronEfficiency, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="Spansh's own route optimisation/speed trade-off (1-100), defaulting to 60"
+                                     AutomationProperties.Name="Efficiency" />
+                        </StackPanel>
                     </Grid>
 
                     <!-- Which supercharge multiplier Spansh should assume when routing via a
@@ -127,7 +143,8 @@
                          a plain, always-editable radio choice from there on - IsOvercharge is a
                          single bool, so "Regular" binds to its inverse (InverseBooleanConverter,
                          the same two-way "inverse of one shared bool" pattern the main window's
-                         own Fleet Carrier/Ship mode toggle already uses). -->
+                         own Fleet Carrier/Ship mode toggle already uses). No caption needed above
+                         this one - each radio button's own Content text already says what it is. -->
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
                         <RadioButton GroupName="SuperchargeType"
                                      Content="Regular supercharge"
@@ -151,6 +168,94 @@
                                  Margin="0,0,0,8" />
 
                     <TextBlock Text="{Binding NeutronStatusMessage}"
+                               TextWrapping="Wrap"
+                               Opacity="0.8" />
+                </StackPanel>
+            </TabItem>
+            <TabItem Header="Galaxy Plotter">
+                <StackPanel Margin="16">
+
+                    <TextBlock Text="Source system" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                    <views:SpanshSystemAutocompleteBox x:Name="GalaxySourceBox"
+                                                        Picker="{Binding GalaxySource}"
+                                                        Hint="Source system"
+                                                        Margin="0,0,0,16" />
+
+                    <TextBlock Text="Destination system" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                    <views:SpanshSystemAutocompleteBox Picker="{Binding GalaxyDestination}"
+                                                        Hint="Destination system"
+                                                        Margin="0,0,0,20" />
+
+                    <!-- Cargo/Reserve tank size are plain, freely-editable text, the same
+                         no-client-side-validation convention Range/Efficiency already use above -
+                         Spansh's own response reports a clear reason for anything it rejects.
+                         Cargo pre-fills from the CMDR's own currently-tracked cargo total; Reserve
+                         tank size always starts at Spansh's own default of 0 - both start non-blank,
+                         which is exactly the case a bare HintAssist.Hint fails to stay visible for
+                         (see the Fleet Carrier tab's own doc comment above), so each gets its own
+                         persistent caption above it instead. -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Cargo (t)" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding GalaxyCargo, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="Cargo" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Reserve tank size (t)" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                            <TextBox Text="{Binding GalaxyReserveTankSize, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="Reserve tank size" />
+                        </StackPanel>
+                    </Grid>
+
+                    <TextBlock Text="Algorithm" FontSize="11" Opacity="0.7" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding GalaxyAlgorithms}"
+                              SelectedItem="{Binding GalaxyAlgorithm}"
+                              ToolTip="Spansh's own route-planning strategy - trades compute cost against route quality"
+                              Margin="0,0,0,16" />
+
+                    <!-- Six independent route-option toggles (not mutually exclusive, so
+                         CheckBox rather than RadioButton) - Spansh's own defaults, always
+                         editable from there on. No caption needed above these - each checkbox's
+                         own Content text already says what it is. -->
+                    <CheckBox Content="Already supercharged at the start"
+                              IsChecked="{Binding GalaxyIsSupercharged}"
+                              Margin="0,0,0,8" />
+                    <CheckBox Content="Use neutron/white dwarf supercharge boosts"
+                              IsChecked="{Binding GalaxyUseSupercharge}"
+                              Margin="0,0,0,8" />
+                    <CheckBox Content="Use FSD injections"
+                              IsChecked="{Binding GalaxyUseInjections}"
+                              Margin="0,0,0,8" />
+                    <CheckBox Content="Use FSD injections only when required"
+                              IsChecked="{Binding GalaxyUseInjectionsWhenRequired}"
+                              Margin="0,0,0,8" />
+                    <CheckBox Content="Exclude secondary economy systems"
+                              IsChecked="{Binding GalaxyExcludeSecondary}"
+                              Margin="0,0,0,8" />
+                    <CheckBox Content="Refuel at every scoopable star"
+                              IsChecked="{Binding GalaxyRefuelEveryScoopable}"
+                              Margin="0,0,0,16" />
+
+                    <Button Content="Calculate"
+                            Command="{Binding GalaxyCalculateCommand}"
+                            HorizontalAlignment="Left"
+                            Width="120"
+                            Padding="4"
+                            Margin="0,0,0,16" />
+
+                    <ProgressBar IsIndeterminate="True"
+                                 Height="4"
+                                 Visibility="{Binding IsGalaxyCalculating, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 Margin="0,0,0,8" />
+
+                    <TextBlock Text="{Binding GalaxyStatusMessage}"
                                TextWrapping="Wrap"
                                Opacity="0.8" />
                 </StackPanel>
@@ -183,6 +288,15 @@
                 <Run Text="For advice on getting the most out of the Neutron Plotter, see Spansh's own " />
                 <Hyperlink Command="{Binding OpenNeutronPlotterCommand}">Neutron&#160;Plotter</Hyperlink>
                 <Run Text=" directly." />
+            </TextBlock>
+            <TextBlock TextWrapping="Wrap"
+                       Opacity="0.7"
+                       FontSize="11"
+                       TextAlignment="Left"
+                       Margin="0,0,0,12"
+                       Visibility="{Binding SelectedIndex, ElementName=SpanshTabs, Converter={StaticResource IndexEqualsVisibilityConverter}, ConverterParameter=2}">
+                This plots an exact route using your ship's own real jump range, fuel usage, and
+                supercharge/injection options, rather than a flat range figure.
             </TextBlock>
         </StackPanel>
 

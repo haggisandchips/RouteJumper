@@ -25,6 +25,12 @@ namespace RouteJumper.Tests.TestSupport
 
         public List<(string SourceName, string DestinationName, string Range, string Efficiency, int SuperchargeMultiplier)> NeutronRequests { get; } = new();
 
+        public string GalaxyJobId { get; set; } = "galaxy-job";
+
+        public SpanshRouteJobStatus GalaxyResult { get; set; } = SpanshRouteJobStatus.Completed(Array.Empty<SpanshRouteJump>());
+
+        public List<SpanshGenericRouteRequest> GalaxyRequests { get; } = new();
+
         public Task<IReadOnlyList<SpanshSystemSuggestion>> SearchSystemNamesAsync(string query, CancellationToken cancellationToken = default) =>
             Task.FromResult(SearchResults);
 
@@ -44,5 +50,14 @@ namespace RouteJumper.Tests.TestSupport
 
         public Task<SpanshRouteJobStatus> GetNeutronJobResultAsync(string jobId, CancellationToken cancellationToken = default) =>
             Task.FromResult(NeutronResult);
+
+        public Task<string> StartGenericRouteAsync(SpanshGenericRouteRequest request, CancellationToken cancellationToken = default)
+        {
+            GalaxyRequests.Add(request);
+            return Task.FromResult(GalaxyJobId);
+        }
+
+        public Task<SpanshRouteJobStatus> GetGenericJobResultAsync(string jobId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(GalaxyResult);
     }
 }

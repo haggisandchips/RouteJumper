@@ -325,5 +325,136 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(SpanshJobState.Failed, status.State);
         }
+
+        // ===================== StartGenericRouteAsync / GetGenericJobResultAsync (Galaxy Plotter
+        // tab) - real request/response shapes confirmed live via curl against
+        // https://spansh.co.uk/api/generic/route and https://spansh.co.uk/api/results/{job}.
+        // Deliberately no "ship_build" form field - confirmed live that a request with it set to a
+        // bare "{}", and a second with it omitted entirely, both computed/queued identically. =====================
+
+        private static SpanshGenericRouteRequest CreateGenericRequest() => new(
+            SourceId: "10477373803",
+            DestinationId: "3238296097059",
+            IsSupercharged: true,
+            UseSupercharge: true,
+            UseInjections: false,
+            UseInjectionsWhenRequired: false,
+            ExcludeSecondary: false,
+            RefuelEveryScoopable: true,
+            FuelPower: 2.5025,
+            FuelMultiplier: 0.011,
+            OptimalMass: 7528.04,
+            BaseMass: 1350.44,
+            TankSize: 128,
+            InternalTankSize: 1.14,
+            ReserveSize: "0",
+            MaxFuelPerJump: 6.8,
+            RangeBoost: 10.5,
+            Cargo: "0",
+            Algorithm: "optimistic",
+            SuperchargeMultiplier: 6,
+            InjectionMultiplier: 2);
+
+        [Fact]
+        public async Task StartGenericRouteAsync_PostsExpectedFormFields_ReturnsJobId_NoShipBuildField()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"job":"80C74630-9B12-11F1-BEB4-9624F0252316","status":"queued"}""");
+
+            var jobId = await service.StartGenericRouteAsync(CreateGenericRequest());
+
+            Assert.Equal("80C74630-9B12-11F1-BEB4-9624F0252316", jobId);
+            var url = Assert.Single(handler.RequestedUrls);
+            Assert.Contains("/api/generic/route", url);
+            var body = Assert.Single(handler.RequestedBodies);
+            Assert.Contains("source=10477373803", body);
+            Assert.Contains("destination=3238296097059", body);
+            Assert.Contains("is_supercharged=1", body);
+            Assert.Contains("use_injections=0", body);
+            Assert.Contains("fuel_power=2.5025", body);
+            Assert.Contains("optimal_mass=7528.04", body);
+            Assert.Contains("base_mass=1350.44", body);
+            Assert.Contains("range_boost=10.5", body);
+            Assert.Contains("max_time=60", body);
+            Assert.Contains("algorithm=optimistic", body);
+            Assert.Contains("supercharge_multiplier=6", body);
+            Assert.Contains("injection_multiplier=2", body);
+            Assert.DoesNotContain("ship_build", body);
+        }
+
+        [Fact]
+        public async Task StartGenericRouteAsync_NoJobInResponse_Throws()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"status":"queued"}""");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartGenericRouteAsync(CreateGenericRequest()));
+        }
+
+        [Fact]
+        public async Task StartGenericRouteAsync_NonSuccessWithUnparsableBody_ThrowsGenericMessage()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.InternalServerError, "oops");
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartGenericRouteAsync(CreateGenericRequest()));
+
+            Assert.Contains("500", ex.Message);
+        }
+
+        // Real completed-job response captured live (POST /api/generic/route, polled to
+        // completion) - "state"/"status" are sibling top-level fields exactly like the
+        // fleet-carrier endpoint, and result.jumps[] carries the same id64/name/x/y/z shape, plus
+        // extra per-jump fields (fuel_used, must_refuel, ...) this app doesn't need and which
+        // System.Text.Json simply ignores.
+        [Fact]
+        public async Task GetGenericJobResultAsync_StateCompletedStatusOk_ReturnsJumps()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """
+                {
+                  "job": "80C74630-9B12-11F1-BEB4-9624F0252316",
+                  "state": "completed",
+                  "status": "ok",
+                  "result": {
+                    "jumps": [
+                      { "id64": 10477373803, "name": "Sol", "x": 0, "y": 0, "z": 0, "distance": 0, "fuel_used": 0, "must_refuel": false },
+                      { "id64": 4994888293, "name": "3 Capricorni", "x": -210.53125, "y": -186.59375, "z": 342.40625, "distance": 443.150848388672, "fuel_used": 6.13531541824341, "must_refuel": true }
+                    ],
+                    "refuel_every_scoopable": 1
+                  }
+                }
+                """);
+
+            var status = await service.GetGenericJobResultAsync("80C74630-9B12-11F1-BEB4-9624F0252316");
+
+            Assert.Equal(SpanshJobState.Completed, status.State);
+            Assert.Equal(2, status.Jumps.Count);
+            Assert.Equal(new SpanshRouteJump(10477373803, "Sol", 0.0, 0.0, 0.0), status.Jumps[0]);
+            Assert.Equal(new SpanshRouteJump(4994888293, "3 Capricorni", -210.53125, -186.59375, 342.40625), status.Jumps[1]);
+        }
+
+        [Fact]
+        public async Task GetGenericJobResultAsync_StatePending_ReturnsPending()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"job":"abc-123","state":"unstarted","status":"queued"}""");
+
+            var status = await service.GetGenericJobResultAsync("abc-123");
+
+            Assert.Equal(SpanshJobState.Pending, status.State);
+            Assert.Equal("unstarted", status.StatusText);
+        }
+
+        [Fact]
+        public async Task GetGenericJobResultAsync_NonSuccessHttpStatus_ReturnsFailed()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.NotFound, "");
+
+            var status = await service.GetGenericJobResultAsync("abc-123");
+
+            Assert.Equal(SpanshJobState.Failed, status.State);
+        }
     }
 }
