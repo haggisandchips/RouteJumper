@@ -24,6 +24,9 @@ scripting, sample scripts, data locations, development, and
 troubleshooting — see the full
 [ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).**
 
+Questions, feedback, or support? Join the
+[Discord server](https://discord.gg/GeF3AVjcUd).
+
 ---
 
 ## Technical Note
