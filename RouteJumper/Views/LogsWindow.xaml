@@ -60,8 +60,13 @@
             <StackPanel Grid.Column="2"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right">
+                <Button Content="Open Logs Folder"
+                        Padding="10,4"
+                        Click="OnOpenLogsFolderClick"
+                        ToolTip="Open the on-disk log files - the durable record, unlike this live-only view" />
                 <Button Content="Clear"
                         Padding="10,4"
+                        Margin="8,0,0,0"
                         Click="OnClearClick" />
                 <Button Content="Close"
                         Padding="10,4"

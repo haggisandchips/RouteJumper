@@ -1,5 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using RouteJumper.Common;
+using RouteJumper.Services;
 using RouteJumper.Services.Logging;
 
 namespace RouteJumper.Views
@@ -61,6 +64,13 @@ namespace RouteJumper.Views
             }
 
             LogTextBox.ScrollToEnd();
+        }
+
+        /// <summary>Opens the on-disk Logs folder in Explorer - the durable record for anything that happened before this window was opened, since the view above only ever shows entries logged while it's open.</summary>
+        private void OnOpenLogsFolderClick(object sender, RoutedEventArgs e)
+        {
+            Directory.CreateDirectory(AppPaths.LogsDirectory);
+            BrowserLauncher.Open(AppPaths.LogsDirectory);
         }
 
         private void OnClearClick(object sender, RoutedEventArgs e)

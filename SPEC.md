@@ -207,6 +207,10 @@ See §6.
   nothing left for it to scroll. Session-only, like the rest of this
   window's own state - always starts back at its default (off) on a
   fresh open.
+- An **Open Logs Folder** button opens the on-disk Logs directory
+  (§12) in Explorer - since this window only ever shows what's logged
+  while it's open, this is the way to get at whatever happened earlier
+  in the session (or a previous one) without re-triggering it live.
 - A **Close** button dismisses it. Owned by the main window, so it
   closes automatically alongside it - it holds no state worth keeping
   open past that point.

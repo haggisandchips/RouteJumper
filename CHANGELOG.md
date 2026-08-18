@@ -9,6 +9,10 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Logs window: an **Open Logs Folder** button opens the on-disk log
+  files directly — since the window itself only ever shows entries
+  logged while it's open, this is how to get at anything logged earlier
+  in the session or in a previous one.
 - **Ship mode**: a toggle beside the menu bar switching between Fleet
   Carrier mode (the default) and a leaner, purely passive Ship mode for
   a solo commander flying their own hand-plotted route (e.g. from a

@@ -149,12 +149,13 @@ immediately.
 
 **Help > Logs** opens a live viewer for everything ED:FC Auto Pilot logs
 during a session — journal-driven row transitions, EDSM requests, Auto
-Pilot triggers and panic-mode stops, macro playback, and more. It's the
-first place to check when something doesn't seem right.
+Pilot triggers and panic-mode stops, macro playback, and more.
 
-It only shows entries logged while it's open — closing and reopening
-starts blank again. Everything is also written to a date-stamped file
-under `%LocalAppData%\EDFCAutoPilot\Logs\`, which you can view directly.
+It's live-only: it shows entries logged while it's open, starting blank
+every time — so open it *before* reproducing an issue, not after.
+Everything is also written to a date-stamped file under
+`%LocalAppData%\EDFCAutoPilot\Logs\`; click **Open Logs Folder** in the
+Logs window to jump straight there for anything that already happened.
 
 ---
 
@@ -176,7 +177,10 @@ Controls tab's test-value fields.
 
 ## Troubleshooting
 
-Start with **Help > Logs** — it shows what the app actually saw and did.
+Start with **Help > Logs** if you can reproduce the issue — it shows what
+the app actually saw and did, live. If the issue already happened, it
+opens blank; click **Open Logs Folder** in that window (or browse to
+`%LocalAppData%\EDFCAutoPilot\Logs\`) for the same detail on disk.
 
 - **"No running Elite Dangerous instances found."** — make sure the game
   itself is running (not just the launcher), then click **Refresh**.
