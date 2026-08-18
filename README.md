@@ -50,9 +50,7 @@ Grab the latest installer (`EDFCAutoPilot-win-Setup.exe`) from the project's
 **[GitHub Releases](https://github.com/haggisandchips/RouteJumper/releases)**
 page and run it. From then on ED:FC Auto Pilot checks for and silently installs
 newer releases itself on launch (via [Velopack](https://velopack.io/)) — no
-need to revisit the Releases page for future updates. See
-[Packaging & distributing releases via GitHub](https://haggisandchips.github.io/RouteJumper/development.html#packaging--distributing-releases-via-github)
-in the docs for how releases are produced.
+need to revisit the Releases page for future updates.
 
 ## Building from source
 
@@ -67,7 +65,8 @@ in the docs for how releases are produced.
    ```
 
 See the [development docs](https://haggisandchips.github.io/RouteJumper/development.html)
-for running the test suite, the project layout, and cutting releases.
+for running the test suite and the project layout. Pull requests are
+welcome.
 
 ---
 

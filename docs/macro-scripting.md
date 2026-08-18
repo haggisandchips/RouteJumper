@@ -180,10 +180,10 @@ transfer screen isn't fixed).
 # Refuels the carrier by transfering Tritium from the carrier's hold. #
 # This script is only appropriate when Engineer is the carrier owner. #
 #                                                                     #
-# It is only reliable when Tritium is the only commodity in both the  #
-# ship's hold and the carrier's hold. If not the location of Tritium  #
-# in the transfer screen is indeterminate and changes depending on    #
-# the ship's hold contents.                                           #
+# It is only reliable when Tritium is the only commodity in the       #
+# carrier's hold. If not the location of Tritium in the transfer      #
+# screen is indeterminate and changes depending on the ship's hold    #
+# contents.                                                           #
 #                                                                     #
 # NOTE: This script requires Right Panel to be set on the Home tab.   #
 #                                                                     #
