@@ -69,11 +69,20 @@ jobs:
         # Requires a DISCORD_WEBHOOK repo secret (Discord: channel Settings >
         # Integrations > Webhooks). Skipped harmlessly if it isn't set, so this
         # workflow still works in a fork with no Discord server configured.
+        #
+        # The JSON payload is written to a file rather than passed as a curl
+        # command-line argument: on windows-latest, argv is down-converted from
+        # UTF-16 to the legacy ANSI codepage before curl.exe sees it, which
+        # mangles the emoji (a UTF-16 surrogate pair) into "??". Writing it to
+        # a file first and having curl read that file avoids the conversion.
         if: env.DISCORD_WEBHOOK != ''
         shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: >
-          curl -sf -X POST "$DISCORD_WEBHOOK"
-          -H "Content-Type: application/json"
-          -d "{\"content\": \"🚀 **ED:FC Auto Pilot v${{ steps.version.outputs.version }}** has been released!\nhttps://github.com/haggisandchips/RouteJumper/releases/tag/${{ github.ref_name }}\"}"
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cat > discord-payload.json <<EOF
+          {"content": "🚀 **ED:FC Auto Pilot v${VERSION}** has been released!\nhttps://github.com/haggisandchips/RouteJumper/releases/tag/${TAG}"}
+          EOF
+          curl -sf -X POST "$DISCORD_WEBHOOK" -H "Content-Type: application/json" --data-binary @discord-payload.json
