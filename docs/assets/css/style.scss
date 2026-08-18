@@ -5,6 +5,8 @@
 
 :root {
   --sidebar-width: 15rem;
+  --content-max-width: 60rem;
+  --page-max-width: calc(var(--sidebar-width) + var(--content-max-width));
   --banner-height: 2.75rem;
 }
 
@@ -30,11 +32,18 @@ body {
   border-bottom: 1px solid #ffe69c;
 }
 
+.page {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-start;
+}
+
 .sidebar {
-  position: fixed;
+  position: sticky;
   top: var(--banner-height);
-  left: 0;
-  bottom: 0;
+  height: calc(100vh - var(--banner-height));
+  flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);
   box-sizing: border-box;
   padding: 2rem 1.5rem;
@@ -101,14 +110,21 @@ body {
 }
 
 .main-content {
-  margin: 0 0 0 var(--sidebar-width);
-  max-width: 60rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 3rem;
 }
 
 @media (max-width: 42rem) {
+  .page {
+    flex-direction: column;
+  }
+
   .sidebar {
     position: static;
+    height: auto;
+    flex: 0 0 auto;
     width: auto;
     flex-direction: row;
     flex-wrap: wrap;
@@ -129,7 +145,6 @@ body {
   }
 
   .main-content {
-    margin-left: 0;
     padding: 1.5rem 1rem;
   }
 }
