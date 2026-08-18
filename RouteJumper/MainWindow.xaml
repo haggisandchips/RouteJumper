@@ -53,8 +53,9 @@
                         <Separator />
                         <MenuItem Header="E_xit" Click="OnExitClick" />
                     </MenuItem>
-                    <MenuItem Header="_Integrations">
-                        <MenuItem Header="_Spansh…" Click="OnSpanshClick" />
+                    <MenuItem Header="_Spansh">
+                        <MenuItem Header="_Fleet Carrier…" Click="OnSpanshFleetCarrierClick" />
+                        <MenuItem Header="_Neutron Plotter…" Click="OnSpanshNeutronPlotterClick" />
                     </MenuItem>
                     <MenuItem Header="_Help">
                         <MenuItem Header="_Logs" Click="OnLogsClick" />

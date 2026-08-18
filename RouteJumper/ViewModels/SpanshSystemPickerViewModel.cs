@@ -7,7 +7,7 @@ namespace RouteJumper.ViewModels
 {
     /// <summary>
     /// One "type a system name, pick from live Spansh suggestions" field - shared by the Spansh
-    /// import dialog's (Integrations &gt; Spansh) Source and Destination fields. 200ms after the
+    /// import dialog's (Spansh menu) Source and Destination fields. 200ms after the
     /// user last typed a character, issues a search via the injected <c>search</c> delegate
     /// (SpanshRouteService.SearchSystemNamesAsync in production) and populates
     /// <see cref="Suggestions"/>. <see cref="Selected"/> only ever becomes non-null via an actual

@@ -1,7 +1,7 @@
 namespace RouteJumper.Models
 {
     /// <summary>
-    /// One hop of a fleet-carrier route calculated by Spansh (Integrations &gt; Spansh -
+    /// One hop of a fleet-carrier route calculated by Spansh (the Spansh menu -
     /// $.result.jumps in SpanshRouteService.GetJobResultAsync's response). Id64 is the system's
     /// real, stable Elite Dangerous system address - kept (and cached, see
     /// IStarSystemLookupService.SeedSystemAddress) even though nothing currently displays it,

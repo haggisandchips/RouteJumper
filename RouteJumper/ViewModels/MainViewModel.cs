@@ -195,13 +195,20 @@ namespace RouteJumper.ViewModels
         /// for a future smarter default to build on (the same "captured now, consumed once a real
         /// feature needs it" precedent id64/system-address caching already follows elsewhere,
         /// §4.9) - the CMDR types Range in by hand for now.
+        ///
+        /// KnownCarrierSystem is a distinct, Fleet-Carrier-mode-only concept - the Captain's own
+        /// fleet carrier's real current location (EliteInstanceViewModel.CarrierSystem, the same
+        /// field Trim for FC anchors from), not the Captain's own ship's position. Used to pre-fill
+        /// the Spansh dialog's Fleet Carrier tab's own Source. Always null in Ship mode - the
+        /// tracked instance's own ship carries no fleet-carrier concept at all.
         /// </summary>
-        public (string? CurrentSystem, bool HasOverchargedFsd) GetKnownShipState()
+        public (string? CurrentSystem, string? KnownCarrierSystem, bool HasOverchargedFsd) GetKnownShipState()
         {
             var instance = _mode == TrackingMode.Ship
                 ? TrackViewModel.Instances.FirstOrDefault(i => i.IsTracked)
                 : RolesViewModel.CaptainInstance;
-            return (instance?.CurrentSystem, instance?.HasOverchargedFsd ?? false);
+            var knownCarrierSystem = _mode == TrackingMode.Ship ? null : RolesViewModel.CaptainInstance?.CarrierSystem;
+            return (instance?.CurrentSystem, knownCarrierSystem, instance?.HasOverchargedFsd ?? false);
         }
 
         /// <summary>Owns spoken-announcement voice/volume/mute state - bound directly by MainWindow's mute button and the Preferences dialog.</summary>

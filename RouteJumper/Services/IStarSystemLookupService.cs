@@ -67,8 +67,8 @@ namespace RouteJumper.Services
         /// <summary>
         /// Seeds a system's real, stable Elite Dangerous system address (id64) directly, without a
         /// network call - from NavRoute.json/FSDTarget's own SystemAddress field (see
-        /// StarSystemCacheSeeder), or from a Spansh-calculated route's own jumps (Integrations &gt;
-        /// Spansh, SpanshRouteJump.Id64). EDSM never supplies this - it's only ever seeded, never
+        /// StarSystemCacheSeeder), or from a Spansh-calculated route's own jumps (the Spansh menu,
+        /// SpanshRouteJump.Id64). EDSM never supplies this - it's only ever seeded, never
         /// looked up over HTTP. Nothing currently reads this back for display; it's cached purely
         /// "as we go", the same principle Distance/Star Type already follow. Always overwrites any
         /// existing cached value.

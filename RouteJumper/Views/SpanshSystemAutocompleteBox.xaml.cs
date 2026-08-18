@@ -9,7 +9,7 @@ using RouteJumper.ViewModels;
 namespace RouteJumper.Views
 {
     /// <summary>
-    /// Live-search autocomplete field for one Spansh system pick (Integrations &gt; Spansh's
+    /// Live-search autocomplete field for one Spansh system pick (the Spansh menu's
     /// Source/Destination fields) - a plain TextBox plus a manually-driven Popup/ListBox, not an
     /// editable ComboBox. Confirmed live (via UI Automation) that a stock editable ComboBox bound
     /// the way this needs (Text two-way, SelectedItem two-way, an async-populated ItemsSource)

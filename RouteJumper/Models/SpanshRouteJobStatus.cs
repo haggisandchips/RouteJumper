@@ -14,7 +14,7 @@ namespace RouteJumper.Models
     }
 
     /// <summary>
-    /// One poll's outcome from Spansh's /api/results/{job} endpoint (Integrations &gt; Spansh).
+    /// One poll's outcome from Spansh's /api/results/{job} endpoint (the Spansh menu).
     /// </summary>
     public sealed class SpanshRouteJobStatus
     {

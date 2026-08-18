@@ -82,7 +82,8 @@
             <TabItem Header="Neutron Plotter">
                 <StackPanel Margin="16">
 
-                    <views:SpanshSystemAutocompleteBox Picker="{Binding NeutronSource}"
+                    <views:SpanshSystemAutocompleteBox x:Name="NeutronSourceBox"
+                                                        Picker="{Binding NeutronSource}"
                                                         Hint="Source system"
                                                         Margin="0,0,0,16" />
 
@@ -170,7 +171,7 @@
                        Margin="0,0,0,12"
                        Visibility="{Binding SelectedIndex, ElementName=SpanshTabs, Converter={StaticResource IndexEqualsVisibilityConverter}, ConverterParameter=0}">
                 <Run Text="If tritium capacity and restock planning along the way is required, use Spansh's own " />
-                <Hyperlink Command="{Binding OpenFleetCarrierRouterCommand}">Fleet Carrier route planner</Hyperlink>
+                <Hyperlink Command="{Binding OpenFleetCarrierRouterCommand}">Fleet&#160;Carrier&#160;Router</Hyperlink>
                 <Run Text=" instead." />
             </TextBlock>
             <TextBlock TextWrapping="Wrap"
@@ -180,7 +181,7 @@
                        Margin="0,0,0,12"
                        Visibility="{Binding SelectedIndex, ElementName=SpanshTabs, Converter={StaticResource IndexEqualsVisibilityConverter}, ConverterParameter=1}">
                 <Run Text="For advice on getting the most out of the Neutron Plotter, see Spansh's own " />
-                <Hyperlink Command="{Binding OpenNeutronPlotterCommand}">Neutron Plotter</Hyperlink>
+                <Hyperlink Command="{Binding OpenNeutronPlotterCommand}">Neutron&#160;Plotter</Hyperlink>
                 <Run Text=" directly." />
             </TextBlock>
         </StackPanel>

@@ -437,8 +437,8 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Applies a route freshly calculated by Spansh's fleet-carrier route planner (Integrations
-        /// &gt; Spansh, SpanshImportViewModel) - replaces the currently-saved route with every jump
+        /// Applies a route freshly calculated by Spansh's fleet-carrier route planner (the Spansh
+        /// menu, SpanshImportViewModel) - replaces the currently-saved route with every jump
         /// Spansh returned, unconditionally including the source system as row 1 (unlike
         /// ImportFromNavRoute, which skips NavRoute.json's own leading departure entry - a Spansh
         /// route is a deliberately hand-picked source/destination pair, not "wherever the CMDR

@@ -8,7 +8,7 @@ namespace RouteJumper.Converters
     /// Visible when the bound <c>int</c> (e.g. a TabControl's own SelectedIndex) equals
     /// <see cref="ConvertBack"/>'s own ConverterParameter (also an <c>int</c>, supplied as a
     /// string in XAML); Collapsed otherwise - used to show a tab-specific footnote only while
-    /// that tab is the one currently selected (Integrations &gt; Spansh's own dialog, SPEC §4.12).
+    /// that tab is the one currently selected (the Spansh menu's own dialog, SPEC §4.12).
     /// </summary>
     public class IndexEqualsVisibilityConverter : IValueConverter
     {

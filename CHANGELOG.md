@@ -64,20 +64,24 @@ and this project follows [Semantic Versioning](https://semver.org/).
   replaces/rewrites the saved route outright) and then apply immediately,
   left-to-right in the order you'd actually use them: Import Current
   Route, Trim for FC, Auto Pilot.
-- **Spansh integration**: a new **Integrations > Spansh…** dialog to
-  calculate a route between two systems (autocomplete Source/Destination
-  fields) via Spansh's own route-plotting API and import it straight
-  into the Route tab, replacing the currently-saved route the same way
-  Import Current Route does. Polls the calculation every 5 seconds with
-  an indeterminate progress indicator while it's running. A footnote
-  links out to Spansh's own hosted Fleet Carrier route planner (which
-  accounts for tritium capacity and schedules restock stops along the
-  way — this dialog's own Calculate is a single direct hop sequence,
-  not tritium-aware) for that heavier planning job instead. Every jump
-  Spansh returns seeds the same Distance/Star Type cache EDSM lookups
-  use, so the imported route's columns populate instantly rather than
-  needing a fresh EDSM round trip. Used with the express permission of
-  Spansh's author, Gareth Harper, credited in the dialog itself.
+- **Spansh integration**: a new top-level **Spansh** menu (**Fleet
+  Carrier…** / **Neutron Plotter…**) opens a dialog to calculate a route
+  between two systems (autocomplete Source/Destination fields) via
+  Spansh's own route-plotting API and import it straight into the Route
+  tab, replacing the currently-saved route the same way Import Current
+  Route does — either menu item opens the same dialog, just starting on
+  its own matching tab. Its own Source is pre-filled, where known, from
+  your Captain's fleet carrier's real current location. Polls the
+  calculation every 5 seconds with an indeterminate progress indicator
+  while it's running. A footnote links out to Spansh's own hosted Fleet
+  Carrier Router (which accounts for tritium capacity and schedules
+  restock stops along the way — this dialog's own Calculate is a single
+  direct hop sequence, not tritium-aware) for that heavier
+  planning job instead. Every jump Spansh returns seeds the same
+  Distance/Star Type cache EDSM lookups use, so the imported route's
+  columns populate instantly rather than needing a fresh EDSM round
+  trip. Used with the express permission of Spansh's author, Gareth
+  Harper, credited in the dialog itself.
 - **Neutron Plotter**: a second tab in the Spansh dialog, alongside
   Fleet Carrier, calculating a neutron-highway route instead — the same
   Source/Destination autocomplete, plus an editable Range (ly) and

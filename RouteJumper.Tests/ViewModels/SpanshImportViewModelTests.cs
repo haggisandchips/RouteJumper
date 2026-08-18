@@ -13,12 +13,99 @@ namespace RouteJumper.Tests.ViewModels
             FakeSpanshRouteService? routeService = null,
             Func<IReadOnlyList<SpanshRouteJump>, bool>? applyRoute = null,
             string? knownCurrentSystem = null,
+            string? knownCarrierSystem = null,
             bool defaultToOvercharge = false) => new(
                 routeService ?? new FakeSpanshRouteService(),
                 applyRoute ?? (_ => true),
                 new AppConfigStore(dir.Path),
                 knownCurrentSystem,
+                knownCarrierSystem,
                 defaultToOvercharge);
+
+        // ===================== Fleet Carrier tab - pre-fill Source from the Captain's own fleet
+        // carrier's real current location. Unlike the Neutron Plotter tab's own Source (below),
+        // this needs a real Spansh-resolved id, so it's a background search rather than an
+        // immediately-applied local value - PrefillFleetCarrierSourceAsync is internal (not
+        // private) specifically so these tests can await it directly instead of racing the
+        // constructor's own fire-and-forget call. =====================
+
+        [Fact]
+        public async Task PrefillFleetCarrierSourceAsync_ExactNameMatchFound_SetsSourceSelected()
+        {
+            using var dir = new TempDirectory();
+            var carrierSuggestion = new SpanshSystemSuggestion("10477373803", 10477373803, "Sol");
+            var service = new FakeSpanshRouteService { SearchResults = new[] { carrierSuggestion } };
+            var vm = Create(dir, service);
+
+            await vm.PrefillFleetCarrierSourceAsync(service.SearchSystemNamesAsync, "Sol");
+
+            Assert.Equal(carrierSuggestion, vm.Source.Selected);
+        }
+
+        [Fact]
+        public async Task PrefillFleetCarrierSourceAsync_NoMatchingName_LeavesSourceUnselected()
+        {
+            using var dir = new TempDirectory();
+            var service = new FakeSpanshRouteService { SearchResults = new[] { new SpanshSystemSuggestion("1", 1, "Deciat") } };
+            var vm = Create(dir, service);
+
+            await vm.PrefillFleetCarrierSourceAsync(service.SearchSystemNamesAsync, "Sol");
+
+            Assert.Null(vm.Source.Selected);
+        }
+
+        [Fact]
+        public async Task PrefillFleetCarrierSourceAsync_CmdrAlreadyPickedSource_DoesNotOverwrite()
+        {
+            using var dir = new TempDirectory();
+            var carrierSuggestion = new SpanshSystemSuggestion("10477373803", 10477373803, "Sol");
+            var service = new FakeSpanshRouteService { SearchResults = new[] { carrierSuggestion } };
+            var vm = Create(dir, service);
+            var manualPick = new SpanshSystemSuggestion("2", 2, "Deciat");
+            vm.Source.Selected = manualPick;
+
+            await vm.PrefillFleetCarrierSourceAsync(service.SearchSystemNamesAsync, "Sol");
+
+            Assert.Equal(manualPick, vm.Source.Selected);
+        }
+
+        [Fact]
+        public async Task PrefillFleetCarrierSourceAsync_CmdrAlreadyTyped_DoesNotOverwrite()
+        {
+            using var dir = new TempDirectory();
+            var carrierSuggestion = new SpanshSystemSuggestion("10477373803", 10477373803, "Sol");
+            var service = new FakeSpanshRouteService { SearchResults = new[] { carrierSuggestion } };
+            var vm = Create(dir, service);
+            vm.Source.Query = "Ded";
+
+            await vm.PrefillFleetCarrierSourceAsync(service.SearchSystemNamesAsync, "Sol");
+
+            Assert.Null(vm.Source.Selected);
+        }
+
+        [Fact]
+        public void Constructor_KnownCarrierSystem_KicksOffBackgroundPrefillThatSetsSource()
+        {
+            // FakeSpanshRouteService resolves synchronously (Task.FromResult, no real I/O to yield
+            // on), so the fire-and-forget prefill the constructor kicks off has already run to
+            // completion by the time the constructor itself returns.
+            using var dir = new TempDirectory();
+            var carrierSuggestion = new SpanshSystemSuggestion("10477373803", 10477373803, "Sol");
+            var service = new FakeSpanshRouteService { SearchResults = new[] { carrierSuggestion } };
+
+            var vm = Create(dir, service, knownCarrierSystem: "Sol");
+
+            Assert.Equal(carrierSuggestion, vm.Source.Selected);
+        }
+
+        [Fact]
+        public void Constructor_NoKnownCarrierSystem_SourceStartsUnselected()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            Assert.Null(vm.Source.Selected);
+        }
 
         // ===================== Neutron Plotter tab - pre-fill (Source from the CMDR's own current
         // system; Range is never pre-filled - see SpanshImportViewModel's own constructor doc

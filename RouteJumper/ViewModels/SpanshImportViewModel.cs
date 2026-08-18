@@ -6,7 +6,7 @@ using RouteJumper.Services.Logging;
 namespace RouteJumper.ViewModels
 {
     /// <summary>
-    /// ViewModel for the "Spansh" modal dialog (Integrations &gt; Spansh) - a "Fleet Carrier" tab:
+    /// ViewModel for the "Spansh" modal dialog (Spansh menu) - a "Fleet Carrier" tab:
     /// pick a Source and Destination system (SpanshSystemPickerViewModel), then Calculate
     /// requests a route from Spansh and polls it to completion; and a "Neutron Plotter" tab (same
     /// picker, plus an editable Range/Efficiency) calculating a neutron-highway route instead.
@@ -19,7 +19,7 @@ namespace RouteJumper.ViewModels
     {
         private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
-        /// <summary>Spansh's own Fleet Carrier route planner - unlike this dialog's Calculate (a single source-&gt;destination hop sequence), it accounts for tritium capacity and schedules restock stops along the way.</summary>
+        /// <summary>Spansh's own hosted Fleet Carrier Router - unlike this dialog's Calculate (a single source-&gt;destination hop sequence), it accounts for tritium capacity and schedules restock stops along the way.</summary>
         private const string FleetCarrierRouterUrl = "https://spansh.co.uk/fleet-carrier";
 
         /// <summary>Spansh's own hosted Neutron Plotter - linked from the Neutron Plotter tab's own footnote for anything beyond this dialog's plain source-&gt;destination Calculate (via/waypoint planning, visualising the route, ...).</summary>
@@ -65,6 +65,14 @@ namespace RouteJumper.ViewModels
         /// logged, which may not match whatever load-out the CMDR actually wants to plan the
         /// route around - so it's left for them to judge and type in rather than presumed (a
         /// smarter default is a future enhancement, not this one).
+        /// <paramref name="knownCarrierSystem"/> pre-fills the Fleet Carrier tab's own Source from
+        /// the Captain's own fleet carrier's real current location (MainViewModel.
+        /// GetKnownShipState - Fleet Carrier mode only, always null in Ship mode), when known.
+        /// Unlike <paramref name="knownCurrentSystem"/> above, this can't just be dropped in as an
+        /// unconfirmed local value - the Fleet Carrier tab's own Calculate posts a Spansh-assigned
+        /// id, not a name (see SpanshSystemPickerViewModel's own doc comment), so this instead
+        /// kicks off a background search for the exact name and only applies it once (and if) a
+        /// matching suggestion actually comes back - see PrefillFleetCarrierSourceAsync.
         /// <paramref name="defaultToOvercharge"/> similarly defaults the Neutron Plotter tab's own
         /// Normal/Overcharge supercharge choice - true only when that same ship's FrameShiftDrive
         /// slot is filled with an overcharged FSD booster (EliteInstanceViewModel.
@@ -75,6 +83,7 @@ namespace RouteJumper.ViewModels
             Func<IReadOnlyList<SpanshRouteJump>, bool> applyRoute,
             AppConfigStore? config = null,
             string? knownCurrentSystem = null,
+            string? knownCarrierSystem = null,
             bool defaultToOvercharge = false)
         {
             _routeService = routeService;
@@ -91,6 +100,11 @@ namespace RouteJumper.ViewModels
             Destination = new SpanshSystemPickerViewModel(cachedSearch, debounceDelay);
             Source.SelectionChanged += (_, _) => CalculateCommand.RaiseCanExecuteChanged();
             Destination.SelectionChanged += (_, _) => CalculateCommand.RaiseCanExecuteChanged();
+
+            if (!string.IsNullOrWhiteSpace(knownCarrierSystem))
+            {
+                _ = PrefillFleetCarrierSourceAsync(cachedSearch, knownCarrierSystem);
+            }
 
             NeutronSource = new SpanshSystemPickerViewModel(cachedSearch, debounceDelay);
             NeutronDestination = new SpanshSystemPickerViewModel(cachedSearch, debounceDelay);
@@ -110,6 +124,51 @@ namespace RouteJumper.ViewModels
             }
 
             _isOvercharge = defaultToOvercharge;
+        }
+
+        /// <summary>
+        /// Resolves the Captain's fleet carrier's own current location to a real Spansh suggestion
+        /// (via a live search for its exact name) and applies it to the Fleet Carrier tab's own
+        /// Source, so Calculate is ready to go without the CMDR needing to type/pick it themselves
+        /// - the same "pre-fill from what's already known" convention the Neutron Plotter tab's own
+        /// Source already follows, just requiring a real network round trip first here since this
+        /// tab's own Calculate needs a Spansh-assigned id, not just a name. Internal (not private)
+        /// so tests can await it directly rather than racing a fire-and-forget background task.
+        ///
+        /// Never overwrites anything the CMDR has already done themselves by the time the search
+        /// resolves (an actual pick, or text typed into Source) - a background pre-fill catching up
+        /// late must never clobber what's already the CMDR's own deliberate choice. Silently leaves
+        /// Source unfilled if the search fails, or turns up no suggestion whose name matches the
+        /// carrier's own system exactly (e.g. Spansh has no record of it) - the same "just leave it
+        /// blank" fallback an unresolved pre-fill already has everywhere else in this dialog.
+        /// </summary>
+        internal async Task PrefillFleetCarrierSourceAsync(
+            Func<string, CancellationToken, Task<IReadOnlyList<SpanshSystemSuggestion>>> search, string carrierSystem)
+        {
+            IReadOnlyList<SpanshSystemSuggestion> results;
+            try
+            {
+                results = await search(carrierSystem, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Spansh", $"Failed to pre-fill Fleet Carrier Source from the carrier's current location ({carrierSystem}).", ex);
+                return;
+            }
+
+            if (Source.Selected != null || !string.IsNullOrEmpty(Source.Query))
+            {
+                return;
+            }
+
+            var match = results
+                .Where(r => string.Equals(r.Name, carrierSystem, StringComparison.OrdinalIgnoreCase))
+                .Select(r => (SpanshSystemSuggestion?)r)
+                .FirstOrDefault();
+            if (match is { } suggestion)
+            {
+                Source.Selected = suggestion;
+            }
         }
 
         /// <summary>

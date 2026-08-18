@@ -108,8 +108,8 @@ namespace RouteJumper.Services
         public int EdsmCoordinatesBatchSize => ReadIntOrDefault(EdsmCoordinatesBatchSizeKey, DefaultEdsmCoordinatesBatchSize);
 
         /// <summary>
-        /// How long the Spansh dialog's Source/Destination autocomplete fields (Integrations &gt;
-        /// Spansh, SpanshSystemPickerViewModel) wait after the last keystroke before issuing a
+        /// How long the Spansh dialog's Source/Destination autocomplete fields (the Spansh menu,
+        /// SpanshSystemPickerViewModel) wait after the last keystroke before issuing a
         /// live search - hand-editable here like the settings above, re-read fresh each time the
         /// dialog is opened (a new SpanshImportViewModel per open), not live mid-session.
         /// </summary>

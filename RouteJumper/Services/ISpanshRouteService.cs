@@ -10,7 +10,7 @@ namespace RouteJumper.Services
     public interface ISpanshRouteService
     {
         /// <summary>
-        /// Live autocomplete search (Integrations &gt; Spansh's Source/Destination fields) - the
+        /// Live autocomplete search (the Spansh menu's Source/Destination fields) - the
         /// caller debounces (200ms) before calling this, not this method itself. Returns an empty
         /// list on any failure (network down, unparsable response, ...) rather than throwing -
         /// same "best effort, never blocks the UI" convention EdsmStarSystemLookupService follows.
@@ -24,7 +24,7 @@ namespace RouteJumper.Services
         Task<SpanshRouteJobStatus> GetJobResultAsync(string jobId, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Requests a neutron-highway route (Integrations &gt; Spansh's own Neutron Plotter tab) be
+        /// Requests a neutron-highway route (Spansh &gt; Neutron Plotter…) be
         /// calculated between two systems, by name (Spansh's neutron router takes system names,
         /// not ids, unlike <see cref="StartFleetCarrierRouteAsync"/>) - <paramref name="range"/>
         /// and <paramref name="efficiency"/> are passed through as raw text exactly as typed, with

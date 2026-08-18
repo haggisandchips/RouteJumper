@@ -8,7 +8,7 @@ using RouteJumper.Services.Logging;
 namespace RouteJumper.Services
 {
     /// <summary>
-    /// Talks to Spansh's fleet-carrier route planner (Integrations &gt; Spansh) - undocumented,
+    /// Talks to Spansh's fleet-carrier route planner (the Spansh menu) - undocumented,
     /// internal API endpoints, used here with the express permission of Spansh's own author,
     /// Gareth Harper (see the Spansh dialog's own thank-you note). This is the app's second-ever
     /// outbound network call to a third-party service, after EdsmStarSystemLookupService - see
@@ -32,7 +32,7 @@ namespace RouteJumper.Services
     ///   top-level fields, not nested under "result", which itself holds only the route's own
     ///   "jumps" array once state is "completed".
     /// - GET /api/route?efficiency=...&amp;range=...&amp;from=...&amp;to=...&amp;supercharge_multiplier=... -
-    ///   the neutron-highway router (Integrations &gt; Spansh's own Neutron Plotter tab), confirmed
+    ///   the neutron-highway router (Spansh &gt; Neutron Plotter…), confirmed
     ///   live via curl - unlike the fleet-carrier endpoint above, "from"/"to" are system *names*,
     ///   not ids, and a request Spansh can reject outright (an out-of-range "range", a system name
     ///   it has no record of, ...) answers immediately with HTTP 400 and a top-level

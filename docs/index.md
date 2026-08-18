@@ -42,7 +42,7 @@ Common to both modes:
   arrive, so it's ready to paste into the game.
 - **Detects every running Elite Dangerous instance** on the machine and
   matches each one to its journal file.
-- **Calculates and imports a route via Spansh** (Integrations > Spansh…)
+- **Calculates and imports a route via Spansh** (the **Spansh** menu)
   without leaving the app — see [Spansh integration](#spansh-integration)
   below.
 - **Logs significant events** (journal-driven row transitions, EDSM
@@ -243,11 +243,12 @@ Pilot (and manual playback) is built from.
 
 ## Spansh integration
 
-**Integrations > Spansh…** opens a small dialog (available in both
-tracking modes) with two tabs — **Fleet Carrier** and **Neutron
-Plotter** — to calculate a route between two systems and import it
-straight into the Route tab, without leaving the app or hand-typing a
-system list.
+**Spansh > Fleet Carrier…** and **Spansh > Neutron Plotter…** both open
+the same small dialog (available in both tracking modes) with two tabs —
+**Fleet Carrier** and **Neutron Plotter** — to calculate a route between
+two systems and import it straight into the Route tab, without leaving
+the app or hand-typing a system list. Each menu item just starts on its
+own matching tab; both stay one click away inside the dialog either way.
 
 - Type into either tab's own **Source**/**Destination** fields for a
   live autocomplete search against Spansh, then click that tab's own
@@ -269,10 +270,15 @@ system list.
 - The **Fleet Carrier** tab's own Calculate is a single, direct
   source → destination hop sequence — it doesn't know about tritium
   capacity or plan restock stops along the way. For that, a footnote
-  links out to Spansh's own hosted **Fleet Carrier route planner**,
+  links out to Spansh's own hosted **Fleet Carrier Router**,
   which does account for it; use that instead and paste the result in
   (or **Import Current Route** if you plot it in-game) when
-  tritium/restock planning actually matters.
+  tritium/restock planning actually matters. Where known, its own
+  **Source** is pre-filled from your Captain's fleet carrier's real
+  current location (Fleet Carrier mode only) — still fully editable.
+  This one takes a moment to resolve (a background search against
+  Spansh for that exact system), so it may fill in a beat after the
+  dialog first opens rather than instantly.
 - The **Neutron Plotter** tab calculates a neutron-highway route instead
   — the same Source/Destination fields, an editable **Range** (ly) and
   **Efficiency** (Spansh's own optimisation/speed trade-off, 1–100,
