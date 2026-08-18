@@ -47,7 +47,9 @@ namespace RouteJumper.Services
     ///   result - <c>result.system_jumps</c> (not <c>result.jumps</c>), each entry's own system
     ///   name under "system" (not "name"), and only the route's own waypoints (neutron boost stops
     ///   plus the final destination), each carrying how many ordinary jumps separate it from the
-    ///   previous one - not a line for every single hop the CMDR will actually fly.
+    ///   previous one - not a line for every single hop the CMDR will actually fly. Each waypoint
+    ///   also carries its own "jumps" (int, ordinary hops since the previous waypoint) - mapped
+    ///   onto SpanshRouteJump.Jumps for the Route table's own Neutron-only "Jumps" column.
     /// - POST /api/generic/route (the Spansh &gt; Galaxy Plotter… tab) - Spansh's own "exact"
     ///   router, confirmed live via curl (one real request, polled to completion). Form fields:
     ///   "source"/"destination" (id64s, like the fleet-carrier endpoint), six route-option booleans
@@ -66,9 +68,13 @@ namespace RouteJumper.Services
     ///   HTTP 400 rejection in what was observed - defensively handled the same way regardless,
     ///   see StartGenericRouteAsync). Polled via the same /api/results/{job} endpoint; the
     ///   completed result was confirmed live to carry the same result.jumps[].{id64,name,x,y,z}
-    ///   shape as the fleet-carrier endpoint (plus extra per-jump fields this app doesn't need,
-    ///   e.g. fuel_used/must_refuel), so GetGenericJobResultAsync reuses the fleet-carrier
-    ///   response DTOs.
+    ///   shape as the fleet-carrier endpoint, plus three extra per-jump fields the Route table's
+    ///   own Galaxy-only columns use - "has_neutron"/"must_refuel" (bool) and "must_inject" (int,
+    ///   confirmed 0 in every jump observed live; treated as a >0 boolean flag the same as the
+    ///   other two rather than assumed to always be 0/1) - so GetGenericJobResultAsync reuses the
+    ///   fleet-carrier response DTOs (SpanshJumpDto gained these three fields; GetJobResultAsync's
+    ///   own Fleet Carrier response never has them, so they simply default to false/0 there and
+    ///   are never read into SpanshRouteJump from that method).
     /// </summary>
     public sealed class SpanshRouteService : ISpanshRouteService
     {
@@ -294,7 +300,7 @@ namespace RouteJumper.Services
             }
 
             var jumps = (parsed.Result?.SystemJumps ?? new List<SpanshNeutronWaypointDto>())
-                .Select(j => new SpanshRouteJump(j.Id64, j.SystemName ?? string.Empty, j.X, j.Y, j.Z))
+                .Select(j => new SpanshRouteJump(j.Id64, j.SystemName ?? string.Empty, j.X, j.Y, j.Z, Jumps: j.Jumps))
                 .ToList();
 
             return SpanshRouteJobStatus.Completed(jumps);
@@ -378,7 +384,8 @@ namespace RouteJumper.Services
             }
 
             var jumps = (parsed.Result?.Jumps ?? new List<SpanshJumpDto>())
-                .Select(j => new SpanshRouteJump(j.Id64, j.Name ?? string.Empty, j.X, j.Y, j.Z))
+                .Select(j => new SpanshRouteJump(j.Id64, j.Name ?? string.Empty, j.X, j.Y, j.Z,
+                    MustRefuel: j.MustRefuel, MustInject: j.MustInject > 0, HasNeutron: j.HasNeutron))
                 .ToList();
 
             return SpanshRouteJobStatus.Completed(jumps);
@@ -413,6 +420,9 @@ namespace RouteJumper.Services
             public double X { get; set; }
             public double Y { get; set; }
             public double Z { get; set; }
+
+            /// <summary>Ordinary hops since the previous waypoint - mapped onto SpanshRouteJump.Jumps.</summary>
+            public int Jumps { get; set; }
         }
 
         private sealed class SpanshJobResponse
@@ -441,6 +451,18 @@ namespace RouteJumper.Services
             public double X { get; set; }
             public double Y { get; set; }
             public double Z { get; set; }
+
+            /// <summary>Galaxy Plotter only - whether this waypoint is (or is near) a neutron/white dwarf star.</summary>
+            [JsonPropertyName("has_neutron")]
+            public bool HasNeutron { get; set; }
+
+            /// <summary>Galaxy Plotter only - whether a refuel is needed at this waypoint.</summary>
+            [JsonPropertyName("must_refuel")]
+            public bool MustRefuel { get; set; }
+
+            /// <summary>Galaxy Plotter only - whether an FSD injection is needed at this waypoint (confirmed 0 in every jump observed live; treated as a &gt;0 boolean flag, not assumed to only ever be 0/1).</summary>
+            [JsonPropertyName("must_inject")]
+            public int MustInject { get; set; }
         }
     }
 }

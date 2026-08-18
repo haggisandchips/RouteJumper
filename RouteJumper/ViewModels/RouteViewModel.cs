@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using RouteJumper.Common;
@@ -16,6 +17,10 @@ namespace RouteJumper.ViewModels
     public class RouteViewModel : ObservableObject
     {
         private const string RouteTextSettingKey = "RouteText";
+        private const string RouteTypeSettingKey = "RouteType";
+        private const string RouteMetadataSettingKey = "RouteRowMetadata";
+
+        private static readonly JsonSerializerOptions RouteMetadataJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
         /// <summary>Fleet carriers' own real-world maximum jump range - the threshold TrimToJumpRange collapses the route's intermediate rows against.</summary>
         public const double MaxCarrierJumpLightYears = 500.0;
@@ -33,6 +38,7 @@ namespace RouteJumper.ViewModels
 
         private string _routeText = string.Empty;
         private string? _lastSavedRouteText;
+        private RouteType _routeType = RouteType.Plain;
         private bool _isSaved;
         private bool _isAutoPilotRunning;
         private bool _showAutoPilotButton = true;
@@ -213,9 +219,56 @@ namespace RouteJumper.ViewModels
                 {
                     AutoPilotCommand.RaiseCanExecuteChanged();
                     EditCommand.RaiseCanExecuteChanged();
+                    OnPropertyChanged(nameof(CanEdit));
                 }
             }
         }
+
+        /// <summary>
+        /// How the currently-saved route was produced - Plain unless ImportFromSpansh was just
+        /// called with a Neutron/Galaxy RouteType, and reset back to Plain by every Save() (see
+        /// Save's own doc comment for why that's the single choke point for this). Drives
+        /// IsNeutronRoute/IsGalaxyRoute (the Route table's own conditional extra columns),
+        /// RouteView's own Edit-confirmation dialog, and (via RouteTypeChanged) MainViewModel
+        /// forcing Ship mode and disabling the Fleet Carrier chip for as long as this stays
+        /// non-Plain.
+        /// </summary>
+        public RouteType RouteType
+        {
+            get => _routeType;
+            private set
+            {
+                if (SetProperty(ref _routeType, value))
+                {
+                    OnPropertyChanged(nameof(IsNeutronRoute));
+                    OnPropertyChanged(nameof(IsGalaxyRoute));
+                    RouteTypeChanged?.Invoke(this, value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Raised whenever RouteType changes (including via Save()'s own always-reset-to-Plain
+        /// behavior) - lets MainViewModel force Ship mode and disable the Fleet Carrier chip
+        /// while a Neutron/Galaxy route is saved, without RouteViewModel needing a reference to
+        /// the mode toggle itself (same decoupling principle as RouteSaved/AutoPilotRunningChanged).
+        /// </summary>
+        public event EventHandler<RouteType>? RouteTypeChanged;
+
+        /// <summary>Drives the Route table's own Neutron-only "Jumps" column visibility.</summary>
+        public bool IsNeutronRoute => RouteType == RouteType.Neutron;
+
+        /// <summary>Drives the Route table's own Galaxy-only "Refuel"/"Inject"/"Neutron" column visibility.</summary>
+        public bool IsGalaxyRoute => RouteType == RouteType.Galaxy;
+
+        /// <summary>
+        /// Mirrors EditCommand's own CanExecute (IsSaved && !IsAutoPilotRunning) as a plain
+        /// bindable property - RouteView's own Edit button binds IsEnabled to this directly
+        /// (rather than Command, which it can no longer use - see RouteView.xaml.cs.OnEditClick's
+        /// own doc comment for why a confirming Click handler and a bound Command can't coexist).
+        /// EditCommand itself is unchanged and still used by tests exercising it directly.
+        /// </summary>
+        public bool CanEdit => IsSaved && !IsAutoPilotRunning;
 
         /// <summary>
         /// "Auto Copy To Clipboard": when on, a live-observed CarrierLocation event
@@ -294,6 +347,7 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _isAutoPilotRunning, value))
                 {
                     EditCommand.RaiseCanExecuteChanged();
+                    OnPropertyChanged(nameof(CanEdit));
                     AutoPilotRunningChanged?.Invoke(this, value);
                 }
             }
@@ -448,8 +502,18 @@ namespace RouteJumper.ViewModels
         /// seeded into the shared IStarSystemLookupService cache along the way, the same "as we go"
         /// caching ImportFromNavRoute already does for NavRoute.json. Returns false (route left
         /// untouched) if Spansh returned no jumps at all.
+        ///
+        /// <paramref name="routeType"/> tags the freshly-saved route (default Plain, for the
+        /// Fleet Carrier tab's own jumps, which never populate the Neutron/Galaxy-only fields
+        /// below) - when it's Neutron or Galaxy, each jump's own Jumps/MustRefuel/MustInject/
+        /// HasNeutron is applied to the matching row (Save() just rebuilt Rows from this exact
+        /// jump list, in the same order, so a plain zip is safe) and persisted alongside RouteType
+        /// itself, ready to restore on the next launch (RestoreFromSettings). Save() itself always
+        /// resets RouteType back to Plain first - see its own doc comment - so this only takes
+        /// effect because it runs immediately afterward, before anything else can call Save()
+        /// again.
         /// </summary>
-        public bool ImportFromSpansh(IReadOnlyList<SpanshRouteJump> jumps)
+        public bool ImportFromSpansh(IReadOnlyList<SpanshRouteJump> jumps, RouteType routeType = RouteType.Plain)
         {
             if (jumps.Count == 0)
             {
@@ -465,8 +529,52 @@ namespace RouteJumper.ViewModels
 
             RouteText = string.Join("\n", jumps.Select(j => j.Name));
             Save();
+
+            if (routeType != RouteType.Plain)
+            {
+                var metadata = jumps
+                    .Select(j => new RouteRowMetadata(j.Jumps, j.MustRefuel, j.MustInject, j.HasNeutron))
+                    .ToList();
+                ApplyRouteTypeAndMetadata(routeType, metadata);
+                _settings.SetString(RouteTypeSettingKey, routeType.ToString());
+                _settings.SetString(RouteMetadataSettingKey, JsonSerializer.Serialize(metadata));
+            }
+
             Log.Info("Route", $"Imported {jumps.Count} system(s) from Spansh.");
             return true;
+        }
+
+        /// <summary>Per-row Neutron/Galaxy Plotter-only data (RouteRowViewModel.Jumps/MustRefuel/MustInject/HasNeutron) - the JSON shape persisted under RouteMetadataSettingKey, one entry per row by index. Shares field names/nullability with SpanshRouteJump's own trailing fields on purpose, so ImportFromSpansh's own projection is a direct 1:1 mapping.</summary>
+        private sealed record RouteRowMetadata(int? Jumps, bool? MustRefuel, bool? MustInject, bool? HasNeutron);
+
+        /// <summary>
+        /// Applies <paramref name="type"/>/<paramref name="metadata"/> onto the current Rows -
+        /// shared by ImportFromSpansh and RestoreFromSettings, both of which must also re-persist
+        /// RouteTypeSettingKey/RouteMetadataSettingKey themselves immediately afterward (this
+        /// method only ever touches in-memory state) - the Save() both callers run first already
+        /// overwrote both settings keys back to Plain/empty (its own unconditional reset), so
+        /// skipping that re-persist step - a bug fixed here - left the on-disk value silently
+        /// wrong (Plain) from that point on, even though the in-memory RouteType was correctly
+        /// Neutron/Galaxy for the rest of the session: invisible until the *next* restart, when
+        /// RestoreFromSettings would read back the stale "Plain" and never re-apply anything.
+        /// Zips by index; a mismatched
+        /// count (metadata persisted against a route no longer matching in row count - shouldn't
+        /// normally happen, since Save() and this are always called back-to-back against the same
+        /// data, but defensive against a hand-edited/corrupted settings row) applies only as many
+        /// entries as both sides actually have, rather than throwing.
+        /// </summary>
+        private void ApplyRouteTypeAndMetadata(RouteType type, IReadOnlyList<RouteRowMetadata> metadata)
+        {
+            RouteType = type;
+
+            var count = Math.Min(Rows.Count, metadata.Count);
+            for (var i = 0; i < count; i++)
+            {
+                Rows[i].Jumps = metadata[i].Jumps;
+                Rows[i].MustRefuel = metadata[i].MustRefuel;
+                Rows[i].MustInject = metadata[i].MustInject;
+                Rows[i].HasNeutron = metadata[i].HasNeutron;
+            }
         }
 
         /// <summary>
@@ -627,6 +735,16 @@ namespace RouteJumper.ViewModels
             IsSaved = true;
             _lastSavedRouteText = RouteText;
             _settings.SetString(RouteTextSettingKey, RouteText);
+
+            // Every Save (manual, Import Current Route, Trim for FC, or a restore) reverts the
+            // route to Plain by default - only ImportFromSpansh re-tags it (Neutron/Galaxy) and
+            // re-persists these two keys immediately afterward, once this call returns. This is
+            // deliberately the single choke point for that reset rather than special-casing every
+            // other Save() caller individually - see RouteType's own doc comment.
+            RouteType = RouteType.Plain;
+            _settings.SetString(RouteTypeSettingKey, RouteType.Plain.ToString());
+            _settings.SetString(RouteMetadataSettingKey, string.Empty);
+
             Log.Info("Route", $"Route saved - {Rows.Count} row(s).");
             RouteSaved?.Invoke(this, EventArgs.Empty);
 
@@ -734,8 +852,50 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
+            // Read RouteType/metadata *before* calling Save() below - Save() itself
+            // unconditionally overwrites both of these same settings keys back to Plain/empty
+            // (its own always-clear behavior), so reading them afterward would only ever see
+            // what Save() itself just wrote, never what an earlier session's ImportFromSpansh
+            // actually persisted.
+            var savedTypeText = _settings.GetString(RouteTypeSettingKey);
+            var savedMetadataJson = _settings.GetString(RouteMetadataSettingKey);
+
             RouteText = savedRouteText;
             Save();
+
+            // Re-apply whatever was actually persisted, the same "read back what ImportFromSpansh
+            // wrote" shape, so a Neutron/Galaxy route's extra columns survive an app restart too.
+            // A missing/unparsable/empty type or metadata row (never persisted at all, or the
+            // JSON is somehow corrupt) leaves the route as the Plain default Save() already set,
+            // rather than throwing.
+            if (savedTypeText is { } typeText
+                && Enum.TryParse<RouteType>(typeText, out var savedType)
+                && savedType != RouteType.Plain
+                && !string.IsNullOrWhiteSpace(savedMetadataJson))
+            {
+                try
+                {
+                    var metadata = JsonSerializer.Deserialize<List<RouteRowMetadata>>(savedMetadataJson, RouteMetadataJsonOptions);
+                    if (metadata != null)
+                    {
+                        ApplyRouteTypeAndMetadata(savedType, metadata);
+
+                        // Save() above already overwrote these same two keys back to Plain/empty -
+                        // without re-writing them here, the on-disk state silently disagrees with
+                        // what's now shown for the rest of this session, surfacing only on the
+                        // *next* restart (the bug this fixes - see ApplyRouteTypeAndMetadata's own
+                        // doc comment). savedMetadataJson is re-used verbatim rather than
+                        // re-serializing metadata, since it's already the exact JSON that round-
+                        // tripped through Deserialize just above.
+                        _settings.SetString(RouteTypeSettingKey, savedType.ToString());
+                        _settings.SetString(RouteMetadataSettingKey, savedMetadataJson);
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Log.Warn("Route", "Could not restore the saved route's Neutron/Galaxy Plotter data - it will show as a plain route instead.", ex);
+                }
+            }
         }
 
         private void ToggleAutoPilot()

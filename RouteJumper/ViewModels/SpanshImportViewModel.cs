@@ -30,6 +30,9 @@ namespace RouteJumper.ViewModels
         /// <summary>Spansh's own hosted Neutron Plotter - linked from the Neutron Plotter tab's own footnote for anything beyond this dialog's plain source-&gt;destination Calculate (via/waypoint planning, visualising the route, ...).</summary>
         private const string NeutronPlotterUrl = "https://spansh.co.uk/plotter";
 
+        /// <summary>Spansh's own hosted Galaxy Plotter (its own "exact-plotter" page) - linked from the Galaxy Plotter tab's own footnote for how to follow the calculated route in-game, and detailed explanations of its parameters/routing algorithms, none of which this dialog's own compact form has room to cover.</summary>
+        private const string GalaxyPlotterUrl = "https://spansh.co.uk/exact-plotter";
+
         /// <summary>Spansh's own default efficiency (Neutron Plotter tab) - a route-optimisation/speed trade-off, editable but pre-filled with this until changed.</summary>
         private const string DefaultNeutronEfficiency = "60";
 
@@ -37,7 +40,7 @@ namespace RouteJumper.ViewModels
         private const string DefaultGalaxyAlgorithm = "optimistic";
 
         private readonly ISpanshRouteService _routeService;
-        private readonly Func<IReadOnlyList<SpanshRouteJump>, bool> _applyRoute;
+        private readonly Func<IReadOnlyList<SpanshRouteJump>, RouteType, bool> _applyRoute;
 
         private bool _isCalculating;
         private string _statusMessage = string.Empty;
@@ -111,7 +114,7 @@ namespace RouteJumper.ViewModels
         /// </summary>
         public SpanshImportViewModel(
             ISpanshRouteService routeService,
-            Func<IReadOnlyList<SpanshRouteJump>, bool> applyRoute,
+            Func<IReadOnlyList<SpanshRouteJump>, RouteType, bool> applyRoute,
             AppConfigStore? config = null,
             string? knownCurrentSystem = null,
             string? knownCarrierSystem = null,
@@ -127,6 +130,7 @@ namespace RouteJumper.ViewModels
             OpenFleetCarrierRouterCommand = new RelayCommand(() => BrowserLauncher.Open(FleetCarrierRouterUrl));
             NeutronCalculateCommand = new AsyncRelayCommand(CalculateNeutronAsync, CanCalculateNeutron);
             OpenNeutronPlotterCommand = new RelayCommand(() => BrowserLauncher.Open(NeutronPlotterUrl));
+            OpenGalaxyPlotterCommand = new RelayCommand(() => BrowserLauncher.Open(GalaxyPlotterUrl));
             GalaxyCalculateCommand = new AsyncRelayCommand(CalculateGalaxyAsync, CanCalculateGalaxy);
 
             var debounceDelay = TimeSpan.FromMilliseconds((config ?? new AppConfigStore()).SpanshAutocompleteDebounceMs);
@@ -378,6 +382,8 @@ namespace RouteJumper.ViewModels
 
         public AsyncRelayCommand GalaxyCalculateCommand { get; }
 
+        public RelayCommand OpenGalaxyPlotterCommand { get; }
+
         /// <summary>Every algorithm Spansh's /api/generic/route accepts, in the same order (and with the same default, "optimistic") as its own web client.</summary>
         public static IReadOnlyList<string> GalaxyAlgorithms { get; } = new[] { "fuel", "fuel_jumps", "guided", "optimistic", "pessimistic" };
 
@@ -493,7 +499,8 @@ namespace RouteJumper.ViewModels
             && _galaxyParameters != null
             && !string.IsNullOrWhiteSpace(GalaxyCargo);
 
-        private async Task CalculateAsync()
+        /// <summary>Internal (not private) so tests can await it directly - same testability precedent as CalculateNeutronAsync/CalculateGalaxyAsync.</summary>
+        internal async Task CalculateAsync()
         {
             if (Source.Selected is not { } source || Destination.Selected is not { } destination)
             {
@@ -534,7 +541,7 @@ namespace RouteJumper.ViewModels
                         return;
                     }
 
-                    if (_applyRoute(status.Jumps))
+                    if (_applyRoute(status.Jumps, RouteType.Plain))
                     {
                         Log.Info("Spansh", "Route calculated and applied.");
                         StatusMessage = "Route applied.";
@@ -606,7 +613,7 @@ namespace RouteJumper.ViewModels
                         return;
                     }
 
-                    if (_applyRoute(status.Jumps))
+                    if (_applyRoute(status.Jumps, RouteType.Neutron))
                     {
                         Log.Info("Spansh", "Neutron route calculated and applied.");
                         NeutronStatusMessage = "Route applied.";
@@ -749,7 +756,7 @@ namespace RouteJumper.ViewModels
                         return;
                     }
 
-                    if (_applyRoute(status.Jumps))
+                    if (_applyRoute(status.Jumps, RouteType.Galaxy))
                     {
                         Log.Info("Spansh", "Galaxy route calculated and applied.");
                         GalaxyStatusMessage = "Route applied.";

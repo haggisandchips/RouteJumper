@@ -10,17 +10,24 @@ namespace RouteJumper.Views
     public partial class RouteView : UserControl
     {
         // Fixed column order (see the DataGrid.Columns declared in RouteView.xaml): blank icon,
-        // #, System, Distance, Star Type, Status. Status (the trailing column) is deliberately
-        // excluded from both Restore/Save below - it stays a Star column always, filling whatever
-        // the other five don't use, so its progress bar has real remaining width to stretch into
-        // (§3.1's "no fixed-pixel layouts"). Capturing its ActualWidth on close and forcing that
-        // back as a literal DataGridLength on next launch - what this used to do - freezes it at
-        // whatever pixel width it happened to be showing at that moment, permanently defeating
-        // its own fill behavior from then on regardless of the window's actual size.
+        // #, System, Distance, Jumps, Refuel, Inject, Neutron, Star Type, Status - indices 4-7
+        // (Jumps/Refuel/Inject/Neutron) are RouteType-conditional (never more than one group
+        // visible at a time), but still persisted individually like every other resizable column
+        // below - only Status (the trailing column) is deliberately excluded, since it stays a
+        // Star column always, filling whatever the other nine don't use, so its progress bar has
+        // real remaining width to stretch into (§3.1's "no fixed-pixel layouts"). Capturing its
+        // ActualWidth on close and forcing that back as a literal DataGridLength on next launch -
+        // what this used to do - freezes it at whatever pixel width it happened to be showing at
+        // that moment, permanently defeating its own fill behavior from then on regardless of the
+        // window's actual size.
         private const string IconColumnWidthKey = "RouteColumnWidth.Icon";
         private const string NumberColumnWidthKey = "RouteColumnWidth.Number";
         private const string SystemColumnWidthKey = "RouteColumnWidth.System";
         private const string DistanceColumnWidthKey = "RouteColumnWidth.Distance";
+        private const string JumpsColumnWidthKey = "RouteColumnWidth.Jumps";
+        private const string RefuelColumnWidthKey = "RouteColumnWidth.Refuel";
+        private const string InjectColumnWidthKey = "RouteColumnWidth.Inject";
+        private const string NeutronColumnWidthKey = "RouteColumnWidth.Neutron";
         private const string StarTypeColumnWidthKey = "RouteColumnWidth.StarType";
 
         private readonly AppSettingsStore _settings = new();
@@ -74,7 +81,11 @@ namespace RouteJumper.Views
             RestoreColumnWidth(1, NumberColumnWidthKey);
             RestoreColumnWidth(2, SystemColumnWidthKey);
             RestoreColumnWidth(3, DistanceColumnWidthKey);
-            RestoreColumnWidth(4, StarTypeColumnWidthKey);
+            RestoreColumnWidth(4, JumpsColumnWidthKey);
+            RestoreColumnWidth(5, RefuelColumnWidthKey);
+            RestoreColumnWidth(6, InjectColumnWidthKey);
+            RestoreColumnWidth(7, NeutronColumnWidthKey);
+            RestoreColumnWidth(8, StarTypeColumnWidthKey);
         }
 
         private void RestoreColumnWidth(int columnIndex, string key)
@@ -91,7 +102,11 @@ namespace RouteJumper.Views
             SaveColumnWidth(1, NumberColumnWidthKey);
             SaveColumnWidth(2, SystemColumnWidthKey);
             SaveColumnWidth(3, DistanceColumnWidthKey);
-            SaveColumnWidth(4, StarTypeColumnWidthKey);
+            SaveColumnWidth(4, JumpsColumnWidthKey);
+            SaveColumnWidth(5, RefuelColumnWidthKey);
+            SaveColumnWidth(6, InjectColumnWidthKey);
+            SaveColumnWidth(7, NeutronColumnWidthKey);
+            SaveColumnWidth(8, StarTypeColumnWidthKey);
         }
 
         /// <summary>DisplayValue, not Value - resolves to the actual current pixel width regardless of whether the column's Width is Auto/Star/Pixel.</summary>
@@ -101,6 +116,36 @@ namespace RouteJumper.Views
             {
                 _settings.SetDouble(key, RouteDataGrid.Columns[columnIndex].Width.DisplayValue);
             }
+        }
+
+        /// <summary>
+        /// Edit's own IsEnabled is bound directly (RouteViewModel.CanEdit) rather than through
+        /// Command, specifically so this handler can veto EditCommand.Execute below when the
+        /// currently-saved route is a Neutron/Galaxy Plotter one - WPF's ButtonBase.OnClick always
+        /// raises the Click routed event *and then* unconditionally executes a bound Command right
+        /// after, regardless of anything a Click handler does (setting RoutedEventArgs.Handled has
+        /// no effect on that second, separate step), so Command="{Binding EditCommand}" plus a
+        /// confirming Click handler can't coexist - only one of the two can actually decide whether
+        /// Edit happens. EditCommand itself is unchanged (still called directly here, once
+        /// confirmed) so RouteViewModelTests' own vm.EditCommand.Execute/CanExecute calls keep
+        /// exercising the exact same, dialog-free action they always have.
+        /// </summary>
+        private void OnEditClick(object sender, RoutedEventArgs e)
+        {
+            var vm = (RouteViewModel)DataContext;
+            if (vm.RouteType != RouteType.Plain)
+            {
+                var plotter = vm.RouteType == RouteType.Neutron ? "Neutron Plotter" : "Galaxy Plotter";
+                var confirmed = MessageBox.Show(Window.GetWindow(this),
+                    $"This route was calculated by Spansh's {plotter} - editing it will convert it back to a plain route, and its extra column data will be lost. Continue?",
+                    "Edit Route", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (confirmed != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+
+            vm.EditCommand.Execute(null);
         }
 
         /// <summary>

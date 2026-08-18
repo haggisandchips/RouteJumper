@@ -295,8 +295,9 @@
                        TextAlignment="Left"
                        Margin="0,0,0,12"
                        Visibility="{Binding SelectedIndex, ElementName=SpanshTabs, Converter={StaticResource IndexEqualsVisibilityConverter}, ConverterParameter=2}">
-                This plots an exact route using your ship's own real jump range, fuel usage, and
-                supercharge/injection options, rather than a flat range figure.
+                <Run Text="This plots an exact route using your ship's own real jump range, fuel usage, and supercharge/injection options, rather than a flat range figure. For help following the route in-game, and detailed explanations of these parameters and routing algorithms, see Spansh's own " />
+                <Hyperlink Command="{Binding OpenGalaxyPlotterCommand}">Galaxy&#160;Plotter</Hyperlink>
+                <Run Text=" directly." />
             </TextBlock>
         </StackPanel>
 

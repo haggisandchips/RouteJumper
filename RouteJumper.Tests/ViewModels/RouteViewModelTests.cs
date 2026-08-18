@@ -914,6 +914,263 @@ namespace RouteJumper.Tests.ViewModels
             Assert.Equal("Sol", vm.RouteText);
         }
 
+        // ===================== RouteType / per-row Neutron/Galaxy Plotter metadata - Save() is
+        // the single choke point that always resets to Plain (see RouteType's own doc comment);
+        // only ImportFromSpansh re-tags a Neutron/Galaxy import immediately afterward. =====================
+
+        [Fact]
+        public void ImportFromSpansh_PlainRouteType_LeavesRowsWithNoExtraData()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var jumps = new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) };
+
+            vm.ImportFromSpansh(jumps, RouteType.Plain);
+
+            Assert.Equal(RouteType.Plain, vm.RouteType);
+            Assert.False(vm.IsNeutronRoute);
+            Assert.False(vm.IsGalaxyRoute);
+            Assert.Null(vm.Rows[0].Jumps);
+        }
+
+        [Fact]
+        public void ImportFromSpansh_NeutronRouteType_TagsRouteAndAppliesJumpsPerRow()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var jumps = new[]
+            {
+                new SpanshRouteJump(1, "Sol", 0, 0, 0, Jumps: 0),
+                new SpanshRouteJump(2, "Sirius", 6.25, -1.28125, -5.75, Jumps: 3)
+            };
+
+            vm.ImportFromSpansh(jumps, RouteType.Neutron);
+
+            Assert.Equal(RouteType.Neutron, vm.RouteType);
+            Assert.True(vm.IsNeutronRoute);
+            Assert.False(vm.IsGalaxyRoute);
+            Assert.Equal(0, vm.Rows[0].Jumps);
+            Assert.Equal(3, vm.Rows[1].Jumps);
+        }
+
+        [Fact]
+        public void ImportFromSpansh_GalaxyRouteType_TagsRouteAndAppliesFlagsPerRow()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var jumps = new[]
+            {
+                new SpanshRouteJump(1, "Sol", 0, 0, 0, MustRefuel: false, MustInject: false, HasNeutron: false),
+                new SpanshRouteJump(2, "Sirius", 6.25, -1.28125, -5.75, MustRefuel: true, MustInject: false, HasNeutron: true)
+            };
+
+            vm.ImportFromSpansh(jumps, RouteType.Galaxy);
+
+            Assert.Equal(RouteType.Galaxy, vm.RouteType);
+            Assert.True(vm.IsGalaxyRoute);
+            Assert.False(vm.Rows[0].MustRefuel);
+            Assert.True(vm.Rows[1].MustRefuel);
+            Assert.True(vm.Rows[1].HasNeutron);
+        }
+
+        [Fact]
+        public void PlainSaveAfterSpanshImport_RevertsRouteTypeAndClearsRowMetadata()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            vm.ImportFromSpansh(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0, Jumps: 2) }, RouteType.Neutron);
+            Assert.Equal(RouteType.Neutron, vm.RouteType);
+
+            vm.RouteText = "Sol\nSirius";
+            vm.SaveCommand.Execute(null);
+
+            Assert.Equal(RouteType.Plain, vm.RouteType);
+            Assert.Null(vm.Rows[0].Jumps);
+        }
+
+        // ===================== RouteTypeChanged - the event MainViewModel relies on to force Ship
+        // mode and disable the Fleet Carrier chip for as long as the route stays Neutron/Galaxy
+        // (RouteViewModel itself has no notion of tracking mode - see the event's own doc comment) =====================
+
+        [Fact]
+        public void RouteTypeChanged_ImportFromSpanshNeutron_FiresWithNeutron()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var received = new List<RouteType>();
+            vm.RouteTypeChanged += (_, type) => received.Add(type);
+
+            vm.ImportFromSpansh(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }, RouteType.Neutron);
+
+            Assert.Contains(RouteType.Neutron, received);
+        }
+
+        [Fact]
+        public void RouteTypeChanged_ImportFromSpanshGalaxy_FiresWithGalaxy()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var received = new List<RouteType>();
+            vm.RouteTypeChanged += (_, type) => received.Add(type);
+
+            vm.ImportFromSpansh(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }, RouteType.Galaxy);
+
+            Assert.Contains(RouteType.Galaxy, received);
+        }
+
+        [Fact]
+        public void RouteTypeChanged_PlainSaveAfterSpanshImport_FiresWithPlain()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            vm.ImportFromSpansh(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }, RouteType.Neutron);
+            var received = new List<RouteType>();
+            vm.RouteTypeChanged += (_, type) => received.Add(type);
+
+            vm.RouteText = "Sol\nSirius";
+            vm.SaveCommand.Execute(null);
+
+            Assert.Contains(RouteType.Plain, received);
+        }
+
+        [Fact]
+        public void RouteTypeChanged_PlainImport_DoesNotFireWithNonPlainValue()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            var received = new List<RouteType>();
+            vm.RouteTypeChanged += (_, type) => received.Add(type);
+
+            vm.ImportFromSpansh(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) });
+
+            Assert.DoesNotContain(received, t => t != RouteType.Plain);
+        }
+
+        [Fact]
+        public void ImportFromNavRoute_AfterSpanshImport_RevertsToPlain()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+            vm.ImportFromSpansh(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }, RouteType.Galaxy);
+
+            File.WriteAllText(dir.CombinePath("NavRoute.json"), """
+                {
+                    "Route": [
+                        { "StarSystem": "Sol", "StarPos": [0.0, 0.0, 0.0], "StarClass": "G" },
+                        { "StarSystem": "Sirius", "StarPos": [6.25, -1.28125, -5.75], "StarClass": "A" }
+                    ]
+                }
+                """);
+
+            vm.ImportFromNavRoute();
+
+            Assert.Equal(RouteType.Plain, vm.RouteType);
+        }
+
+        [Fact]
+        public void RestoreFromSettings_PersistedGalaxyRoute_RoundTripsRouteTypeAndRowMetadata()
+        {
+            using var dir = new TempDirectory();
+            var jumps = new[]
+            {
+                new SpanshRouteJump(1, "Sol", 0, 0, 0, MustRefuel: false, MustInject: true, HasNeutron: false),
+                new SpanshRouteJump(2, "Sirius", 6.25, -1.28125, -5.75, MustRefuel: true, MustInject: false, HasNeutron: true)
+            };
+            var original = Create(dir);
+            original.ImportFromSpansh(jumps, RouteType.Galaxy);
+
+            // Simulates an app restart - a fresh RouteViewModel over the same persisted settings
+            // (AppSettingsStore opens/closes its own short-lived connection per operation, so two
+            // separate instances pointed at the same directory behave identically to one shared
+            // instance - same as Create() itself already does for every other test in this file).
+            var restored = Create(dir);
+            restored.RestoreFromSettings();
+
+            Assert.Equal(RouteType.Galaxy, restored.RouteType);
+            Assert.Equal(2, restored.Rows.Count);
+            Assert.False(restored.Rows[0].MustRefuel);
+            Assert.True(restored.Rows[0].MustInject);
+            Assert.True(restored.Rows[1].MustRefuel);
+            Assert.True(restored.Rows[1].HasNeutron);
+        }
+
+        /// <summary>
+        /// Regression test for a real bug: RestoreFromSettings' own Save() call unconditionally
+        /// overwrites RouteTypeSettingKey/RouteMetadataSettingKey back to Plain/empty (its usual
+        /// reset behavior) - the fix re-persists them once the Neutron/Galaxy data is re-applied,
+        /// but a version that only re-applied in-memory without re-persisting left the on-disk
+        /// value silently wrong from that point on, invisible until a *second* restart (when
+        /// RestoreFromSettings would read back the stale "Plain" it had itself just written and
+        /// never re-apply anything) - exactly what was reported live. Simulates two consecutive
+        /// restarts to prove the type/metadata survive both, not just the first.
+        /// </summary>
+        [Fact]
+        public void RestoreFromSettings_TwoConsecutiveRestarts_StillRoundTripsGalaxyRoute()
+        {
+            using var dir = new TempDirectory();
+            var jumps = new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0, MustRefuel: true, MustInject: false, HasNeutron: true) };
+            Create(dir).ImportFromSpansh(jumps, RouteType.Galaxy);
+
+            var firstRestart = Create(dir);
+            firstRestart.RestoreFromSettings();
+            Assert.Equal(RouteType.Galaxy, firstRestart.RouteType);
+
+            var secondRestart = Create(dir);
+            secondRestart.RestoreFromSettings();
+
+            Assert.Equal(RouteType.Galaxy, secondRestart.RouteType);
+            Assert.True(secondRestart.Rows[0].MustRefuel);
+            Assert.True(secondRestart.Rows[0].HasNeutron);
+        }
+
+        [Fact]
+        public void RestoreFromSettings_PlainRoute_RestoresWithNoExtraData()
+        {
+            using var dir = new TempDirectory();
+            var original = Create(dir);
+            original.RouteText = "Sol\nSirius";
+            original.SaveCommand.Execute(null);
+
+            var restored = Create(dir);
+            restored.RestoreFromSettings();
+
+            Assert.Equal(RouteType.Plain, restored.RouteType);
+            Assert.Null(restored.Rows[0].Jumps);
+        }
+
+        // ===================== CanEdit (mirrors EditCommand's own CanExecute as a plain bindable
+        // property - RouteView's own Edit button binds IsEnabled to this, not Command, so its
+        // code-behind Click handler can show a confirmation dialog first; see RouteView.xaml.cs.
+        // OnEditClick's own doc comment for why) =====================
+
+        [Fact]
+        public void CanEdit_MirrorsEditCommandCanExecute()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir);
+
+            Assert.Equal(vm.EditCommand.CanExecute(null), vm.CanEdit);
+
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+
+            Assert.Equal(vm.EditCommand.CanExecute(null), vm.CanEdit);
+            Assert.True(vm.CanEdit);
+        }
+
+        [Fact]
+        public void CanEdit_FalseWhileAutoPilotRunning()
+        {
+            using var dir = new TempDirectory();
+            var vm = Create(dir, canEngageAutoPilot: () => true);
+            vm.RouteText = "Sol";
+            vm.SaveCommand.Execute(null);
+            vm.AutoPilotCommand.Execute(null);
+
+            Assert.False(vm.CanEdit);
+            Assert.Equal(vm.EditCommand.CanExecute(null), vm.CanEdit);
+        }
+
         // ===================== TrimToJumpRange (500ly max-hop simplification) =====================
 
         [Fact]

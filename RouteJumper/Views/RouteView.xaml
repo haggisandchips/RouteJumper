@@ -5,6 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:converters="clr-namespace:RouteJumper.Converters"
              xmlns:behaviors="clr-namespace:RouteJumper.Behaviors"
+             xmlns:common="clr-namespace:RouteJumper.Common"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="700">
@@ -15,6 +16,11 @@
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
         <converters:AutoPilotLabelConverter x:Key="AutoPilotLabelConverter" />
         <converters:BoolToHiddenVisibilityConverter x:Key="BoolToHiddenVisibilityConverter" />
+
+        <!-- Gives the Jumps/Refuel/Inject/Neutron DataGridColumns below a stable path back to
+             this page's own DataContext (RouteViewModel) - see BindingProxy's own doc comment for
+             why a DataGridColumn can't reach it any more directly. -->
+        <common:BindingProxy x:Key="ViewModelProxy" Data="{Binding}" />
 
         <!-- Same appearance/selection behavior as the toolkit's own cell style - just without
              the "current cell" border a click leaves behind. That border comes from the base
@@ -306,6 +312,88 @@
                         </DataGridTextColumn.ElementStyle>
                     </DataGridTextColumn>
 
+                    <!-- Neutron Plotter routes only (RouteViewModel.IsNeutronRoute) - ordinary
+                         hops since the previous waypoint, straight from Spansh's own response
+                         (RouteRowViewModel.Jumps). Column-level Visibility binds via the
+                         BindingProxy declared above (Source={StaticResource ViewModelProxy}), not
+                         ElementName - confirmed live that an ElementName binding into a
+                         DataGridColumn never actually evaluates (it isn't part of the visual tree,
+                         so ElementName's own tree-walk resolution has nothing to walk from),
+                         leaving every one of these four columns stuck at their DP default of
+                         Visible regardless of RouteType. Reuses BoolToVisibilityConverter (already
+                         declared above) rather than a dedicated converter. -->
+                    <DataGridTextColumn Header="Jumps"
+                                         Binding="{Binding Jumps}"
+                                         Width="60"
+                                         MinWidth="50"
+                                         Visibility="{Binding Data.IsNeutronRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                                <Setter Property="HorizontalAlignment" Value="Center" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- Galaxy Plotter routes only (RouteViewModel.IsGalaxyRoute) - whether a
+                         refuel/FSD injection is needed, or this waypoint is a neutron/white dwarf
+                         star, straight from Spansh's own response (RouteRowViewModel.MustRefuel/
+                         MustInject/HasNeutron). Same BindingProxy-based column Visibility
+                         technique as Jumps above; each cell shows a small checkmark icon only when
+                         true - null (this row isn't part of a Galaxy route at all) collapses the
+                         same as false, via the same BoolToVisibilityConverter every bool? binds
+                         through elsewhere in this app. -->
+                    <DataGridTemplateColumn Header="Refuel"
+                                             Width="60"
+                                             MinWidth="50"
+                                             Visibility="{Binding Data.IsGalaxyRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <materialDesign:PackIcon Kind="Check"
+                                                          Width="16"
+                                                          Height="16"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Visibility="{Binding MustRefuel, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Header="Inject"
+                                             Width="60"
+                                             MinWidth="50"
+                                             Visibility="{Binding Data.IsGalaxyRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <materialDesign:PackIcon Kind="Check"
+                                                          Width="16"
+                                                          Height="16"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Visibility="{Binding MustInject, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Header="Neutron"
+                                             Width="70"
+                                             MinWidth="60"
+                                             Visibility="{Binding Data.IsGalaxyRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <materialDesign:PackIcon Kind="Check"
+                                                          Width="16"
+                                                          Height="16"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Visibility="{Binding HasNeutron, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
                     <!-- This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange)
                          Star") - resolved the same way/timing as Distance above. While this row's
                          own coordinates are known but star type specifically isn't, StarTypeDisplay
@@ -458,8 +546,14 @@
                             Width="90"
                             Padding="4" />
                 </StackPanel>
+                <!-- IsEnabled (not Command) - see RouteView.xaml.cs.OnEditClick's own doc
+                     comment for why a maybe-cancel confirmation dialog can't live behind a bound
+                     Command (WPF's ButtonBase.OnClick always executes Command right after raising
+                     Click, regardless of anything the Click handler does). EditCommand itself is
+                     unchanged and still called directly, from code-behind, once confirmed. -->
                 <Button Content="Edit"
-                        Command="{Binding EditCommand}"
+                        IsEnabled="{Binding CanEdit}"
+                        Click="OnEditClick"
                         HorizontalAlignment="Right"
                         Width="90"
                         Padding="4" />

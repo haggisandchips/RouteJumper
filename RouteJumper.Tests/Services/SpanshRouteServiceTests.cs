@@ -299,8 +299,8 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(SpanshJobState.Completed, status.State);
             Assert.Equal(2, status.Jumps.Count);
-            Assert.Equal(new SpanshRouteJump(10477373803, "Sol", 0.0, 0.0, 0.0), status.Jumps[0]);
-            Assert.Equal(new SpanshRouteJump(121569805492, "Sirius", 6.25, -1.28125, -5.75), status.Jumps[1]);
+            Assert.Equal(new SpanshRouteJump(10477373803, "Sol", 0.0, 0.0, 0.0, Jumps: 0), status.Jumps[0]);
+            Assert.Equal(new SpanshRouteJump(121569805492, "Sirius", 6.25, -1.28125, -5.75, Jumps: 1), status.Jumps[1]);
         }
 
         [Fact]
@@ -418,8 +418,8 @@ namespace RouteJumper.Tests.Services
                   "status": "ok",
                   "result": {
                     "jumps": [
-                      { "id64": 10477373803, "name": "Sol", "x": 0, "y": 0, "z": 0, "distance": 0, "fuel_used": 0, "must_refuel": false },
-                      { "id64": 4994888293, "name": "3 Capricorni", "x": -210.53125, "y": -186.59375, "z": 342.40625, "distance": 443.150848388672, "fuel_used": 6.13531541824341, "must_refuel": true }
+                      { "id64": 10477373803, "name": "Sol", "x": 0, "y": 0, "z": 0, "distance": 0, "fuel_used": 0, "must_refuel": false, "must_inject": 0, "has_neutron": false },
+                      { "id64": 4994888293, "name": "3 Capricorni", "x": -210.53125, "y": -186.59375, "z": 342.40625, "distance": 443.150848388672, "fuel_used": 6.13531541824341, "must_refuel": true, "must_inject": 0, "has_neutron": true }
                     ],
                     "refuel_every_scoopable": 1
                   }
@@ -430,8 +430,30 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(SpanshJobState.Completed, status.State);
             Assert.Equal(2, status.Jumps.Count);
-            Assert.Equal(new SpanshRouteJump(10477373803, "Sol", 0.0, 0.0, 0.0), status.Jumps[0]);
-            Assert.Equal(new SpanshRouteJump(4994888293, "3 Capricorni", -210.53125, -186.59375, 342.40625), status.Jumps[1]);
+            Assert.Equal(new SpanshRouteJump(10477373803, "Sol", 0.0, 0.0, 0.0, MustRefuel: false, MustInject: false, HasNeutron: false), status.Jumps[0]);
+            Assert.Equal(new SpanshRouteJump(4994888293, "3 Capricorni", -210.53125, -186.59375, 342.40625, MustRefuel: true, MustInject: false, HasNeutron: true), status.Jumps[1]);
+        }
+
+        [Fact]
+        public async Task GetGenericJobResultAsync_MustInjectGreaterThanZero_MapsToTrue()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """
+                {
+                  "job": "abc-123",
+                  "state": "completed",
+                  "status": "ok",
+                  "result": {
+                    "jumps": [
+                      { "id64": 1, "name": "Sol", "x": 0, "y": 0, "z": 0, "must_inject": 2 }
+                    ]
+                  }
+                }
+                """);
+
+            var status = await service.GetGenericJobResultAsync("abc-123");
+
+            Assert.True(status.Jumps[0].MustInject);
         }
 
         [Fact]

@@ -75,7 +75,17 @@
                      it does, but only while it's the "other" (not-currently-selected) chip -
                      ToolTipService.IsEnabled is bound to the opposite of that chip's own
                      IsChecked, since the currently-active mode needs no explanation of what
-                     choosing it would do. -->
+                     choosing it would do.
+
+                     The Fleet Carrier chip is additionally disabled
+                     (CanSelectFleetCarrierMode) for as long as the saved route is Neutron/Galaxy-
+                     typed - Ship mode is forced the instant such a route is saved/restored
+                     (MainViewModel.OnRouteTypeChanged), so this chip is always the "other" one in
+                     that state and its own ToolTip (now bound, not a literal string) explains why
+                     rather than what switching to it would do. ToolTipService.ShowOnDisabled is
+                     needed here specifically - WPF suppresses a Control's own ToolTip entirely
+                     while IsEnabled is false unless this is explicitly turned on, which would
+                     otherwise hide the one explanation that actually matters in this state. -->
                 <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             HorizontalAlignment="Center"
@@ -84,8 +94,10 @@
                                  GroupName="TrackingMode"
                                  Style="{StaticResource MaterialDesignChoiceChipPrimaryRadioButton}"
                                  IsChecked="{Binding IsShipMode, Mode=TwoWay, Converter={StaticResource InverseBooleanConverter}}"
-                                 ToolTip="Track a Fleet Carrier's progress via a Captain's journal, with optional Auto Pilot automation."
+                                 IsEnabled="{Binding CanSelectFleetCarrierMode}"
+                                 ToolTip="{Binding FleetCarrierModeTooltip}"
                                  ToolTipService.IsEnabled="{Binding IsShipMode}"
+                                 ToolTipService.ShowOnDisabled="True"
                                  Margin="0,0,4,0" />
                     <RadioButton Content="Ship"
                                  GroupName="TrackingMode"

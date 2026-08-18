@@ -5,7 +5,10 @@ using RouteJumper.Models;
 namespace RouteJumper.ViewModels
 {
     /// <summary>
-    /// Represents one row of the Route table: Icon | # | System | Distance | Star Type | Status.
+    /// Represents one row of the Route table: Icon | # | System | Distance | [Jumps, Neutron
+    /// Plotter routes only | Refuel/Inject/Neutron, Galaxy Plotter routes only] | Star Type |
+    /// Status - see RouteViewModel.RouteType/IsNeutronRoute/IsGalaxyRoute for the conditional
+    /// columns' own visibility.
     /// </summary>
     public class RouteRowViewModel : ObservableObject
     {
@@ -22,6 +25,10 @@ namespace RouteJumper.ViewModels
         private DateTime? _phaseStartUtc;
         private double _progress;
         private string _timeRemainingDisplay = string.Empty;
+        private int? _jumps;
+        private bool? _mustRefuel;
+        private bool? _mustInject;
+        private bool? _hasNeutron;
 
         public RowIcon Icon
         {
@@ -172,6 +179,40 @@ namespace RouteJumper.ViewModels
 
         /// <summary>What the Star Type cell actually shows: "Target needed" if coordinates are known but star type specifically isn't, the resolved star type, or blank.</summary>
         public string StarTypeDisplay => IsStarTypePlaceholder ? "Target needed" : StarType ?? string.Empty;
+
+        /// <summary>
+        /// Neutron Plotter only (RouteViewModel.IsNeutronRoute) - ordinary hops since the
+        /// previous waypoint, straight from Spansh's own response (SpanshRouteJump.Jumps). Set
+        /// once by RouteViewModel.ImportFromSpansh/RestoreFromSettings, never by RouteSequencer -
+        /// a static fact about the route's own topology, not tracked progress, same as Distance/
+        /// StarType. Null for any Plain/Galaxy row.
+        /// </summary>
+        public int? Jumps
+        {
+            get => _jumps;
+            set => SetProperty(ref _jumps, value);
+        }
+
+        /// <summary>Galaxy Plotter only (RouteViewModel.IsGalaxyRoute) - whether a refuel is needed at this waypoint (SpanshRouteJump.MustRefuel). See Jumps' own doc comment for how/when this is set.</summary>
+        public bool? MustRefuel
+        {
+            get => _mustRefuel;
+            set => SetProperty(ref _mustRefuel, value);
+        }
+
+        /// <summary>Galaxy Plotter only - whether an FSD injection is needed at this waypoint (SpanshRouteJump.MustInject). See Jumps' own doc comment for how/when this is set.</summary>
+        public bool? MustInject
+        {
+            get => _mustInject;
+            set => SetProperty(ref _mustInject, value);
+        }
+
+        /// <summary>Galaxy Plotter only - whether this waypoint is (or is near) a neutron/white dwarf star (SpanshRouteJump.HasNeutron). See Jumps' own doc comment for how/when this is set.</summary>
+        public bool? HasNeutron
+        {
+            get => _hasNeutron;
+            set => SetProperty(ref _hasNeutron, value);
+        }
 
         /// <summary>
         /// The real-world UTC instant the current Status (Plotted/Jumping/Cooldown) will itself

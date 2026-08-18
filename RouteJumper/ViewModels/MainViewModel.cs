@@ -97,6 +97,12 @@ namespace RouteJumper.ViewModels
                 RolesViewModel.RefreshRouteForCurrentCaptain();
                 TrackViewModel.RefreshRouteForCurrentTrackedInstance();
             };
+            // Wired before the mode-restore block below (not after, alongside RestoreFromSettings)
+            // so a route restored as Neutron/Galaxy retroactively forces Ship mode on startup too -
+            // including one saved under Fleet Carrier mode in an earlier session, before this
+            // existed - with no new persisted key needed (TrackingMode/RouteType are both already
+            // persisted; see OnRouteTypeChanged).
+            RouteViewModel.RouteTypeChanged += (_, type) => OnRouteTypeChanged(type);
             RolesViewModel.AutoPilotEligibilityChanged += (_, _) =>
             {
                 RouteViewModel.RaiseAutoPilotEligibilityChanged();
@@ -227,6 +233,12 @@ namespace RouteJumper.ViewModels
         /// File &gt; Ship Mode toggle (a checkable MenuItem binds directly to this). Switches
         /// between Fleet Carrier mode (Roles/Controls tabs, Auto Pilot) and Ship mode (Track tab,
         /// no automation) - see ApplyMode. Persisted immediately; restored at startup.
+        ///
+        /// Attempting to switch to Fleet Carrier mode while the saved route is Neutron/Galaxy-typed
+        /// (RouteViewModel.RouteType) is silently ignored - CanSelectFleetCarrierMode already keeps
+        /// the Fleet Carrier chip disabled in that state, but this keeps the invariant true
+        /// regardless of call path. See OnRouteTypeChanged for the other half (forcing Ship mode
+        /// the instant such a route is saved/restored).
         /// </summary>
         public bool IsShipMode
         {
@@ -234,6 +246,11 @@ namespace RouteJumper.ViewModels
             set
             {
                 var newMode = value ? TrackingMode.Ship : TrackingMode.FleetCarrier;
+                if (newMode == TrackingMode.FleetCarrier && RouteViewModel.RouteType != RouteType.Plain)
+                {
+                    return;
+                }
+
                 if (_mode == newMode)
                 {
                     return;
@@ -248,6 +265,46 @@ namespace RouteJumper.ViewModels
                 ApplyMode(_mode);
                 OnPropertyChanged();
             }
+        }
+
+        /// <summary>
+        /// Drives the Fleet Carrier chip's own IsEnabled - false for as long as the saved route is
+        /// Neutron/Galaxy-typed (a fleet carrier's own Auto Pilot has no notion of a neutron boost
+        /// or an FSD injection, so running it against one of these routes was never meaningful).
+        /// Re-enables the instant the route reverts to Plain (Edit-&gt;Save, Import Current Route,
+        /// Trim for FC) - this never switches back to Fleet Carrier mode on its own, only makes it
+        /// selectable again.
+        /// </summary>
+        public bool CanSelectFleetCarrierMode => RouteViewModel.RouteType == RouteType.Plain;
+
+        /// <summary>
+        /// The Fleet Carrier chip's own tooltip (bound in place of a static string) - the normal
+        /// explanatory text while the route is Plain, or why it's currently disabled otherwise.
+        /// Only ever actually shown while Ship mode is selected (ToolTipService.IsEnabled on the
+        /// chip itself, MainWindow.xaml) - which a non-Plain route always forces anyway, so the
+        /// disabled chip's own explanation is never hidden behind "this is already the active mode".
+        /// </summary>
+        public string FleetCarrierModeTooltip => RouteViewModel.RouteType switch
+        {
+            RouteType.Neutron => "Not appropriate for Neutron Plotter routes. Edit the route to revert it to a plain route, then you can switch back to Fleet Carrier mode.",
+            RouteType.Galaxy => "Not appropriate for Galaxy Plotter routes. Edit the route to revert it to a plain route, then you can switch back to Fleet Carrier mode.",
+            _ => "Track a Fleet Carrier's progress via a Captain's journal, with optional Auto Pilot automation."
+        };
+
+        /// <summary>
+        /// Forces Ship mode the instant the saved route becomes Neutron/Galaxy-typed (a no-op if
+        /// already there), and keeps CanSelectFleetCarrierMode/FleetCarrierModeTooltip in sync
+        /// either way - called from RouteViewModel.RouteTypeChanged, wired in the constructor.
+        /// </summary>
+        private void OnRouteTypeChanged(RouteType type)
+        {
+            if (type != RouteType.Plain)
+            {
+                IsShipMode = true;
+            }
+
+            OnPropertyChanged(nameof(CanSelectFleetCarrierMode));
+            OnPropertyChanged(nameof(FleetCarrierModeTooltip));
         }
 
         /// <summary>

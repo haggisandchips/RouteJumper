@@ -13,7 +13,7 @@ namespace RouteJumper.Tests.ViewModels
         private static SpanshImportViewModel Create(
             TempDirectory dir,
             FakeSpanshRouteService? routeService = null,
-            Func<IReadOnlyList<SpanshRouteJump>, bool>? applyRoute = null,
+            Func<IReadOnlyList<SpanshRouteJump>, RouteType, bool>? applyRoute = null,
             string? knownCurrentSystem = null,
             string? knownCarrierSystem = null,
             bool defaultToOvercharge = false,
@@ -21,7 +21,7 @@ namespace RouteJumper.Tests.ViewModels
             int? knownCurrentCargo = null,
             Func<string, Task<LoadoutSnapshot?>>? readLoadoutSnapshot = null) => new(
                 routeService ?? new FakeSpanshRouteService(),
-                applyRoute ?? (_ => true),
+                applyRoute ?? ((_, _) => true),
                 new AppConfigStore(dir.Path),
                 knownCurrentSystem,
                 knownCarrierSystem,
@@ -495,6 +495,57 @@ namespace RouteJumper.Tests.ViewModels
             Assert.Equal("pessimistic", request.Algorithm);
             Assert.Equal(ShipBuildDerivation.RegularSuperchargeMultiplier, request.SuperchargeMultiplier);
             Assert.Equal("Route applied.", vm.GalaxyStatusMessage);
+        }
+
+        // ===================== Each tab tags its own RouteType when calling _applyRoute
+        // (RouteViewModel.ImportFromSpansh's own second parameter) - Fleet Carrier Plain, Neutron
+        // Neutron, Galaxy Galaxy - so the Route table knows which extra columns (if any) to show
+        // and persist for the route it just imported. =====================
+
+        [Fact]
+        public async Task CalculateAsync_AppliesRouteWithPlainRouteType()
+        {
+            using var dir = new TempDirectory();
+            var service = new FakeSpanshRouteService { FleetCarrierResult = SpanshRouteJobStatus.Completed(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }) };
+            RouteType? appliedType = null;
+            var vm = Create(dir, service, applyRoute: (_, type) => { appliedType = type; return true; });
+            vm.Source.Selected = new SpanshSystemSuggestion("1", 1, "Sol");
+            vm.Destination.Selected = new SpanshSystemSuggestion("2", 2, "Sirius");
+
+            await vm.CalculateAsync();
+
+            Assert.Equal(RouteType.Plain, appliedType);
+        }
+
+        [Fact]
+        public async Task CalculateNeutronAsync_AppliesRouteWithNeutronRouteType()
+        {
+            using var dir = new TempDirectory();
+            var service = new FakeSpanshRouteService { NeutronResult = SpanshRouteJobStatus.Completed(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }) };
+            RouteType? appliedType = null;
+            var vm = Create(dir, service, applyRoute: (_, type) => { appliedType = type; return true; }, knownCurrentSystem: "Sol");
+            vm.NeutronDestination.Selected = new SpanshSystemSuggestion("Sirius", 1, "Sirius");
+            vm.NeutronRange = "50";
+
+            await vm.CalculateNeutronAsync();
+
+            Assert.Equal(RouteType.Neutron, appliedType);
+        }
+
+        [Fact]
+        public async Task CalculateGalaxyAsync_AppliesRouteWithGalaxyRouteType()
+        {
+            using var dir = new TempDirectory();
+            var service = new FakeSpanshRouteService { GalaxyResult = SpanshRouteJobStatus.Completed(new[] { new SpanshRouteJump(1, "Sol", 0, 0, 0) }) };
+            RouteType? appliedType = null;
+            var vm = Create(dir, service, applyRoute: (_, type) => { appliedType = type; return true; });
+            vm.GalaxySource.Selected = new SpanshSystemSuggestion("1", 1, "Sol");
+            vm.GalaxyDestination.Selected = new SpanshSystemSuggestion("2", 2, "Sirius");
+            await vm.LoadGalaxyLoadoutAsync(_ => Task.FromResult<LoadoutSnapshot?>(ValidLoadout()), "irrelevant.log");
+
+            await vm.CalculateGalaxyAsync();
+
+            Assert.Equal(RouteType.Galaxy, appliedType);
         }
 
         // ===================== Capitalize (job status wording, e.g. "queued" -> "Queued") =====================

@@ -122,6 +122,24 @@ See §6.
   startup, defaulting to Fleet Carrier mode until first changed. Each
   chip's own tooltip explains what switching to it does, shown only for
   whichever chip is *not* currently selected.
+  - The **Fleet Carrier** chip is additionally disabled for as long as
+    the currently-saved route is Neutron or Galaxy Plotter-typed (§4.12)
+    - a fleet carrier's own Auto Pilot has no notion of a neutron boost
+    or an FSD injection, so running it against a route calculated for
+    exactly those things was never meaningful. The instant such a route
+    is saved (a fresh Spansh Neutron/Galaxy calculation) or restored on
+    launch, Ship mode is forced (silently, with no confirmation - this is
+    a direct consequence of the route itself, not a separate decision)
+    even if Fleet Carrier mode was previously active or previously
+    persisted; the chip re-enables the instant the route reverts to
+    Plain (Edit's own confirmation dialog, §4.2, Import Current Route, or
+    Trim for FC) without switching back on its own - the CMDR chooses
+    that. While disabled, the chip's own tooltip (always shown in this
+    state, since Ship mode is always the active one while it applies)
+    reads "Not appropriate for Neutron Plotter routes." or "Not
+    appropriate for Galaxy Plotter routes." as appropriate, followed by
+    "Edit the route to revert it to a plain route, then you can switch
+    back to Fleet Carrier mode." in place of its usual explanatory text.
 - Beside the menu, right-aligned and equally always-visible, a single
   icon button mutes/unmutes the spoken announcements described in §4.8 -
   its icon swaps between a plain speaker and a crossed-out one to reflect
@@ -254,14 +272,25 @@ one is visible at a time.
   | 2 | `#` | Row number, 1-based, in save order |
   | 3 | `System` | The row's system text, plus a clipboard icon when this row's text is currently on the clipboard (§4.6) |
   | 4 | `Distance` | Leg distance in light-years, previous row → this row — see §4.9 |
-  | 5 | `Star Type` | This row's system's main star's type — see §4.9 |
-  | 6 | `Status` | Current status text — see §4.4 |
+  | 5 | `Jumps` | **Neutron Plotter routes only** — ordinary hops since the previous waypoint, from Spansh's own response (§4.12) |
+  | 5 | `Refuel` / `Inject` / `Neutron` | **Galaxy Plotter routes only** — three columns, each a checkmark when Spansh's own response flags this waypoint as needing a refuel/FSD injection, or being a neutron/white dwarf star (§4.12) |
+  | 6 | `Star Type` | This row's system's main star's type — see §4.9 |
+  | 7 | `Status` | Current status text — see §4.4 |
 
+  Columns 5 only ever show one of the two groups at a time (never both),
+  driven by which kind of route is currently saved (§4.12) — neither shows
+  at all for a route pasted/typed by hand, imported via Import Current
+  Route, trimmed via Trim for FC, or calculated via the Fleet Carrier tab.
 - Column widths are user-resizable (drag a header's edge). The icon, `#`,
-  `System`, `Distance`, and `Star Type` columns are persisted per column
-  (§7) — restored on the next launch in place of the default widths
-  above, until first resized. `Status`, the trailing column, always fills
-  whatever width the other five leave unused rather than being persisted
+  `System`, `Distance`, `Jumps`, `Refuel`, `Inject`, and `Neutron`
+  columns, plus `Star Type` (now always the second-to-last column
+  regardless of whether the Jumps/Refuel/Inject/Neutron columns are
+  currently showing), are persisted per column (§7) — restored on the
+  next launch in place of the default widths above, until first resized.
+  `Jumps`/`Refuel`/`Inject`/`Neutron`'s own widths persist the same way
+  even while they're not currently showing (Plain/the other route type),
+  ready for whenever they next apply. `Status`, the trailing column, always fills
+  whatever width the others leave unused rather than being persisted
   as a fixed size — its progress bar (§4.4) needs real remaining width to
   stretch into on every launch, at whatever size the window happens to
   be, not a pixel width frozen from a previous session.
@@ -287,7 +316,17 @@ one is visible at a time.
     is identical to what was there before — discarding any prior
     icon/status state. If a Captain is currently assigned (§5.6), the fresh
     table is immediately re-derived from that Captain's journal; otherwise
-    row 1 defaults to "next" (in-progress).
+    row 1 defaults to "next" (in-progress). If the currently-saved route is
+    a Neutron or Galaxy Plotter one (§4.12), clicking Edit first shows a
+    Proceed/Cancel warning that continuing will convert it back to a plain
+    route, discarding its Jumps/Refuel/Inject/Neutron column data —
+    declining leaves the table exactly as it was, still showing those
+    columns; proceeding enters Edit state as normal, and the conversion
+    itself only actually happens once Save is next clicked (Edit alone
+    never rebuilds the table). No such warning for a plain route, or for
+    Import Current Route/Trim for FC applied to a Neutron/Galaxy route —
+    both of those already show their own "this replaces/trims your route"
+    confirmation (§4.10/§4.11), which already covers the same loss.
   - **Auto Pilot**'s label reads "Auto Pilot" when idle and "Stop" while
     engaged, and **Edit** is disabled while engaged. While engaged, it
     drives the route to completion by playing the Captain's selected
@@ -1046,7 +1085,12 @@ might pause en route rather than something either mode tracks.
   neutron boost stops plus the final destination), not a line for every
   single ordinary hop the CMDR will actually fly between them - a route
   to feed into **Trim for FC** (§4.11) or fly manually in Ship mode,
-  not a full turn-by-turn flight plan.
+  not a full turn-by-turn flight plan. Each waypoint's own `jumps`
+  (ordinary hops since the previous waypoint) is imported alongside its
+  system name, shown as the Route table's own Neutron-only `Jumps`
+  column (§4.2) - tagging the saved route as a Neutron Plotter one until
+  it's next Saved from anything else (§4.1/§4.2's own Edit-confirmation
+  dialog).
   - **Range** always starts blank, entered by hand - it's the CMDR's own
     call what range to plan the route around (fully fuelled, a
     particular cargo load, a hypothetical build, ...), not something
@@ -1128,13 +1172,21 @@ might pause en route rather than something either mode tracks.
   - On success, only the route's own waypoints are kept (mirroring the
     Neutron Plotter tab's own result, not a line for every single
     ordinary hop) - a route to feed into **Trim for FC** (§4.11) or fly
-    manually in Ship mode, not a full turn-by-turn flight plan.
+    manually in Ship mode, not a full turn-by-turn flight plan. Each
+    waypoint's own `must_refuel`/`must_inject`/`has_neutron` flags are
+    imported alongside its system name, shown as the Route table's own
+    Galaxy-only `Refuel`/`Inject`/`Neutron` columns (§4.2) - tagging the
+    saved route as a Galaxy Plotter one until it's next Saved from
+    anything else (§4.1/§4.2's own Edit-confirmation dialog).
   - A footnote - positioned below the tab area at the parent dialog's own
     full width, the same as the other two tabs' own footnotes, but
     conditional on *this* tab being the one currently active - explains
-    in plain text (no outbound link - Spansh hosts no standalone page for
-    this specific endpoint) that this plots an exact route using the
-    CMDR's own real ship build rather than a flat range figure.
+    that this plots an exact route using the CMDR's own real ship build
+    rather than a flat range figure, and links out (default browser) to
+    Spansh's own hosted **Galaxy Plotter** (`https://spansh.co.uk/exact-plotter`)
+    for how to follow the calculated route in-game, and detailed
+    explanations of its parameters/routing algorithms - none of which
+    this dialog's own compact form has room to cover.
 
 ---
 
@@ -1795,8 +1847,9 @@ below.
 | What | Persisted when | Restored when |
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
+| Route type (Plain/Neutron/Galaxy) and per-row Jumps/Refuel/Inject/Neutron data (§4.2/§4.12) | Every ImportFromSpansh with a Neutron/Galaxy route type | App startup, re-applied after the normal Save path rebuilds Rows — reset to Plain/cleared by every Save (manual, Import Current Route, Trim for FC, or this same restore), so only a Save immediately following a Spansh import (i.e. never, outside ImportFromSpansh itself) can leave it non-Plain |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
-| Route table column widths (icon, `#`, `System`, `Distance`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
+| Route table column widths (icon, `#`, `System`, `Distance`, `Jumps`, `Refuel`, `Inject`, `Neutron`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Journal/Spansh-seeded system coordinates/star type that fill a confirmed EDSM gap, in `ResolvedLookups` (§4.9, §4.12) | First seed of that system after EDSM has already confirmed it has no record of it | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached. A value EDSM itself resolves, or a seed that isn't filling a confirmed gap, is cached only for the running session and isn't written here at all — see §4.9. System address (id64) is likewise session-only, not persisted, until a feature that consumes it exists |
 | EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
@@ -2611,9 +2664,9 @@ outright the instant Ship mode is switched on.
     of how it was defaulted.
 83. Each tab's own footnote (Fleet Carrier's link to Spansh's hosted
     Fleet&nbsp;Carrier&nbsp;Router; Neutron Plotter's link to Spansh's
-    hosted Neutron&nbsp;Plotter - each link's own text uses non-breaking
-    spaces between its words so it never wraps mid-name; Galaxy Plotter's
-    own plain-text explanation, with no outbound link) is shown only
+    hosted Neutron&nbsp;Plotter; Galaxy Plotter's link to Spansh's hosted
+    Galaxy&nbsp;Plotter - each link's own text uses non-breaking
+    spaces between its words so it never wraps mid-name) is shown only
     while that specific tab is the one currently selected, and is
     positioned below the tab area at the dialog's own full width - the
     same width the shared Gareth Harper credit beneath it uses - rather
@@ -2670,6 +2723,49 @@ outright the instant Ship mode is switched on.
     placeholder, and a second with it omitted entirely, both computed an
     identical route using only these derived numbers), so no such upload
     is sent at all.
+90. Calculating a route via the Neutron Plotter tab shows a `Jumps` column
+    immediately right of `Distance` (ordinary hops since the previous
+    waypoint, from Spansh's own response); calculating via the Galaxy
+    Plotter tab instead shows `Refuel`/`Inject`/`Neutron` columns in the
+    same position (a checkmark per row wherever Spansh's own response
+    flags that waypoint as needing it, or being a neutron/white dwarf
+    star). Neither set of columns shows for a route pasted/typed by hand,
+    imported via Import Current Route, trimmed via Trim for FC, or
+    calculated via the Fleet Carrier tab, and the two sets are never both
+    shown at once.
+91. This data (which of the three route types the saved route is, and
+    each row's own Jumps/Refuel/Inject/Neutron values) survives an app
+    restart the same way the route text itself does - including *every*
+    restart in a row, not just the first: restoring a Neutron/Galaxy
+    route re-persists its own type/data immediately (the same Save() call
+    this restore reuses already reset both back to Plain/empty on disk as
+    its own unconditional behavior, so skipping that re-persist step
+    would leave the on-disk value silently wrong from that point on,
+    invisible until the *next* restart). Saving a plain route (typing it
+    by hand, Import Current Route, Trim for FC, or re-Saving after Edit)
+    always reverts to a plain route with none of these columns,
+    discarding whatever Neutron/Galaxy data the previously-saved route
+    had - only a fresh Spansh Neutron/Galaxy calculation re-populates
+    them. The `Jumps`/`Refuel`/`Inject`/`Neutron` columns' own widths are
+    persisted individually the same way the other resizable columns are
+    (§4.2/§7), even while not currently showing.
+92. Clicking Edit on a currently-saved Neutron or Galaxy Plotter route
+    shows a Proceed/Cancel dialog warning that continuing will convert it
+    back to a plain route, discarding its extra column data; declining
+    leaves the table exactly as it was, still showing those columns.
+    Clicking Edit on a plain route shows no such dialog. Edit itself
+    remains disabled exactly when it always has been (before any Save,
+    or while Auto Pilot is engaged).
+93. Saving or restoring a Neutron/Galaxy Plotter route forces Ship mode
+    (even from Fleet Carrier mode, and even if Fleet Carrier mode was the
+    persisted state from a previous session) and disables the Fleet
+    Carrier chip, with no confirmation dialog; the chip's own tooltip
+    reads "Not appropriate for Neutron Plotter routes."/"Not appropriate
+    for Galaxy Plotter routes." as appropriate, plus a sentence saying
+    Edit reverts it to a plain route. The route reverting to Plain
+    (Edit-&gt;Save, Import Current Route, or Trim for FC) re-enables the
+    chip immediately, without switching back to Fleet Carrier mode on its
+    own.
 
 ---
 
