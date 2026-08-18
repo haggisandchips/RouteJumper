@@ -99,6 +99,15 @@ and this project follows [Semantic Versioning](https://semver.org/).
   hop between them, ready to feed into Trim for FC or fly manually. A
   footnote links out to Spansh's own hosted Neutron Plotter for
   anything beyond a plain source → destination Calculate.
+- **Galaxy Plotter**: a third tab in the Spansh dialog calculating an
+  *exact* route using your real ship build (fuel, jump range,
+  supercharge/injection options) instead of a flat range figure — read
+  automatically from your journal, plus editable Cargo/Reserve tank/
+  Algorithm/route-option fields, all at Spansh's own defaults. Imports
+  only the route's waypoints, each flagged for refuel/inject/neutron -
+  shown as new `Refuel`/`Inject`/`Neutron` columns on the Route tab. A
+  footnote links out to Spansh's own hosted Galaxy Plotter for the
+  fuller in-game/algorithm details.
 - A dismissible banner above the Route table when Distance/Star Type
   enrichment finishes with one or more systems still showing "Plot
   needed"/"Target needed" — points at those per-row hints instead of
