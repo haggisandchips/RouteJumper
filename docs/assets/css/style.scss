@@ -5,15 +5,34 @@
 
 :root {
   --sidebar-width: 15rem;
+  --banner-height: 2.75rem;
 }
 
 body {
   margin: 0;
 }
 
+.site-banner {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  box-sizing: border-box;
+  min-height: var(--banner-height);
+  padding: 0.6rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #5c4400;
+  background: #fff3cd;
+  border-bottom: 1px solid #ffe69c;
+}
+
 .sidebar {
   position: fixed;
-  top: 0;
+  top: var(--banner-height);
   left: 0;
   bottom: 0;
   width: var(--sidebar-width);
