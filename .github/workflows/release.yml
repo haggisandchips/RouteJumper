@@ -64,3 +64,16 @@ jobs:
         run: >
           vpk upload github --repoUrl https://github.com/haggisandchips/RouteJumper
           --token ${{ secrets.GITHUB_TOKEN }} --tag ${{ github.ref_name }} --publish
+
+      - name: Announce release on Discord
+        # Requires a DISCORD_WEBHOOK repo secret (Discord: channel Settings >
+        # Integrations > Webhooks). Skipped harmlessly if it isn't set, so this
+        # workflow still works in a fork with no Discord server configured.
+        if: env.DISCORD_WEBHOOK != ''
+        shell: bash
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: >
+          curl -sf -X POST "$DISCORD_WEBHOOK"
+          -H "Content-Type: application/json"
+          -d "{\"content\": \"🚀 **ED:FC Auto Pilot v${{ steps.version.outputs.version }}** has been released!\nhttps://github.com/haggisandchips/RouteJumper/releases/tag/${{ github.ref_name }}\"}"
