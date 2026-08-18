@@ -47,7 +47,11 @@ with spoken lead-time announcements before each action.
 
 Starts in **Edit** — paste a route, one system per line, and click
 **Save** to build the table. The table shows each row's status, `#`,
-`System`, `Distance`, `Star Type`, and status text, plus:
+`System`, `Distance`, `Star Type`, and status text. A route calculated
+via **Spansh > Neutron Plotter…** additionally shows a `Jumps` column
+right of `Distance` (ordinary hops since the previous waypoint); one via
+**Spansh > Galaxy Plotter…** shows `Refuel`/`Inject`/`Neutron` columns
+there instead. Below the table:
 
 - **Import Current Route** — replaces the saved route with whatever's
   currently plotted in-game.
@@ -58,7 +62,9 @@ Starts in **Edit** — paste a route, one system per line, and click
   playing the Captain's macro to plot each jump and the Engineer's to
   refuel each cooldown, stopping itself once the route completes, if you
   click it again, or if its "panic mode" trips (see below).
-- **Edit** — go back to the text box to change the route.
+- **Edit** — go back to the text box to change the route. For a Neutron/
+  Galaxy Plotter route, this asks you to confirm first, since it converts
+  the route back to a plain one and loses the extra columns above.
 
 Click a row to copy its system name to the clipboard. Right-click a row
 for **"Set next system"** — a manual override for correcting the current
@@ -128,16 +134,24 @@ There's no macro automation in this mode — you fly, the app just tracks.
 
 ## Spansh integration
 
-**Spansh > Fleet Carrier…** / **Spansh > Neutron Plotter…** open a
-dialog to calculate a route via [Spansh](https://spansh.co.uk) and
-import it straight into the Route tab, in either tracking mode.
+**Spansh > Fleet Carrier…** / **Spansh > Neutron Plotter…** /
+**Spansh > Galaxy Plotter…** open a dialog to calculate a route via
+[Spansh](https://spansh.co.uk) and import it straight into the Route
+tab, in either tracking mode.
 
 - **Fleet Carrier** tab — a direct source → destination hop sequence.
   Doesn't account for tritium/restock planning; for that, use Spansh's
   own hosted Fleet Carrier Router (linked in the dialog).
 - **Neutron Plotter** tab — a neutron-highway route between two systems,
   with editable Range/Efficiency and a Normal/Overcharge supercharge
-  choice. Imports only the boost stops plus the destination.
+  choice. Imports only the boost stops plus the destination, plus each
+  one's own `Jumps` count (see [Route tab](#route-tab)).
+- **Galaxy Plotter** tab — an *exact* route using your ship's own real
+  jump range, fuel usage, and supercharge/injection options, rather than
+  a flat range figure — the ship build is read from your journal
+  automatically, so there's nothing to fill in beyond Source/Destination,
+  Cargo, and a handful of route-option checkboxes. Imports only the
+  route's own waypoints, plus each one's own Refuel/Inject/Neutron flags.
 
 Type into Source/Destination for a live autocomplete search, then click
 **Calculate**. On success, the route replaces your saved route
