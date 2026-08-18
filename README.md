@@ -23,10 +23,16 @@ troubleshooting — see the full
 
 ## Technical Note
 
-This entire application began, and has remained, an academic exercise.
+This entire application began as an academic exercise, but has since turned into a
+practical application with a genuine place in the Elite:Dangerous community.
 
-Every line of code was written by AI — specifically Claude Code. I have
-not written or modified any part of the codebase myself.
+Every line of code has been written by AI — specifically Claude Code. I have not
+written nor modified any part of the codebase myself. Code has been reviewed for
+function, performance<sup>&nbsp;[1]</sup> and safety and thoroughly tested ... but
+code style and quality belongs to Claude.
+
+[1] A lot of effort has been put into optimising and validating this - Claude took a
+bit of persuasion with some parts but we got there.
 
 ---
 
@@ -48,6 +54,11 @@ newer releases itself on launch (via [Velopack](https://velopack.io/)) — no
 need to revisit the Releases page for future updates. See
 [Packaging & distributing releases via GitHub](https://haggisandchips.github.io/RouteJumper/development.html#packaging--distributing-releases-via-github)
 in the docs for how releases are produced.
+
+The installer isn't code-signed yet, so Windows SmartScreen may warn on
+first run — the project has applied to the
+[SignPath Foundation](https://signpath.org/) for free code signing for
+open source projects, and this note will be updated once that's in place.
 
 ## Building from source
 
