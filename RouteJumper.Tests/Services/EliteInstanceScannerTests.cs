@@ -52,6 +52,66 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
+        public void ReadJournalSummary_Loadout_ReadsMaxJumpRange()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"CargoCapacity\":256,\"MaxJumpRange\":45.23}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Equal(45.23, summary.MaxJumpRange);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_NoLoadoutEventAtAll_MaxJumpRangeIsNull()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Commander\",\"FID\":\"F123\",\"Name\":\"Jameson\"}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Null(summary.MaxJumpRange);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_FrameShiftDriveSlotHasOverchargeBooster_HasOverchargedFsdIsTrue()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"Modules\":[" +
+                "{\"Slot\":\"MainEngines\",\"Item\":\"int_engine_size6_class5\"}," +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii\"}" +
+                "]}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.True(summary.HasOverchargedFsd);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_FrameShiftDriveSlotHasRegularFsd_HasOverchargedFsdIsFalse()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"Modules\":[" +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_size6_class5\"}" +
+                "]}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.False(summary.HasOverchargedFsd);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_NoLoadoutEventAtAll_HasOverchargedFsdIsFalse()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Commander\",\"FID\":\"F123\",\"Name\":\"Jameson\"}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.False(summary.HasOverchargedFsd);
+        }
+
+        [Fact]
         public void ReadJournalSummary_NoCargoEventAtAll_DefaultsToZeroNotUnknown()
         {
             using var dir = new TempDirectory();

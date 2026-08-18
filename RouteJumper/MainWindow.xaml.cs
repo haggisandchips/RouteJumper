@@ -193,7 +193,12 @@ namespace RouteJumper
         private void OnSpanshClick(object sender, RoutedEventArgs e)
         {
             var mainViewModel = (MainViewModel)DataContext;
-            var viewModel = new SpanshImportViewModel(new SpanshRouteService(), mainViewModel.RouteViewModel.ImportFromSpansh);
+            var (knownCurrentSystem, hasOverchargedFsd) = mainViewModel.GetKnownShipState();
+            var viewModel = new SpanshImportViewModel(
+                new SpanshRouteService(),
+                mainViewModel.RouteViewModel.ImportFromSpansh,
+                knownCurrentSystem: knownCurrentSystem,
+                defaultToOvercharge: hasOverchargedFsd);
             new SpanshImportWindow(viewModel) { Owner = this }.ShowDialog();
         }
 

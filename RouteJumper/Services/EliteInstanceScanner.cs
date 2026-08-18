@@ -150,7 +150,9 @@ namespace RouteJumper.Services
                 journalPath,
                 summary.CarrierId,
                 summary.CarrierFuelLevel,
-                summary.CarrierLastDepositUtc);
+                summary.CarrierLastDepositUtc,
+                summary.MaxJumpRange,
+                summary.HasOverchargedFsd);
         }
 
         private static DateTime? TryReadFileheaderTimestampUtc(string path)
@@ -207,6 +209,29 @@ namespace RouteJumper.Services
             public string? CommanderName { get; init; }
             public string? Fid { get; init; }
             public int? CargoCapacity { get; init; }
+
+            /// <summary>
+            /// The ship's own maximum jump range (ly), from the most recent Loadout event's
+            /// MaxJumpRange field - Frontier computes this for a full fuel tank with whatever
+            /// cargo is currently loaded, not necessarily zero cargo (there's no separate
+            /// "unladen range" field in the journal). Confirmed in practice to read higher than
+            /// the ship's real fully-fuelled, zero-cargo range, so it does *not* pre-fill the
+            /// Spansh dialog's Neutron Plotter Range field (§4.12) - the CMDR types that in by
+            /// hand instead. Captured here regardless, ready for a future proper unladen-range
+            /// calculation to build on.
+            /// </summary>
+            public double? MaxJumpRange { get; init; }
+
+            /// <summary>
+            /// True if the most recent Loadout event's FrameShiftDrive slot is filled with an
+            /// overcharged FSD booster (an <c>Item</c> ending in "_overchargebooster_mkii",
+            /// case-insensitive - the only known variant as of writing is
+            /// <c>int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii</c>, but matching
+            /// on the suffix alone rather than the full id is deliberately future-proof against
+            /// further size/class variants). Used to default the Spansh dialog's Neutron Plotter
+            /// tab (§4.12) to the overcharge supercharge multiplier rather than the regular one.
+            /// </summary>
+            public bool HasOverchargedFsd { get; init; }
 
             /// <summary>
             /// Defaults to 0, not null - see ReadJournalSummary for why "no Cargo event seen
@@ -269,6 +294,8 @@ namespace RouteJumper.Services
             string? commanderName = null;
             string? fid = null;
             int? cargoCapacity = null;
+            double? maxJumpRange = null;
+            bool hasOverchargedFsd = false;
 
             // The ship's Cargo event's own Count includes tritium, so it can't be used directly -
             // what matters for fleet carrier jump planning is free space *for* tritium, and
@@ -354,6 +381,11 @@ namespace RouteJumper.Services
                                 {
                                     cargoCapacity = capValue;
                                 }
+                                if (root.TryGetProperty("MaxJumpRange", out var range) && range.TryGetDouble(out var rangeValue))
+                                {
+                                    maxJumpRange = rangeValue;
+                                }
+                                hasOverchargedFsd = HasOverchargedFrameShiftDrive(root);
                                 break;
 
                             case "Cargo":
@@ -575,6 +607,8 @@ namespace RouteJumper.Services
                 CommanderName = commanderName,
                 Fid = fid,
                 CargoCapacity = cargoCapacity,
+                MaxJumpRange = maxJumpRange,
+                HasOverchargedFsd = hasOverchargedFsd,
                 CurrentCargo = Math.Max(0, latestRawShipCargo - trackedTritium),
                 CurrentTritium = trackedTritium,
                 CurrentSystem = currentSystem,
@@ -608,6 +642,31 @@ namespace RouteJumper.Services
 
         private static string? GetString(JsonElement root, string propertyName) =>
             root.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+
+        /// <summary>
+        /// True if a Loadout event's own Modules array has the FrameShiftDrive slot filled with
+        /// an overcharged FSD booster - matched by its Item id ending in
+        /// "_overchargebooster_mkii" (case-insensitive) rather than the full id, so a future
+        /// size/class variant of the same booster is still recognised without a code change.
+        /// </summary>
+        private static bool HasOverchargedFrameShiftDrive(JsonElement loadoutRoot)
+        {
+            if (!loadoutRoot.TryGetProperty("Modules", out var modules) || modules.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var module in modules.EnumerateArray())
+            {
+                if (string.Equals(GetString(module, "Slot"), "FrameShiftDrive", StringComparison.OrdinalIgnoreCase))
+                {
+                    var item = GetString(module, "Item");
+                    return item != null && item.EndsWith("_overchargebooster_mkii", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Pulls just the tritium entry's Count out of a Cargo event's per-commodity Inventory

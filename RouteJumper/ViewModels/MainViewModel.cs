@@ -179,6 +179,31 @@ namespace RouteJumper.ViewModels
 
         public ControlsViewModel ControlsViewModel { get; }
 
+        /// <summary>
+        /// A fresh snapshot of the CMDR's own ship - the Captain's (Fleet Carrier mode) or the
+        /// tracked instance's (Ship mode), the same instance RouteViewModel's own origin-distance
+        /// closure above already reads CurrentSystem from - used to pre-fill the Spansh dialog's
+        /// Neutron Plotter tab (SPEC §4.12) when it's opened (MainWindow.OnSpanshClick). Read on
+        /// demand rather than a persisted/bound property, matching SpanshImportViewModel's own
+        /// "re-read fresh every time the dialog opens" convention for routejumper.conf.
+        ///
+        /// Deliberately doesn't also surface MaxJumpRange - Loadout's own MaxJumpRange reflects
+        /// whatever fuel/cargo the ship happened to be carrying when last logged, which may not
+        /// match whatever load-out the CMDR actually wants to plan the route around, so
+        /// pre-filling Range from it would presume rather than help.
+        /// EliteInstanceViewModel.MaxJumpRange itself is left in place regardless, captured now
+        /// for a future smarter default to build on (the same "captured now, consumed once a real
+        /// feature needs it" precedent id64/system-address caching already follows elsewhere,
+        /// §4.9) - the CMDR types Range in by hand for now.
+        /// </summary>
+        public (string? CurrentSystem, bool HasOverchargedFsd) GetKnownShipState()
+        {
+            var instance = _mode == TrackingMode.Ship
+                ? TrackViewModel.Instances.FirstOrDefault(i => i.IsTracked)
+                : RolesViewModel.CaptainInstance;
+            return (instance?.CurrentSystem, instance?.HasOverchargedFsd ?? false);
+        }
+
         /// <summary>Owns spoken-announcement voice/volume/mute state - bound directly by MainWindow's mute button and the Preferences dialog.</summary>
         public SpeechAnnouncer SpeechAnnouncer { get; }
 

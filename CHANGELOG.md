@@ -78,6 +78,19 @@ and this project follows [Semantic Versioning](https://semver.org/).
   use, so the imported route's columns populate instantly rather than
   needing a fresh EDSM round trip. Used with the express permission of
   Spansh's author, Gareth Harper, credited in the dialog itself.
+- **Neutron Plotter**: a second tab in the Spansh dialog, alongside
+  Fleet Carrier, calculating a neutron-highway route instead — the same
+  Source/Destination autocomplete, plus an editable Range (ly) and
+  Efficiency (Spansh's own route optimisation/speed trade-off, 1–100,
+  defaulting to 60) field, and a Regular/Overcharge supercharge choice
+  (defaulting to Overcharge only when your current ship's Frame Shift
+  Drive is fitted with an overcharged booster). Range always starts
+  blank — it's your own call what range to plan around, not something
+  guessed on your behalf. On success, the imported route holds only the
+  neutron boost stops plus the final destination, not every ordinary
+  hop between them, ready to feed into Trim for FC or fly manually. A
+  footnote links out to Spansh's own hosted Neutron Plotter for
+  anything beyond a plain source → destination Calculate.
 - A dismissible banner above the Route table when Distance/Star Type
   enrichment finishes with one or more systems still showing "Plot
   needed"/"Target needed" — points at those per-row hints instead of

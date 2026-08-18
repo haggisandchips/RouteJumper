@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using RouteJumper.Models;
 using RouteJumper.Services.Logging;
 
@@ -30,6 +31,23 @@ namespace RouteJumper.Services
     ///   sibling top-level "status" ("ok" once the route was actually computable) - both are
     ///   top-level fields, not nested under "result", which itself holds only the route's own
     ///   "jumps" array once state is "completed".
+    /// - GET /api/route?efficiency=...&amp;range=...&amp;from=...&amp;to=...&amp;supercharge_multiplier=... -
+    ///   the neutron-highway router (Integrations &gt; Spansh's own Neutron Plotter tab), confirmed
+    ///   live via curl - unlike the fleet-carrier endpoint above, "from"/"to" are system *names*,
+    ///   not ids, and a request Spansh can reject outright (an out-of-range "range", a system name
+    ///   it has no record of, ...) answers immediately with HTTP 400 and a top-level
+    ///   <c>{"error": "..."}</c> rather than queuing a job at all - surfaced verbatim, since it's
+    ///   already a clear, human-readable reason (e.g. "range must be greater than 10 LY").
+    ///   "supercharge_multiplier" is 4 for a regular neutron/white dwarf supercharge or 6 for an
+    ///   overcharged FSD booster - confirmed against Spansh's own web client's bundled JS, which
+    ///   posts exactly those two values from its own "regular"/"overcharge" radio buttons; Spansh
+    ///   silently accepts any value here (no equivalent immediate-rejection error), so this app
+    ///   only ever sends one of those two known-good values, never free text. Once queued, polled
+    ///   via the same /api/results/{job} endpoint above, but with a differently-shaped completed
+    ///   result - <c>result.system_jumps</c> (not <c>result.jumps</c>), each entry's own system
+    ///   name under "system" (not "name"), and only the route's own waypoints (neutron boost stops
+    ///   plus the final destination), each carrying how many ordinary jumps separate it from the
+    ///   previous one - not a line for every single hop the CMDR will actually fly.
     /// </summary>
     public sealed class SpanshRouteService : ISpanshRouteService
     {
@@ -188,6 +206,108 @@ namespace RouteJumper.Services
                 .ToList();
 
             return SpanshRouteJobStatus.Completed(jumps);
+        }
+
+        public async Task<string> StartNeutronRouteAsync(string sourceSystemName, string destinationSystemName, string range, string efficiency, int superchargeMultiplier, CancellationToken cancellationToken = default)
+        {
+            var url = $"{BaseUrl}/api/route?efficiency={Uri.EscapeDataString(efficiency)}&range={Uri.EscapeDataString(range)}"
+                + $"&from={Uri.EscapeDataString(sourceSystemName)}&to={Uri.EscapeDataString(destinationSystemName)}"
+                + $"&supercharge_multiplier={superchargeMultiplier}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var reason = await TryReadSpanshErrorAsync(response, cancellationToken);
+                throw new InvalidOperationException(reason ?? $"Spansh returned HTTP {(int)response.StatusCode}.");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var parsed = await JsonSerializer.DeserializeAsync<SpanshJobResponse>(stream, JsonOptions, cancellationToken);
+            if (parsed?.Job is not { } jobId)
+            {
+                throw new InvalidOperationException("Spansh did not return a job id.");
+            }
+
+            return jobId;
+        }
+
+        /// <summary>A request Spansh rejects outright (bad range/efficiency, an unrecognised system name, ...) answers with HTTP 400 and a top-level <c>{"error": "..."}</c> body - read here so StartNeutronRouteAsync can surface Spansh's own reason rather than a generic failure. Returns null (never throws) if the body isn't in that shape, so the caller falls back to a generic message instead.</summary>
+        private async Task<string?> TryReadSpanshErrorAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var parsed = await JsonSerializer.DeserializeAsync<SpanshErrorResponse>(stream, JsonOptions, cancellationToken);
+                return parsed?.Error;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return null;
+            }
+        }
+
+        public async Task<SpanshRouteJobStatus> GetNeutronJobResultAsync(string jobId, CancellationToken cancellationToken = default)
+        {
+            var url = $"{BaseUrl}/api/results/{Uri.EscapeDataString(jobId)}";
+            using var response = await _httpClient.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return SpanshRouteJobStatus.Failed($"HTTP {(int)response.StatusCode}");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var parsed = await JsonSerializer.DeserializeAsync<SpanshNeutronResultResponse>(stream, JsonOptions, cancellationToken);
+            if (parsed is null)
+            {
+                return SpanshRouteJobStatus.Failed("Empty response.");
+            }
+
+            if (!string.Equals(parsed.State, "completed", StringComparison.OrdinalIgnoreCase))
+            {
+                return SpanshRouteJobStatus.Pending(parsed.State ?? "unknown");
+            }
+
+            if (!string.Equals(parsed.Status, "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                return SpanshRouteJobStatus.Failed($"Spansh reported status \"{parsed.Status ?? "unknown"}\".");
+            }
+
+            var jumps = (parsed.Result?.SystemJumps ?? new List<SpanshNeutronWaypointDto>())
+                .Select(j => new SpanshRouteJump(j.Id64, j.SystemName ?? string.Empty, j.X, j.Y, j.Z))
+                .ToList();
+
+            return SpanshRouteJobStatus.Completed(jumps);
+        }
+
+        private sealed class SpanshErrorResponse
+        {
+            public string? Error { get; set; }
+        }
+
+        /// <summary>"state"/"status" are the same sibling top-level fields as the fleet-carrier response (SpanshResultResponse) - only the nested "result" shape differs (system_jumps, not jumps).</summary>
+        private sealed class SpanshNeutronResultResponse
+        {
+            public string? State { get; set; }
+            public string? Status { get; set; }
+            public SpanshNeutronResultBody? Result { get; set; }
+        }
+
+        private sealed class SpanshNeutronResultBody
+        {
+            [JsonPropertyName("system_jumps")]
+            public List<SpanshNeutronWaypointDto>? SystemJumps { get; set; }
+        }
+
+        private sealed class SpanshNeutronWaypointDto
+        {
+            public long Id64 { get; set; }
+
+            [JsonPropertyName("system")]
+            public string? SystemName { get; set; }
+
+            public double X { get; set; }
+            public double Y { get; set; }
+            public double Z { get; set; }
         }
 
         private sealed class SpanshJobResponse

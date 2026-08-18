@@ -20,7 +20,28 @@ namespace RouteJumper.Services
         /// <summary>Requests a fleet-carrier route be calculated between two already-selected systems (by their own Spansh id, not name) and returns the job id to poll via <see cref="GetJobResultAsync"/>.</summary>
         Task<string> StartFleetCarrierRouteAsync(string sourceId, string destinationId, CancellationToken cancellationToken = default);
 
-        /// <summary>One poll of a previously-started job - see SpanshRouteJobStatus for the three possible outcomes.</summary>
+        /// <summary>One poll of a previously-started fleet-carrier job - see SpanshRouteJobStatus for the three possible outcomes.</summary>
         Task<SpanshRouteJobStatus> GetJobResultAsync(string jobId, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Requests a neutron-highway route (Integrations &gt; Spansh's own Neutron Plotter tab) be
+        /// calculated between two systems, by name (Spansh's neutron router takes system names,
+        /// not ids, unlike <see cref="StartFleetCarrierRouteAsync"/>) - <paramref name="range"/>
+        /// and <paramref name="efficiency"/> are passed through as raw text exactly as typed, with
+        /// no client-side numeric validation, since Spansh's own response already reports a clear,
+        /// human-readable reason (e.g. "range must be greater than 10 LY") for anything it
+        /// rejects. <paramref name="superchargeMultiplier"/> is Spansh's own
+        /// <c>supercharge_multiplier</c> parameter - 4 for a regular neutron/white dwarf
+        /// supercharge, 6 for an overcharged FSD booster (confirmed live via Spansh's own web
+        /// client's own radio buttons, which post the same two values). Returns the job id to poll
+        /// via <see cref="GetNeutronJobResultAsync"/>. Throws
+        /// <see cref="InvalidOperationException"/> - with Spansh's own reported reason, when one
+        /// was returned - if the request is rejected outright (bad range/efficiency, or a system
+        /// name Spansh has no record of) rather than merely queued.
+        /// </summary>
+        Task<string> StartNeutronRouteAsync(string sourceSystemName, string destinationSystemName, string range, string efficiency, int superchargeMultiplier, CancellationToken cancellationToken = default);
+
+        /// <summary>One poll of a previously-started neutron-route job - see SpanshRouteJobStatus for the three possible outcomes.</summary>
+        Task<SpanshRouteJobStatus> GetNeutronJobResultAsync(string jobId, CancellationToken cancellationToken = default);
     }
 }

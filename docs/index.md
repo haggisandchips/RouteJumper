@@ -244,33 +244,61 @@ Pilot (and manual playback) is built from.
 ## Spansh integration
 
 **Integrations > Spansh…** opens a small dialog (available in both
-tracking modes) to calculate a route between two systems and import it
+tracking modes) with two tabs — **Fleet Carrier** and **Neutron
+Plotter** — to calculate a route between two systems and import it
 straight into the Route tab, without leaving the app or hand-typing a
 system list.
 
-- Type into the **Source**/**Destination** fields for a live autocomplete
-  search against Spansh, then click **Calculate**. The dialog polls the
-  calculation every 5 seconds (an indeterminate progress bar, since
-  there's no way to know in advance how long Spansh's own queue/
-  calculation will take) and, once it completes, replaces the
-  currently-saved route with the calculated jump list — the same
-  "replaces the saved route outright" behaviour Import Current Route
-  and Trim for FC use, applied here as soon as the calculation finishes
-  rather than behind a confirmation dialog, since opening this dialog at
-  all is already the deliberate action.
+- Type into either tab's own **Source**/**Destination** fields for a
+  live autocomplete search against Spansh, then click that tab's own
+  **Calculate**. The dialog polls the calculation every 5 seconds (an
+  indeterminate progress bar, since there's no way to know in advance
+  how long Spansh's own queue/calculation will take) and, once it
+  completes, replaces the currently-saved route with the calculated
+  jump list — the same "replaces the saved route outright" behaviour
+  Import Current Route and Trim for FC use, applied here as soon as the
+  calculation finishes rather than behind a confirmation dialog, since
+  opening this dialog at all is already the deliberate action. The two
+  tabs' own calculations run independently — starting one doesn't
+  cancel the other.
 - Every jump Spansh returns seeds the same Distance/Star Type cache EDSM
   lookups use (coordinates and, once resolved by EDSM or targeted
   in-game, star type), so the freshly-imported route's columns populate
   instantly rather than waiting on a fresh EDSM round trip for systems
   Spansh already told us the exact position of.
-- This dialog's own Calculate is a single, direct source → destination
-  hop sequence — it doesn't know about tritium capacity or plan restock
-  stops along the way. For that, a footnote links out to Spansh's own
-  hosted **Fleet Carrier route planner**, which does account for it; use
-  that instead and paste the result in (or **Import Current Route** if
-  you plot it in-game) when tritium/restock planning actually matters.
+- The **Fleet Carrier** tab's own Calculate is a single, direct
+  source → destination hop sequence — it doesn't know about tritium
+  capacity or plan restock stops along the way. For that, a footnote
+  links out to Spansh's own hosted **Fleet Carrier route planner**,
+  which does account for it; use that instead and paste the result in
+  (or **Import Current Route** if you plot it in-game) when
+  tritium/restock planning actually matters.
+- The **Neutron Plotter** tab calculates a neutron-highway route instead
+  — the same Source/Destination fields, an editable **Range** (ly) and
+  **Efficiency** (Spansh's own optimisation/speed trade-off, 1–100,
+  defaulting to 60) field, and a **Regular supercharge**/**Overcharge
+  supercharge** choice. Range/Efficiency aren't validated locally —
+  Spansh's own response already reports a clear reason for anything it
+  rejects (e.g. "range must be greater than 10 LY"), shown in the status
+  message. On success, the imported route holds only the neutron boost
+  stops plus the final destination, not every single ordinary hop
+  between them — feed it into **Trim for FC** or fly it manually.
+  **Range** always starts blank — it's your own call what range to plan
+  around, so nothing is presumed for you there. Where known, **Source**
+  is pre-filled from your current system instead — still fully editable.
+  The supercharge choice defaults to **Overcharge** only when your
+  current ship's Frame Shift Drive is an overcharged booster, **Regular**
+  otherwise — also freely editable regardless. A footnote
+  links out to Spansh's own hosted **Neutron Plotter** for anything
+  beyond a plain source → destination Calculate (waypoint/via planning,
+  visualising the route, ...).
+- Each tab's own footnote above is shown only while that tab is
+  selected, and sits below the tab area at the dialog's own full width
+  (the same width the Gareth Harper credit line below uses), not inside
+  each tab's own narrower content column.
 - Used with the express permission of Spansh's author, Gareth Harper,
-  credited directly in the dialog.
+  credited directly in the dialog, in a footer shown regardless of which
+  tab is active.
 
 ---
 

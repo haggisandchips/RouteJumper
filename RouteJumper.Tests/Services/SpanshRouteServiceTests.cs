@@ -193,5 +193,137 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(SpanshJobState.Failed, status.State);
         }
+
+        // ===================== StartNeutronRouteAsync / GetNeutronJobResultAsync (Neutron Plotter
+        // tab) - real request/response shapes confirmed live via curl against
+        // https://spansh.co.uk/api/route and https://spansh.co.uk/api/results/{job}. Unlike the
+        // fleet-carrier endpoints above, "from"/"to" are system names (not ids), and a request
+        // Spansh rejects outright (bad range/efficiency, an unrecognised system name) answers
+        // immediately with HTTP 400 and a top-level {"error": "..."} body rather than queuing. =====================
+
+        [Fact]
+        public async Task StartNeutronRouteAsync_RequestsExpectedUrl_ReturnsJobId()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"job":"abc-123","status":"queued"}""");
+
+            var jobId = await service.StartNeutronRouteAsync("Sol", "Sirius", "50", "60", 4);
+
+            Assert.Equal("abc-123", jobId);
+            var url = Assert.Single(handler.RequestedUrls);
+            Assert.Contains("/api/route?", url);
+            Assert.Contains("efficiency=60", url);
+            Assert.Contains("range=50", url);
+            Assert.Contains("from=Sol", url);
+            Assert.Contains("to=Sirius", url);
+            Assert.Contains("supercharge_multiplier=4", url);
+        }
+
+        [Fact]
+        public async Task StartNeutronRouteAsync_Overcharge_RequestsMultiplierSix()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"job":"abc-123","status":"queued"}""");
+
+            await service.StartNeutronRouteAsync("Sol", "Sirius", "50", "60", 6);
+
+            var url = Assert.Single(handler.RequestedUrls);
+            Assert.Contains("supercharge_multiplier=6", url);
+        }
+
+        [Fact]
+        public async Task StartNeutronRouteAsync_NoJobInResponse_Throws()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"status":"queued"}""");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartNeutronRouteAsync("Sol", "Sirius", "50", "60", 4));
+        }
+
+        [Fact]
+        public async Task StartNeutronRouteAsync_RejectedOutright_ThrowsWithSpanshsOwnReason()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.BadRequest, """{"error":"range must be greater than 10 LY"}""");
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartNeutronRouteAsync("Sol", "Sirius", "1", "60", 4));
+
+            Assert.Equal("range must be greater than 10 LY", ex.Message);
+        }
+
+        [Fact]
+        public async Task StartNeutronRouteAsync_NonSuccessWithUnparsableBody_ThrowsGenericMessage()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.InternalServerError, "oops");
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StartNeutronRouteAsync("Sol", "Sirius", "50", "60", 4));
+
+            Assert.Contains("500", ex.Message);
+        }
+
+        [Fact]
+        public async Task GetNeutronJobResultAsync_StatePending_ReturnsPending()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"job":"abc-123","state":"started","status":"queued"}""");
+
+            var status = await service.GetNeutronJobResultAsync("abc-123");
+
+            Assert.Equal(SpanshJobState.Pending, status.State);
+            Assert.Equal("started", status.StatusText);
+        }
+
+        // Real response shape confirmed live via curl - unlike the fleet-carrier result's own
+        // result.jumps ({"name": ..., "id64": ...}), the neutron result nests waypoints under
+        // result.system_jumps, each carrying its own name under "system" (not "name").
+        [Fact]
+        public async Task GetNeutronJobResultAsync_StateCompletedStatusOk_ReturnsWaypoints()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """
+                {
+                  "job": "abc-123",
+                  "state": "completed",
+                  "status": "ok",
+                  "result": {
+                    "system_jumps": [
+                      { "id64": 10477373803, "system": "Sol", "x": 0, "y": 0, "z": 0, "jumps": 0, "neutron_star": false },
+                      { "id64": 121569805492, "system": "Sirius", "x": 6.25, "y": -1.28125, "z": -5.75, "jumps": 1, "neutron_star": false }
+                    ]
+                  }
+                }
+                """);
+
+            var status = await service.GetNeutronJobResultAsync("abc-123");
+
+            Assert.Equal(SpanshJobState.Completed, status.State);
+            Assert.Equal(2, status.Jumps.Count);
+            Assert.Equal(new SpanshRouteJump(10477373803, "Sol", 0.0, 0.0, 0.0), status.Jumps[0]);
+            Assert.Equal(new SpanshRouteJump(121569805492, "Sirius", 6.25, -1.28125, -5.75), status.Jumps[1]);
+        }
+
+        [Fact]
+        public async Task GetNeutronJobResultAsync_StateCompletedStatusNotOk_ReturnsFailed()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.OK, """{"job":"abc-123","state":"completed","status":"error"}""");
+
+            var status = await service.GetNeutronJobResultAsync("abc-123");
+
+            Assert.Equal(SpanshJobState.Failed, status.State);
+            Assert.Contains("error", status.FailureReason);
+        }
+
+        [Fact]
+        public async Task GetNeutronJobResultAsync_NonSuccessHttpStatus_ReturnsFailed()
+        {
+            var (service, handler) = Create();
+            handler.Respond = _ => (HttpStatusCode.NotFound, "");
+
+            var status = await service.GetNeutronJobResultAsync("abc-123");
+
+            Assert.Equal(SpanshJobState.Failed, status.State);
+        }
     }
 }

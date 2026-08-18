@@ -923,14 +923,18 @@ might pause en route rather than something either mode tracks.
   currently showing, and in both tracking modes (unlike Auto Pilot,
   Trim for FC, or any other Fleet-Carrier-only feature). Used with the
   express permission of Spansh's own author, Gareth Harper - credited
-  directly in the dialog (EDSM, §4.9, carries no equivalent in-app
+  directly in the dialog, in a footer shared by both tabs below (unlike
+  each tab's own footnote, below), so it's visible regardless of which
+  one is currently showing (EDSM, §4.9, carries no equivalent in-app
   credit yet - see the Scope table's own out-of-scope note on this).
-- The dialog currently holds a single **Fleet Carrier** tab (left room
-  for further Spansh tools as further tabs later): a **Source** and
-  **Destination** system field, each a live autocomplete search against
-  Spansh as the CMDR types (debounced - `SpanshAutocompleteDebounceMs`
-  in `routejumper.conf`, §5.2's own hand-editable convention, defaulting
-  to 250ms), and a **Calculate** button.
+- The dialog holds two tabs (left room for further Spansh tools as
+  further tabs later): **Fleet Carrier** and **Neutron Plotter** - each
+  its own **Source** and **Destination** system field, a live
+  autocomplete search against Spansh as the CMDR types (debounced -
+  `SpanshAutocompleteDebounceMs` in `routejumper.conf`, §5.2's own
+  hand-editable convention, defaulting to 250ms), and its own
+  **Calculate** button; the two tabs' Calculate operations are
+  independent of each other (starting one doesn't cancel the other).
 - A custom autocomplete control (not a stock `ComboBox`) is used
   deliberately - a `ComboBox` bound the way this needs (two-way `Text`,
   two-way `SelectedItem`, an async-populated `ItemsSource`) was confirmed
@@ -939,46 +943,114 @@ might pause en route rather than something either mode tracks.
   close its dropdown after the very first arrow-key press, since WPF ties
   a `ComboBox`'s `SelectedItem` to every arrow press, not just a final
   Enter/click.
-- **Calculate** is enabled only once both Source and Destination have an
-  actual selected suggestion (not just typed, unconfirmed text). Clicking
-  it requests a route from Spansh and polls the result every 5 seconds -
-  an indeterminate progress bar (§4.4's own "no known duration" cue) plus
-  a status message ("Requesting route from Spansh…", "Queued…", a
+- On both tabs, **Calculate** is enabled only once both Source and
+  Destination have an actual selected suggestion (not just typed,
+  unconfirmed text) - on the Neutron Plotter tab, also only once Range
+  and Efficiency (below) are both non-blank. Clicking it requests a
+  route from Spansh and polls the result every 5 seconds - an
+  indeterminate progress bar (§4.4's own "no known duration" cue) plus a
+  status message ("Requesting route from Spansh…", "Queued…", a
   capitalized version of whatever in-progress state Spansh itself
-  reports, ...) reflect progress the whole time. Starting a new
-  Calculate while one is already in flight cancels the previous one
-  first, the same "starting a new one cancels whichever was running"
-  convention macro Play already uses (§6.5); closing the dialog while a
-  calculation is in flight cancels it the same way, rather than leaving
-  it running against nothing.
-- **On success**, every jump Spansh returns seeds the same Distance/Star
-  Type cache EDSM lookups populate (§4.9) - coordinates and the system's
-  real, stable system address (id64) - before the route itself replaces
-  the currently-saved route (the System text of every returned jump, one
-  per line) and is Saved,
-  exactly as if that list had been pasted and Save clicked by hand, with
-  no Edit-state review step and no confirmation dialog first - opening
-  this dialog and clicking Calculate is already the deliberate action,
-  the same "no second are-you-sure" precedent Import Current Route/Trim
-  for FC apply once *they've* already been confirmed (§4.10, §4.11). This
-  is what lets the freshly-imported route's Distance/Star Type columns
-  populate instantly from cache rather than waiting on a fresh EDSM round
-  trip for systems Spansh already named the exact position of. An empty
-  jump list (Spansh's own job somehow completing with nothing to import)
-  is logged and leaves the route untouched rather than replacing it with
-  nothing.
-- **On failure** (Spansh reports the job itself failed, or the request/
-  poll couldn't reach Spansh at all), the status message explains why
-  and the dialog is left open and otherwise unchanged - no route
-  replacement happens, and Calculate can be retried.
-- This dialog's own Calculate is deliberately a single, direct
-  source → destination hop sequence - it has no notion of a fleet
-  carrier's tritium capacity or restock planning along the way. A
-  footnote instead links out (default browser) to Spansh's own hosted
-  **Fleet Carrier route planner** (`https://spansh.co.uk/fleet-carrier`),
-  which does account for both; the CMDR pastes that tool's own result
-  in by hand (or uses Import Current Route, §4.10, once it's plotted
-  in-game) when that heavier planning is actually needed.
+  reports, ...) reflect progress the whole time, independently for
+  each tab. Starting a new Calculate on a tab while that same tab's own
+  previous one is still in flight cancels the previous one first, the
+  same "starting a new one cancels whichever was running" convention
+  macro Play already uses (§6.5); closing the dialog while either tab's
+  calculation is in flight cancels both, rather than leaving either
+  running against nothing.
+- **On success** (either tab), every jump Spansh returns seeds the same
+  Distance/Star Type cache EDSM lookups populate (§4.9) - coordinates
+  and the system's real, stable system address (id64) - before the
+  route itself replaces the currently-saved route (the System text of
+  every returned jump, one per line, including the source system itself
+  - Spansh's own response always lists it as the route's first entry)
+  and is Saved, exactly as if that list had been pasted and Save
+  clicked by hand, with no Edit-state review step and no confirmation
+  dialog first - opening this dialog and clicking Calculate is already
+  the deliberate action, the same "no second are-you-sure" precedent
+  Import Current Route/Trim for FC apply once *they've* already been
+  confirmed (§4.10, §4.11). This is what lets the freshly-imported
+  route's Distance/Star Type columns populate instantly from cache
+  rather than waiting on a fresh EDSM round trip for systems Spansh
+  already named the exact position of. An empty jump list (Spansh's own
+  job somehow completing with nothing to import) is logged and leaves
+  the route untouched rather than replacing it with nothing.
+- **On failure** (either tab - Spansh reports the job itself failed, the
+  request/poll couldn't reach Spansh at all, or - Neutron Plotter only -
+  Spansh rejected the request outright before ever queuing a job, e.g.
+  an out-of-range Range/Efficiency or a Source/Destination it has no
+  record of), the status message explains why (Spansh's own reported
+  reason, verbatim, for an outright rejection) and the dialog is left
+  open and otherwise unchanged - no route replacement happens, and
+  Calculate can be retried.
+- The **Fleet Carrier** tab's own Calculate is deliberately a single,
+  direct source → destination hop sequence - it has no notion of a
+  fleet carrier's tritium capacity or restock planning along the way. A
+  footnote - positioned below the tab area at the parent dialog's own
+  full width (the same width as the shared Gareth Harper credit below
+  it, rather than each tab's own narrower content column to the right
+  of the left-hand tab strip), but still conditional on this tab being
+  the one currently active, unlike that shared credit - instead links
+  out (default browser) to Spansh's own hosted **Fleet Carrier route
+  planner** (`https://spansh.co.uk/fleet-carrier`), which does account
+  for both; the CMDR pastes that tool's own result in by hand (or uses
+  Import Current Route, §4.10, once it's plotted in-game) when that
+  heavier planning is actually needed.
+- The **Neutron Plotter** tab calculates a neutron-highway route instead
+  - the same Source/Destination fields, an editable **Range** (ly) and
+  **Efficiency** (Spansh's own route optimisation/speed trade-off,
+  1-100, pre-filled with Spansh's own default of 60) field, and a
+  **Regular supercharge**/**Overcharge supercharge** radio-button choice
+  (below). Range/Efficiency are neither validated client-side -
+  Spansh's own response already reports a clear, human-readable reason
+  for anything it rejects (e.g. "range must be greater than 10 LY"),
+  shown via the status message per the failure case above. On success,
+  the route is replaced with only the route's own waypoints (the
+  neutron boost stops plus the final destination), not a line for every
+  single ordinary hop the CMDR will actually fly between them - a route
+  to feed into **Trim for FC** (§4.11) or fly manually in Ship mode,
+  not a full turn-by-turn flight plan.
+  - **Range** always starts blank, entered by hand - it's the CMDR's own
+    call what range to plan the route around (fully fuelled, a
+    particular cargo load, a hypothetical build, ...), not something
+    this app should presume for them. Deliberately not pre-filled from
+    the CMDR's own current ship's `Loadout` journal event
+    (`MaxJumpRange`, the same event §5.3's own `CargoCapacity` already
+    comes from) - that field reflects only whatever fuel/cargo the ship
+    happened to be carrying at the moment it was last logged, one
+    specific and uncontrolled state that may not match what the CMDR
+    actually wants to plan around here.
+  - **Source** is likewise pre-filled, when known, from that same
+    instance's own current system (the same field the Route tab's own
+    row-1 Distance calculation already uses, §4.9) - shown as an
+    already-selected suggestion (not merely typed text) so Calculate can
+    be enabled without the CMDR needing to interact with the
+    autocomplete at all, but it remains fully editable: typing further
+    clears the selection, the same as any other autocomplete field here,
+    requiring a fresh pick before Calculate re-enables.
+  - **Regular supercharge**/**Overcharge supercharge** picks Spansh's
+    own `supercharge_multiplier` request parameter - 4 for a regular
+    neutron/white dwarf supercharge, or 6 for a ship fitted with an
+    overcharged FSD booster (confirmed against Spansh's own web
+    client's bundled JS, whose own two radio buttons post exactly those
+    values). Defaults to **Overcharge** only when that same instance's
+    most recent `Loadout` event has its `FrameShiftDrive` slot filled
+    with a module whose `Item` id ends in `_overchargebooster_mkii`
+    (case-insensitive) - matched by that suffix alone, not the full id
+    (`int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii` is
+    the only variant known as of writing), so a future size/class
+    variant of the same booster is still recognised without a code
+    change. Defaults to **Regular** otherwise (including when no
+    `Loadout` has been seen yet this session) - always a plain,
+    freely-editable radio choice from there on regardless of how it was
+    defaulted, the same as Source above.
+  - A footnote - positioned below the tab area at the parent dialog's
+    own full width, the same as the Fleet Carrier tab's own footnote
+    above, but conditional on *this* tab being the one currently active
+    - links out (default browser) to Spansh's own hosted **Neutron
+    Plotter** (`https://spansh.co.uk/plotter`) for anything this tab's
+    own plain source → destination Calculate doesn't cover (waypoint/via
+    planning, visualising the route, ...).
 
 ---
 
@@ -2400,25 +2472,54 @@ outright the instant Ship mode is switched on.
     aren't yet known, nothing is changed and the outcome is logged rather
     than shown as a dialog.
 80. **Integrations > Spansh…** (§4.12) opens a modal dialog, in either
-    tracking mode, with Source/Destination autocomplete fields and a
-    Calculate button enabled only once both have an actual selected
-    suggestion. Clicking it polls Spansh every 5 seconds (indeterminate
-    progress + status text) until the job completes or fails; on
-    completion, every returned jump's coordinates/system address are
-    seeded into the Distance/Star Type cache and the saved route is
-    replaced with the jump list, applying immediately with no
-    confirmation dialog (opening Calculate is itself the deliberate
-    action) - on failure, the route is left untouched and the status
-    message explains why. Starting a new Calculate, or closing the
-    dialog, while one is already in flight cancels it first.
-81. `Distance` and `Star Type` are each resolved via their own single
+    tracking mode, with a Fleet Carrier tab and a Neutron Plotter tab,
+    each with its own Source/Destination autocomplete fields and its own
+    Calculate button, enabled only once both have an actual selected
+    suggestion (the Neutron Plotter tab's own Calculate also requires
+    its Range and Efficiency fields to be non-blank). Clicking either
+    polls Spansh every 5 seconds (indeterminate progress + status text)
+    until that tab's own job completes or fails; on completion, every
+    returned jump's coordinates/system address are seeded into the
+    Distance/Star Type cache and the saved route is replaced with the
+    jump list, applying immediately with no confirmation dialog (opening
+    Calculate is itself the deliberate action) - on failure, the route
+    is left untouched and the status message explains why (the Neutron
+    Plotter tab's own outright-rejection failures, e.g. an out-of-range
+    Range, show Spansh's own reported reason verbatim). Starting a new
+    Calculate on a tab, or closing the dialog, while that tab's own job
+    is already in flight cancels it first; the two tabs' own Calculate
+    operations don't cancel each other.
+81. The Neutron Plotter tab's own **Range** field always starts blank -
+    it isn't pre-filled from the CMDR's own current ship's `Loadout`
+    event's `MaxJumpRange`, since that reflects only whatever fuel/cargo
+    was aboard when last logged, not necessarily what the CMDR wants to
+    plan the route around. Its own **Source** field, by contrast, is
+    pre-filled when known, from that same
+    instance's own current system, shown as an already-selected
+    suggestion (Calculate can be clicked without touching the
+    autocomplete at all) that's still fully editable - typing further
+    clears the selection, requiring a fresh pick, the same as any other
+    autocomplete field in this dialog. Its own Regular/Overcharge
+    supercharge radio choice defaults to Overcharge only when that same
+    `Loadout` event's `FrameShiftDrive` slot module `Item` ends in
+    `_overchargebooster_mkii` (case-insensitive), Regular otherwise -
+    also a plain, freely-editable radio choice from there on regardless
+    of how it was defaulted.
+82. Each tab's own footnote (Fleet Carrier's link to Spansh's hosted
+    Fleet Carrier route planner; Neutron Plotter's link to Spansh's
+    hosted Neutron Plotter) is shown only while that specific tab is the
+    one currently selected, and is positioned below the tab area at the
+    dialog's own full width - the same width the shared Gareth Harper
+    credit beneath it uses - rather than inside each tab's own narrower
+    content column to the right of the left-hand tab strip.
+83. `Distance` and `Star Type` are each resolved via their own single
     batched EDSM request covering every row in the route (chunked at
     `EdsmCoordinatesBatchSize`, `routejumper.conf`, default 100) -
     including when a route's coordinates are already cached (from an
     earlier session, or seeded via §4.9's journal/Spansh paths) but its
     star types aren't, which still resolves via one batched request for
     every such row, never one request per row.
-82. Once a Distance/Star Type enrichment pass completes and at least one
+84. Once a Distance/Star Type enrichment pass completes and at least one
     row is left showing "Plot needed"/"Target needed", a dismissible
     banner appears above the Route table pointing at those per-row hints;
     it doesn't appear while a route is still fully resolved, or while a
@@ -2426,7 +2527,7 @@ outright the instant Ship mode is switched on.
     per-row placeholders it refers to are unaffected. A fresh Save
     re-evaluates and, if the same or a different gap is still there,
     shows the banner again regardless of an earlier dismissal.
-83. The Engineer's refuel (and its own "Refueling in 30/5 seconds"
+85. The Engineer's refuel (and its own "Refueling in 30/5 seconds"
     announcements) is never scheduled for the route's own last row - a
     route that reaches its last row's `Jumping` status with Engineer
     assigned neither speaks a "Refueling..." announcement nor plays the

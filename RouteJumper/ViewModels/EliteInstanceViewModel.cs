@@ -34,7 +34,9 @@ namespace RouteJumper.ViewModels
             string? journalFilePath,
             long? carrierId,
             int? carrierFuelLevel,
-            DateTime? carrierLastDepositUtc = null)
+            DateTime? carrierLastDepositUtc = null,
+            double? maxJumpRange = null,
+            bool hasOverchargedFsd = false)
         {
             ProcessId = processId;
             CommanderName = commanderName;
@@ -55,6 +57,8 @@ namespace RouteJumper.ViewModels
             CarrierId = carrierId;
             CarrierFuelLevel = carrierFuelLevel;
             CarrierLastDepositUtc = carrierLastDepositUtc;
+            MaxJumpRange = maxJumpRange;
+            HasOverchargedFsd = hasOverchargedFsd;
         }
 
         public int ProcessId { get; }
@@ -97,6 +101,25 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Max cargo tonnage, from the most recent Loadout event's CargoCapacity field.</summary>
         public int? CargoCapacity { get; }
+
+        /// <summary>
+        /// This ship's own maximum jump range (ly), from the most recent Loadout event's
+        /// MaxJumpRange field - computed by Frontier for a full fuel tank with whatever cargo is
+        /// currently loaded (there's no separate "unladen range" field in the journal). Null
+        /// until a Loadout event has been seen this session. Confirmed in practice to read higher
+        /// than the ship's real fully-fuelled, zero-cargo range, so it does *not* pre-fill the
+        /// Spansh dialog's Neutron Plotter Range field (SPEC §4.12) - kept here regardless, ready
+        /// for a future proper unladen-range calculation to build on.
+        /// </summary>
+        public double? MaxJumpRange { get; }
+
+        /// <summary>
+        /// True if the most recent Loadout event's FrameShiftDrive slot is filled with an
+        /// overcharged FSD booster (an Item id ending in "_overchargebooster_mkii") - see
+        /// EliteInstanceScanner.HasOverchargedFrameShiftDrive. Used to default the Spansh
+        /// dialog's Neutron Plotter tab (SPEC §4.12) to the overcharge supercharge multiplier.
+        /// </summary>
+        public bool HasOverchargedFsd { get; }
 
         /// <summary>
         /// Current non-tritium cargo held - used for AvailableCargoCapacity/CanBeEngineer, which

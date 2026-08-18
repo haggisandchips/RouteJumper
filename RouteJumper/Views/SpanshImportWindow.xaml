@@ -17,21 +17,28 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        d:DesignHeight="420" d:DesignWidth="480">
+        d:DesignHeight="480" d:DesignWidth="480">
 
     <Window.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:IndexEqualsVisibilityConverter x:Key="IndexEqualsVisibilityConverter" />
+        <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
     </Window.Resources>
 
     <Grid Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- Tabs on the left, matching MainWindow's own TabControl - just one tab for now
-             (Fleet Carrier), leaving room to add further Spansh tools as further tabs later. -->
-        <TabControl Grid.Row="0" TabStripPlacement="Left" Height="260">
+        <!-- Tabs on the left, matching MainWindow's own TabControl - Fleet Carrier and Neutron
+             Plotter for now, leaving room to add further Spansh tools as further tabs later.
+             Height deliberately left Auto (not fixed): the window sizes to whichever tab is
+             currently selected, rather than a fixed height sized for the taller of the two (or
+             clipping it). Named so the shared footer below can show each tab's own footnote only
+             while that tab is the one selected (IndexEqualsVisibilityConverter). -->
+        <TabControl x:Name="SpanshTabs" Grid.Row="0" TabStripPlacement="Left">
             <TabItem Header="Fleet Carrier">
                 <StackPanel Margin="16">
 
@@ -72,18 +79,115 @@
                                Opacity="0.8" />
                 </StackPanel>
             </TabItem>
+            <TabItem Header="Neutron Plotter">
+                <StackPanel Margin="16">
+
+                    <views:SpanshSystemAutocompleteBox Picker="{Binding NeutronSource}"
+                                                        Hint="Source system"
+                                                        Margin="0,0,0,16" />
+
+                    <views:SpanshSystemAutocompleteBox Picker="{Binding NeutronDestination}"
+                                                        Hint="Destination system"
+                                                        Margin="0,0,0,20" />
+
+                    <!-- Range/Efficiency are plain, freely-editable text - Efficiency pre-filled
+                         with Spansh's own default of 60 (never locked to it), while Range always
+                         starts blank: the journal's own MaxJumpRange reflects whatever fuel/cargo
+                         the ship happened to be carrying when last logged, which may not match
+                         whatever the CMDR actually wants to plan the route around (a different
+                         load-out, a hypothetical one, ...) - so it's left for them to judge and
+                         type in rather than presumed. Neither is validated client-side - Spansh's
+                         own response already reports a clear reason for anything it rejects (e.g.
+                         "range must be greater than 10 LY"), shown via NeutronStatusMessage below. -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="16" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding NeutronRange, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Range (ly)"
+                                 ToolTip="Your ship's jump range in light-years"
+                                 AutomationProperties.Name="Range" />
+
+                        <TextBox Grid.Column="2"
+                                 Text="{Binding NeutronEfficiency, UpdateSourceTrigger=PropertyChanged}"
+                                 materialDesign:HintAssist.Hint="Efficiency"
+                                 ToolTip="Spansh's own route optimisation/speed trade-off (1-100), defaulting to 60"
+                                 AutomationProperties.Name="Efficiency" />
+                    </Grid>
+
+                    <!-- Which supercharge multiplier Spansh should assume when routing via a
+                         neutron/white dwarf boost - Regular (4x) for a normal FSD, Overcharge (6x)
+                         for an overcharged FSD booster. Defaults from the CMDR's own ship's
+                         FrameShiftDrive slot when known (MainViewModel.GetKnownShipState), but is
+                         a plain, always-editable radio choice from there on - IsOvercharge is a
+                         single bool, so "Regular" binds to its inverse (InverseBooleanConverter,
+                         the same two-way "inverse of one shared bool" pattern the main window's
+                         own Fleet Carrier/Ship mode toggle already uses). -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                        <RadioButton GroupName="SuperchargeType"
+                                     Content="Regular supercharge"
+                                     IsChecked="{Binding IsOvercharge, Converter={StaticResource InverseBooleanConverter}}"
+                                     Margin="0,0,20,0" />
+                        <RadioButton GroupName="SuperchargeType"
+                                     Content="Overcharge supercharge"
+                                     IsChecked="{Binding IsOvercharge}" />
+                    </StackPanel>
+
+                    <Button Content="Calculate"
+                            Command="{Binding NeutronCalculateCommand}"
+                            HorizontalAlignment="Left"
+                            Width="120"
+                            Padding="4"
+                            Margin="0,0,0,16" />
+
+                    <ProgressBar IsIndeterminate="True"
+                                 Height="4"
+                                 Visibility="{Binding IsNeutronCalculating, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 Margin="0,0,0,8" />
+
+                    <TextBlock Text="{Binding NeutronStatusMessage}"
+                               TextWrapping="Wrap"
+                               Opacity="0.8" />
+                </StackPanel>
+            </TabItem>
         </TabControl>
 
-        <StackPanel Grid.Row="1" Margin="16,8,16,8">
+        <!-- Below the TabControl, spanning the same full window width as the shared Gareth
+             Harper credit at the bottom (unlike each tab's own, narrower content column above,
+             which sits to the right of the left-hand tab strip) - each footnote here is still
+             conditional on its own tab being the one currently selected
+             (IndexEqualsVisibilityConverter against SpanshTabs' own SelectedIndex), it's just
+             positioned at the parent window level rather than repeated inside each TabItem. -->
+        <StackPanel Grid.Row="1" Margin="16,8,16,0">
             <TextBlock TextWrapping="Wrap"
                        Opacity="0.7"
                        FontSize="11"
                        TextAlignment="Left"
-                       Margin="0,0,0,16">
+                       Margin="0,0,0,12"
+                       Visibility="{Binding SelectedIndex, ElementName=SpanshTabs, Converter={StaticResource IndexEqualsVisibilityConverter}, ConverterParameter=0}">
                 <Run Text="If tritium capacity and restock planning along the way is required, use Spansh's own " />
                 <Hyperlink Command="{Binding OpenFleetCarrierRouterCommand}">Fleet Carrier route planner</Hyperlink>
                 <Run Text=" instead." />
             </TextBlock>
+            <TextBlock TextWrapping="Wrap"
+                       Opacity="0.7"
+                       FontSize="11"
+                       TextAlignment="Left"
+                       Margin="0,0,0,12"
+                       Visibility="{Binding SelectedIndex, ElementName=SpanshTabs, Converter={StaticResource IndexEqualsVisibilityConverter}, ConverterParameter=1}">
+                <Run Text="For advice on getting the most out of the Neutron Plotter, see Spansh's own " />
+                <Hyperlink Command="{Binding OpenNeutronPlotterCommand}">Neutron Plotter</Hyperlink>
+                <Run Text=" directly." />
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Shared across both tabs (unlike each tab-specific footnote above) - the same
+             credit/permission note regardless of which tab is currently showing. -->
+        <StackPanel Grid.Row="2" Margin="16,0,16,8">
             <TextBlock TextWrapping="Wrap"
                        Opacity="0.7"
                        FontSize="11"
