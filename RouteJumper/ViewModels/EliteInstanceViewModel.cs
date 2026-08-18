@@ -13,6 +13,7 @@ namespace RouteJumper.ViewModels
     {
         private bool _isCaptain;
         private bool _isEngineer;
+        private bool _isTracked;
 
         public EliteInstanceViewModel(
             int processId,
@@ -32,7 +33,10 @@ namespace RouteJumper.ViewModels
             string? carrierBody,
             string? journalFilePath,
             long? carrierId,
-            int? carrierFuelLevel)
+            int? carrierFuelLevel,
+            DateTime? carrierLastDepositUtc = null,
+            double? maxJumpRange = null,
+            bool hasOverchargedFsd = false)
         {
             ProcessId = processId;
             CommanderName = commanderName;
@@ -52,6 +56,9 @@ namespace RouteJumper.ViewModels
             JournalFilePath = journalFilePath;
             CarrierId = carrierId;
             CarrierFuelLevel = carrierFuelLevel;
+            CarrierLastDepositUtc = carrierLastDepositUtc;
+            MaxJumpRange = maxJumpRange;
+            HasOverchargedFsd = hasOverchargedFsd;
         }
 
         public int ProcessId { get; }
@@ -94,6 +101,25 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Max cargo tonnage, from the most recent Loadout event's CargoCapacity field.</summary>
         public int? CargoCapacity { get; }
+
+        /// <summary>
+        /// This ship's own maximum jump range (ly), from the most recent Loadout event's
+        /// MaxJumpRange field - computed by Frontier for a full fuel tank with whatever cargo is
+        /// currently loaded (there's no separate "unladen range" field in the journal). Null
+        /// until a Loadout event has been seen this session. Confirmed in practice to read higher
+        /// than the ship's real fully-fuelled, zero-cargo range, so it does *not* pre-fill the
+        /// Spansh dialog's Neutron Plotter Range field (SPEC §4.12) - kept here regardless, ready
+        /// for a future proper unladen-range calculation to build on.
+        /// </summary>
+        public double? MaxJumpRange { get; }
+
+        /// <summary>
+        /// True if the most recent Loadout event's FrameShiftDrive slot is filled with an
+        /// overcharged FSD booster (an Item id ending in "_overchargebooster_mkii") - see
+        /// EliteInstanceScanner.HasOverchargedFrameShiftDrive. Used to default the Spansh
+        /// dialog's Neutron Plotter tab (SPEC §4.12) to the overcharge supercharge multiplier.
+        /// </summary>
+        public bool HasOverchargedFsd { get; }
 
         /// <summary>
         /// Current non-tritium cargo held - used for AvailableCargoCapacity/CanBeEngineer, which
@@ -188,6 +214,20 @@ namespace RouteJumper.ViewModels
         public int? CarrierFuelLevel { get; }
 
         /// <summary>
+        /// UTC timestamp of the most recent CarrierDepositFuel event resolved against this
+        /// carrier's own confirmed CarrierID - see EliteInstanceScanner. Null if no deposit into
+        /// this carrier has been seen yet this session. Elite's journal never logs the fuel a
+        /// jump itself consumes (only CarrierStats and a fresh deposit report an absolute level),
+        /// so CarrierFuelLevel alone can go stale across a jump - AutoPilotController's own
+        /// Engineer-refuel panic check uses this timestamp, not a before/after CarrierFuelLevel
+        /// comparison, to confirm a real deposit actually happened during a given playback
+        /// window, since a depot refilled back to a previously-known ceiling (or already at the
+        /// last known ceiling because no CarrierStats/deposit fired since before the jump that
+        /// dropped it) would otherwise show no numeric increase despite a genuine deposit.
+        /// </summary>
+        public DateTime? CarrierLastDepositUtc { get; }
+
+        /// <summary>
         /// Empty (not "Unknown") when the fuel level isn't known - same
         /// StringToVisibilityConverter-driven omit-the-line pattern as TritiumDisplay, since
         /// there's nothing useful to show until Carrier Management has been opened at least once
@@ -227,6 +267,13 @@ namespace RouteJumper.ViewModels
         {
             get => _isEngineer;
             set => SetProperty(ref _isEngineer, value);
+        }
+
+        /// <summary>True while this instance is the Track tab's tracked (Ship mode) instance.</summary>
+        public bool IsTracked
+        {
+            get => _isTracked;
+            set => SetProperty(ref _isTracked, value);
         }
     }
 }

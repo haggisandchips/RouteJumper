@@ -7,11 +7,19 @@
 
 ## 1. Purpose
 
-ED:FC Auto Pilot is a desktop utility for Elite Dangerous fleet carrier owners. A user
-pastes a list of star systems (one per line) to form a route. Once a Captain's
-game instance is assigned on the Roles tab, ED:FC Auto Pilot watches that commander's
-journal file and automatically tracks the carrier's progress along the route,
-updating each row's status as the carrier plots, jumps, arrives, and cools down.
+ED:FC Auto Pilot is a desktop utility for Elite Dangerous commanders, with two
+mutually exclusive tracking modes (§3.4). In **Fleet Carrier mode** (the
+default), a user pastes a list of star systems (one per line) to form a
+route; once a Captain's game instance is assigned on the Roles tab,
+ED:FC Auto Pilot watches that commander's journal file and automatically tracks
+the carrier's progress along the route, updating each row's status as the
+carrier plots, jumps, arrives, and cools down — with an optional Auto
+Pilot that drives the whole route via recorded macros. In **Ship mode**
+(§8), a solo commander instead pastes a manually hand-picked route (e.g.
+from a neutron-highway plotter) and assigns their own running instance on
+the Track tab; ED:FC Auto Pilot tracks the same row-by-row progress against
+that commander's own ship journal, purely passively — there is no
+automation, since the CMDR must plot and fly every jump themselves.
 
 ---
 
@@ -21,22 +29,29 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 |---|---|
 | Route tab: paste a route, save it to a table, track progress against a real journal | Itemized cargo inventory (commodity-by-commodity) — only total tonnage is shown |
 | Roles tab: detect running Elite Dangerous instances; assign Captain/Engineer roles | Configurable journal-match tolerance or cooldown timing |
-| Event-driven row-progress engine, driven by a Captain's journal | Persisting per-row progress (icon/status), or the last-selected tab |
+| Event-driven row-progress engine, driven by a Captain's journal (Fleet Carrier mode) or a commander's own ship journal (Ship mode, §8) | Persisting per-row progress (icon/status), or the last-selected tab |
 | Manual "Set next system" override for correcting automatic detection | |
 | Selecting a macro for each of Captain/Engineer (§5.5), gating Auto Pilot on that selection, and Auto Pilot playing the Captain's macro to plot each jump and (if Engineer is assigned) the Engineer's to refuel each Cooldown (§4.7) | Auto Pilot retrying a jump after `CarrierJumpCancelled` (§4.7) |
-| Persistence of route text, window bounds, and Captain/Engineer role assignment | |
+| Persistence of route text, window bounds, Captain/Engineer role assignment, tracking mode, and tracked instance (§7) | |
 | "Auto Copy To Clipboard" for the next system, plus a clipboard-source indicator | |
 | Controls tab: key bindings, running-instance scan, and recording/playback of macros (§6) | |
-| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Exit, Preferences (voice/volume/test), About (§3.6), and Check for Updates (§3.7), and an always-visible mute button | |
+| Spoken lead-time announcements before Auto Pilot plots/refuels (§4.8), a File menu (§3.4) with Preferences (voice/volume/test, plus an update-check opt-out) and Exit, a Help menu with Logs (§3.8), Check for Updates (§3.7), and About (§3.6), a Fleet Carrier/Ship mode toggle, and an always-visible mute button | |
+| **Ship mode** (§8): a Track tab for picking a single instance to passively track via that commander's own ship journal, with no Auto Pilot/macro automation at all | Fuel management (warning how many jumps remain before running dry) — a planned future enhancement, not built yet |
+| A top-level **Spansh** menu (§3.4) holding **Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…** (§4.12): calculate a route between two systems via Spansh's own route-plotting API and import it straight into the Route tab, available in both tracking modes - the Galaxy Plotter tab additionally uses the CMDR's own real ship build (re-read from that instance's journal in the background) to plot an exact route accounting for fuel usage and supercharge/injection options | Proper on-screen credit for EDSM specifically (§4.9) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet. (Spansh, §4.12, already carries its own in-dialog credit.) |
 | Material Design styling | |
+| Importing whatever route is currently plotted in-game ("Import Current Route", §4.10), unconditionally, in both tracking modes; trimming a saved route down to a max-500ly-per-hop series of jumps (§4.11, "Trim for FC", Fleet Carrier mode only) - both apply immediately after a Yes/No confirmation, with no in-between review step | |
 
 ---
 
 ## 3. Window Structure
 
 ### 3.1 Main Window
-- Single top-level window with a `TabControl` holding exactly three tabs, in
-  order: **Route**, **Roles**, **Controls**. Route is selected by default.
+- Single top-level window with a `TabControl`. Route is always shown, first,
+  and selected by default; which other tabs are shown depends on the
+  current tracking mode (§3.4) — **Roles**, **Controls** in Fleet Carrier
+  mode (the default), or **Track** (§8) in Ship mode. Switching modes
+  changes which tabs are visible immediately, whichever tab is currently
+  showing.
 - Tab headings are placed on the **left edge** of the window
   (`TabStripPlacement="Left"`).
 - Window is resizable; content reflows (no fixed-pixel layouts).
@@ -60,19 +75,71 @@ updating each row's status as the carrier plots, jumps, arrives, and cools down.
 ### 3.3 Controls tab
 See §6.
 
-### 3.4 Menu bar and mute button
+### 3.4 Menu bar, mode toggle, and mute button
 - A `Menu` sits above the tab area, visible regardless of which tab is
-  active, with a single top-level **File** entry:
-  - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
-  - **Check for Updates** manually triggers the same download-and-
-    apply-on-next-exit check already run silently on every launch
-    (§3.7) - the only difference is that this one reports what it found
-    via a message box, since it's an explicit request rather than a
-    background check. Disabled while a check it started is still in
-    flight, to avoid stacking concurrent checks.
-  - **About** opens the About dialog (§3.6) as a modal window.
-  - **Exit** closes the main window (which persists its bounds as normal,
-    §7, and ends the app).
+  active, with three top-level entries, **File**, **Spansh**, and
+  **Help**:
+  - **File**:
+    - **Preferences…** opens the Preferences dialog (§3.5) as a modal window.
+    - **Exit** closes the main window (which persists its bounds as normal,
+      §7, and ends the app).
+  - **Spansh** (a top-level entry in its own right, not nested under a
+    generic "Integrations" menu, since Spansh remains this app's only
+    such integration):
+    - **Fleet Carrier…** opens the Spansh dialog (§4.12) as a modal
+      window with its own Fleet Carrier tab already selected.
+    - **Neutron Plotter…** opens the same dialog with its Neutron
+      Plotter tab already selected instead.
+    - **Galaxy Plotter…** opens the same dialog with its Galaxy Plotter
+      tab already selected instead.
+    - Either way, the dialog itself is available regardless of which
+      main-window tab is currently showing, and in either tracking mode
+      - only which of its own three tabs starts selected differs between
+      the three menu items; all three tabs remain reachable from inside
+      the dialog either way (§4.12).
+  - **Help**:
+    - **Logs** opens the non-modal Logs window (§3.8) - unlike Preferences/
+      About, this stays open (and keeps live-updating) alongside the rest
+      of the app rather than blocking it; a second click while it's
+      already open brings the existing window to the front instead of
+      opening a duplicate.
+    - **Check for Updates** manually triggers the same download-and-
+      apply-on-next-exit check already run silently on every launch
+      (§3.7, when enabled - this manual check always runs regardless of
+      that setting) - the only difference is that this one reports what
+      it found via a message box, since it's an explicit request rather
+      than a background check. Disabled while a check it started is
+      still in flight, to avoid stacking concurrent checks.
+    - **About** opens the About dialog (§3.6) as a modal window.
+- Between the menu and the mute button, centred in the same toolbar strip
+  (not a menu item of its own), a pair of mutually-exclusive **Fleet
+  Carrier / Ship** choice chips toggles between Fleet Carrier mode
+  (selected by default) and Ship mode - see §8. Switching it swaps which
+  tabs are visible (§3.1), shows/hides and force-stops the Route tab's
+  Auto Pilot button (§4.2), and switches which of Roles' Captain-journal
+  watcher or Track's ship-journal watcher is actually running - exactly
+  one is ever active at a time. Persisted immediately; restored at
+  startup, defaulting to Fleet Carrier mode until first changed. Each
+  chip's own tooltip explains what switching to it does, shown only for
+  whichever chip is *not* currently selected.
+  - The **Fleet Carrier** chip is additionally disabled for as long as
+    the currently-saved route is Neutron or Galaxy Plotter-typed (§4.12)
+    - a fleet carrier's own Auto Pilot has no notion of a neutron boost
+    or an FSD injection, so running it against a route calculated for
+    exactly those things was never meaningful. The instant such a route
+    is saved (a fresh Spansh Neutron/Galaxy calculation) or restored on
+    launch, Ship mode is forced (silently, with no confirmation - this is
+    a direct consequence of the route itself, not a separate decision)
+    even if Fleet Carrier mode was previously active or previously
+    persisted; the chip re-enables the instant the route reverts to
+    Plain (Edit's own confirmation dialog, §4.2, Import Current Route, or
+    Trim for FC) without switching back on its own - the CMDR chooses
+    that. While disabled, the chip's own tooltip (always shown in this
+    state, since Ship mode is always the active one while it applies)
+    reads "Not appropriate for Neutron Plotter routes." or "Not
+    appropriate for Galaxy Plotter routes." as appropriate, followed by
+    "Edit the route to revert it to a plain route, then you can switch
+    back to Fleet Carrier mode." in place of its usual explanatory text.
 - Beside the menu, right-aligned and equally always-visible, a single
   icon button mutes/unmutes the spoken announcements described in §4.8 -
   its icon swaps between a plain speaker and a crossed-out one to reflect
@@ -82,8 +149,9 @@ See §6.
 
 ### 3.5 Preferences dialog
 - A modal dialog (File > Preferences…) for the spoken announcements' own
-  voice and volume - the mute toggle itself lives only on the main window
-  (§3.4), not duplicated here.
+  voice and volume, plus the automatic-update-check opt-out below - the
+  mute toggle itself lives only on the main window (§3.4), not duplicated
+  here.
 - **Voice**: a dropdown of every voice installed on the machine (via the
   OS speech engine), shown under a cleaned-up display name — the
   "Microsoft " prefix Windows' stock voices all share is stripped, and a
@@ -96,13 +164,17 @@ See §6.
 - **Test** (icon button): speaks a fixed sample phrase through the
   currently-selected voice/volume - always audible, even while muted.
 - **Volume**: a slider, 0-100.
-- Every change to Voice/Volume is saved immediately (§7), the same
-  "edits save as they're made" convention the Controls tab's own Options
-  section already uses - **Close** is purely a "done for now" navigation
-  action, not a distinct save step.
+- **Automatically check for updates on startup**: a checkbox, checked by
+  default, gating only the *silent* startup check (§3.7) - unchecking it
+  has no effect on Help > Check for Updates, which is an explicit,
+  on-demand request and always runs regardless of this setting.
+- Every change (Voice/Volume/the update-check checkbox) is saved
+  immediately (§7), the same "edits save as they're made" convention the
+  Controls tab's own Options section already uses - **Close** is purely a
+  "done for now" navigation action, not a distinct save step.
 
 ### 3.6 About dialog
-- A modal dialog (File > About), purely informational, with no
+- A modal dialog (Help > About), purely informational, with no
   persisted state of its own: the app icon, the product name "ED:FC
   Auto Pilot", the installed version (§3.7) or "Development build" for
   an unpackaged run, a one-line description, the same fan-made/not-
@@ -118,14 +190,50 @@ See §6.
   version it reports on the About dialog (§3.6), both no-op for an
   unpackaged run (`dotnet run`/F5) - only a real Velopack-installed
   copy has a version to check or report.
-- File > **Check for Updates** (§3.4) runs the identical check on
+- This silent check can be turned off entirely via the Preferences
+  dialog's own "Automatically check for updates on startup" checkbox
+  (§3.5, on by default) - unchecking it skips the check on every
+  subsequent launch until re-enabled. Persisted immediately, checked
+  fresh on every launch before the check would otherwise run.
+- Help > **Check for Updates** (§3.4) runs the identical check on
   demand and reports the outcome via a message box: already
   up to date, a new version was downloaded (and will install on next
   exit, same as the silent check), automatic updates aren't available
   for this build (unpackaged run), or the check itself failed (e.g. no
   network) - the last of these is the one case a failure is surfaced to
   the user at all, since the silent startup check never reports
-  anything either way.
+  anything either way. This manual check is never gated by the
+  Preferences checkbox above - it always runs when clicked, since it's
+  an explicit request rather than the automatic behaviour that setting
+  controls.
+
+### 3.8 Logs window
+- A **non-modal** window (Help > Logs, §3.4) that live-tails the same
+  logging stream §12 describes - the on-disk, date-stamped log file is
+  the durable record; this window is a live, in-memory view on top of
+  it, nothing more. Non-modal deliberately: it stays open and
+  live-updating while the rest of the app is used normally, rather than
+  blocking interaction with it the way Preferences/About do.
+- Opens **empty** - it shows only entries logged while it's actually
+  open, not anything logged earlier in the session or in a previous
+  file. Closing it and reopening it (from the same or a later session)
+  starts blank again every time; it retains nothing of its own across
+  a close. A **Clear** button empties the currently-visible text without
+  affecting the on-disk file.
+- A **Wrap text** checkbox, off by default (unwrapped, matching a raw log
+  file's own layout - one line per entry, scroll right to see the rest),
+  switches long lines to wrap within the window's own width instead -
+  the horizontal scrollbar is hidden while wrapped, since there's
+  nothing left for it to scroll. Session-only, like the rest of this
+  window's own state - always starts back at its default (off) on a
+  fresh open.
+- An **Open Logs Folder** button opens the on-disk Logs directory
+  (§12) in Explorer - since this window only ever shows what's logged
+  while it's open, this is the way to get at whatever happened earlier
+  in the session (or a previous one) without re-triggering it live.
+- A **Close** button dismisses it. Owned by the main window, so it
+  closes automatically alongside it - it holds no state worth keeping
+  open past that point.
 
 ---
 
@@ -163,16 +271,29 @@ one is visible at a time.
   | 1 | *(blank)* | Row icon — see §4.4 |
   | 2 | `#` | Row number, 1-based, in save order |
   | 3 | `System` | The row's system text, plus a clipboard icon when this row's text is currently on the clipboard (§4.6) |
-  | 4 | `Status` | Current status text — see §4.4 |
+  | 4 | `Distance` | Leg distance in light-years, previous row → this row — see §4.9 |
+  | 5 | `Jumps` | **Neutron Plotter routes only** — ordinary hops since the previous waypoint, from Spansh's own response (§4.12) |
+  | 5 | `Refuel` / `Inject` / `Neutron` | **Galaxy Plotter routes only** — three columns, each a checkmark when Spansh's own response flags this waypoint as needing a refuel/FSD injection, or being a neutron/white dwarf star (§4.12) |
+  | 6 | `Star Type` | This row's system's main star's type — see §4.9 |
+  | 7 | `Status` | Current status text — see §4.4 |
 
+  Columns 5 only ever show one of the two groups at a time (never both),
+  driven by which kind of route is currently saved (§4.12) — neither shows
+  at all for a route pasted/typed by hand, imported via Import Current
+  Route, trimmed via Trim for FC, or calculated via the Fleet Carrier tab.
 - Column widths are user-resizable (drag a header's edge). The icon, `#`,
-  and `System` columns are persisted per column (§7) — restored on the
+  `System`, `Distance`, `Jumps`, `Refuel`, `Inject`, and `Neutron`
+  columns, plus `Star Type` (now always the second-to-last column
+  regardless of whether the Jumps/Refuel/Inject/Neutron columns are
+  currently showing), are persisted per column (§7) — restored on the
   next launch in place of the default widths above, until first resized.
-  `Status`, the trailing column, always fills whatever width the other
-  three leave unused rather than being persisted as a fixed size — its
-  progress bar (§4.4) needs real remaining width to stretch into on every
-  launch, at whatever size the window happens to be, not a pixel width
-  frozen from a previous session.
+  `Jumps`/`Refuel`/`Inject`/`Neutron`'s own widths persist the same way
+  even while they're not currently showing (Plain/the other route type),
+  ready for whenever they next apply. `Status`, the trailing column, always fills
+  whatever width the others leave unused rather than being persisted
+  as a fixed size — its progress bar (§4.4) needs real remaining width to
+  stretch into on every launch, at whatever size the window happens to
+  be, not a pixel width frozen from a previous session.
 - Clicking anywhere in a row copies that row's system name to the clipboard
   and plays a confirmation sound (see §4.6 for the clipboard-source icon
   this also sets).
@@ -184,14 +305,28 @@ one is visible at a time.
   (§5.7) gets it wrong, or the carrier is genuinely off-route.
 - Above the table, right-aligned: an **"Auto Copy To Clipboard"** toggle
   switch (§4.6). Not shown while in Edit state.
-- Below the table, right-aligned: **Edit** and **Auto Pilot** buttons.
+- Below the table: **Import Current Route**, **Trim for FC**, and **Auto
+  Pilot** left-aligned, in that order - the sequence a CMDR would actually
+  click them in (import/trim the route first, engage Auto Pilot last;
+  §4.10, §4.11 - both hidden or present per tracking mode as described
+  there), and **Edit** right-aligned.
   - **Edit** returns to Edit state with the text box's contents unchanged
     (Save never alters them) and focus restored to it. Re-clicking Save
     afterward always produces a completely fresh table — even if the text
     is identical to what was there before — discarding any prior
     icon/status state. If a Captain is currently assigned (§5.6), the fresh
     table is immediately re-derived from that Captain's journal; otherwise
-    row 1 defaults to "next" (in-progress).
+    row 1 defaults to "next" (in-progress). If the currently-saved route is
+    a Neutron or Galaxy Plotter one (§4.12), clicking Edit first shows a
+    Proceed/Cancel warning that continuing will convert it back to a plain
+    route, discarding its Jumps/Refuel/Inject/Neutron column data —
+    declining leaves the table exactly as it was, still showing those
+    columns; proceeding enters Edit state as normal, and the conversion
+    itself only actually happens once Save is next clicked (Edit alone
+    never rebuilds the table). No such warning for a plain route, or for
+    Import Current Route/Trim for FC applied to a Neutron/Galaxy route —
+    both of those already show their own "this replaces/trims your route"
+    confirmation (§4.10/§4.11), which already covers the same loss.
   - **Auto Pilot**'s label reads "Auto Pilot" when idle and "Stop" while
     engaged, and **Edit** is disabled while engaged. While engaged, it
     drives the route to completion by playing the Captain's selected
@@ -202,7 +337,11 @@ one is visible at a time.
     too (§5.5); disabled otherwise, including whenever assignment or
     macro selection changes on the Roles tab while this tab is showing,
     or requirements drop out from under a run already in progress (which
-    also stops that run outright, not just re-locks the button).
+    also stops that run outright, not just re-locks the button). **Hidden
+    entirely** (not merely disabled) in Ship mode (§8) — there is no
+    macro automation of any kind in that mode — and switching into Ship
+    mode force-stops a run already in progress, the same as requirements
+    dropping out from under it.
 
 ### 4.3 Line-to-row conversion (on Save)
 - Text is split on line breaks; `\r\n` is normalized to `\n` first.
@@ -223,9 +362,10 @@ its current `Status` text:
 |---|---|---|---|
 | None | — | *(hidden)* | Not yet reached |
 | In-progress | *(blank)* | Play (triangle) | Current row, no status yet |
-| In-progress | `Plotting` | ProgressClock | Auto Pilot is playing the Captain's macro (§4.7) |
-| In-progress | `Plotted` | Hourglass | `CarrierJumpRequest` received |
-| In-progress | `Jumping` | RocketLaunch | 3 minutes before `DepartureTime` |
+| In-progress | `Targeted` | Target | Ship mode only (§8.3): `FSDTarget` observed for this row |
+| In-progress | `Plotting` | ProgressClock | Fleet Carrier mode only (§4.7): Auto Pilot is playing the Captain's macro |
+| In-progress | `Plotted` | Hourglass | Fleet Carrier mode only: `CarrierJumpRequest` received |
+| In-progress | `Jumping` | RocketLaunch | Fleet Carrier: 3 minutes before `DepartureTime`. Ship mode (§8.3): `StartJump` observed, immediately — there is no lead time to wait out |
 | In-progress | `Cooldown` | Play (triangle) | Waiting on the row before it |
 | Complete | *(blank)* | Check | Reached, permanently for this table |
 
@@ -267,6 +407,13 @@ its current `Status` text:
   early; the carrier's jump is effectively instantaneous at
   `DepartureTime` in practice, making this a close approximation of the
   real, later-confirmed arrival time.
+  Ship mode's own `Targeted` and `Jumping` never show a bar at all
+  (neither a countdown nor `Plotting`'s indeterminate sweep) — there is
+  no known duration for either (§8.3: a target can sit selected
+  indefinitely, and a jump's own charge time isn't tracked). Ship mode's
+  `Cooldown`, though, does show the normal countdown bar, the same as
+  Fleet Carrier mode's — just counting down the provisional duration
+  §8.3 describes instead of the fixed 4 minutes.
 - Alongside the progress bar, the same countdown is shown as text: the
   `Status` cell reads `Plotted (0:11:32)` — the status word, a space, then
   the remaining time in parentheses as `H:MM:SS` (hours unpadded — a
@@ -360,7 +507,13 @@ the whole route reaches Complete or Auto Pilot is stopped:
   announcements this schedules). This fires once per row (not repeatedly
   while it remains `Jumping`). With no Engineer assigned, nothing plays
   here — Auto Pilot's own requirements (§4.2) already mean an assigned
-  Engineer always has a macro selected too.
+  Engineer always has a macro selected too. **Never scheduled at all for
+  the route's own last row** - there is no row after it to ever need
+  fueling for, and the route completing moments later (below) would only
+  cancel an in-flight refuel out from under itself regardless (nothing to
+  actually protect by racing it). Skipping it here also means neither
+  Engineer announcement below (§4.8) is ever spoken for that final row -
+  they would otherwise promise a refuel that was never going to happen.
 - Both the Captain's plot and the Engineer's refuel play through the same
   single mechanism as a manual Play (§6.5) — visible via `IsPlaying`,
   stoppable via **Stop**, and reported through the same closeable warning
@@ -384,7 +537,11 @@ the whole route reaches Complete or Auto Pilot is stopped:
     immediately. A script cut off mid-way can leave the game in front of
     an unknown panel with an unknown selection; there is no safe
     assumption to make about what any *further* automated input would do
-    against that unknown state, so nothing is even attempted.
+    against that unknown state, so nothing is even attempted. This
+    matters because if a macro doesn't complete normally, it's likely
+    the game isn't in the right state for the start of the next one -
+    Auto Pilot shouldn't keep plotting jumps if the game had somehow
+    ended up with Auto Launch already clicked, for instance.
   - **Captain's plot**: even a macro that *does* run to completion still
     panics unless the row has actually left `Plotting` behind - i.e. a
     real `CarrierJumpRequest` was actually observed (§5.7).
@@ -392,13 +549,27 @@ the whole route reaches Complete or Auto Pilot is stopped:
     panics unless a fresh rescan of the Engineer's own instance
     immediately afterward - never just whatever was last known, since the
     deposit that just happened is exactly what that rescan needs to pick
-    up - shows a *strictly higher* carrier fuel level (§5.3) than right
-    before the macro started. No exception for a depot that was already
-    believed full, or a fuel level that wasn't known at all beforehand: a
-    real jump always consumes some fuel, so a depot that isn't confirmed
-    to have gone up is itself the anomaly worth surfacing (most likely
-    meaning the jump never actually happened at all), not a benign case
-    to wave through.
+    up - shows a genuine `CarrierDepositFuel` event for this carrier
+    timestamped after the macro actually started playing (a small grace
+    window absorbs the journal's own whole-second timestamp resolution).
+    Deliberately **not** a before/after comparison of the carrier fuel
+    level (§5.3) itself: Elite's own journal never logs the fuel a jump
+    consumes - only `CarrierStats` and a fresh deposit report an absolute
+    level - so the last known level routinely still reflects whatever it
+    was *before* the very jump this refuel exists to recover from, not
+    the genuinely-lower level the jump actually left behind. A depot
+    refilled back to that stale, already-believed-full ceiling (most
+    commonly: back to exactly 1000, the same number last seen before the
+    jump) would show no numeric increase at all despite a real deposit
+    having just happened, wrongly panicking on a run that actually
+    succeeded. A confirmed-fresh deposit timestamp has no such blind
+    spot, while still panicking exactly when it should: no exception for
+    a depot that was already believed full, or a fuel level that wasn't
+    known at all beforehand - a real jump always consumes some fuel, so a
+    rescan showing no fresh deposit for this carrier at all is itself the
+    anomaly worth surfacing (most likely meaning the jump never actually
+    happened, or the deposit itself failed), not a benign case to wave
+    through.
   - Any of the above stops Auto Pilot the same way reaching the end of
     the route does (below), and reports what went wrong via the same
     closeable, tab-independent warning banner a manual macro's own
@@ -409,7 +580,13 @@ the whole route reaches Complete or Auto Pilot is stopped:
   assigned, Engineer) stops meeting Auto Pilot's own requirements (§4.2)
   partway through a run - a role or macro selection changing out from
   under an active run halts it immediately rather than continuing
-  regardless - and also on either panic-mode failure above.
+  regardless - and also on either panic-mode failure above. Reaching the
+  end of the route this way - and only this way, not a manual Stop or
+  either panic-mode failure - speaks a one-off "You have arrived at your
+  destination. Thank you for flying with ED F.C. Auto Pilot." announcement
+  (§4.8's own muting/volume/voice apply the same as any other
+  announcement), at the same real-world instant the row after the last
+  one would otherwise have started `Cooldown` at, had there been one.
 - A `CarrierJumpCancelled` (§5.7) reverting a row's `Status` back to
   blank does not, on its own, cause a further macro play for that same
   row - Auto Pilot only ever plays the Captain's macro once per row it
@@ -448,9 +625,568 @@ the whole route reaches Complete or Auto Pilot is stopped:
   silently none at all.
 - The Engineer's announcements are only actually spoken if an Engineer is
   still assigned with a macro selected by the time each is due - checked
-  fresh at that moment, not just when first scheduled.
+  fresh at that moment, not just when first scheduled. Neither Engineer
+  announcement is ever scheduled for the route's own last row at all
+  (§4.7) - there is no refuel actually coming for it, so announcing one
+  would just be a promise Auto Pilot was never going to keep.
+- A final, one-off "You have arrived at your destination. Thank you for
+  flying with ED F.C. Auto Pilot." announcement is spoken when Auto Pilot
+  stops itself because the whole route reached Complete (§4.7) - never
+  for a manual Stop or a panic-mode stop, both of which are already
+  self-explanatory (the button's own label change, or the warning banner,
+  respectively) rather than a genuine "you're done" moment worth
+  announcing.
 - Muting (§3.4) silently suppresses every announcement described here;
   it has no effect on the Preferences dialog's own Test control (§3.5).
+
+### 4.9 Distance and Star Type
+
+Every row's `Distance` and `Star Type` columns (§4.2) are populated
+asynchronously, in the background, against
+[EDSM](https://www.edsm.net) - the first (and, as of writing, only)
+outbound network call this app makes to a third-party service, aside from
+Velopack's own internal update-check calls (§3.7). Only system names are
+ever sent; no commander or journal data leaves the app. Applies identically
+in Fleet Carrier and Ship mode - useful in both, though more so for Ship
+mode's manually-flown routes, where knowing whether the next leg is within
+jump range matters, and `Star Type` is "interesting info" for explorers who
+might pause en route rather than something either mode tracks.
+
+- **`Distance`** is a **leg distance**: the straight-line distance,
+  previous row → this row - never a live "distance from wherever the CMDR
+  currently is." Row 1's own "previous" is wherever the CMDR's own ship
+  (Fleet Carrier mode: the currently-assigned Captain's; Ship mode: the
+  currently-tracked instance's - never a fleet carrier's own position,
+  even in Fleet Carrier mode) was at the moment the route was last
+  saved/restored; every row after that is the static distance between two
+  named systems in the route. Computed once per Save (and once more, in
+  the background, after app startup once a restored Captain/tracked
+  instance's own first scan resolves - see below) and never
+  recomputed afterward, even as the CMDR/carrier actually progresses along
+  the route - this is a planning aid, not a live nav computer, and is
+  computed entirely outside the event-driven row-progress engine that
+  drives Icon/Status (§5.7/§8.3, CLAUDE.md) since it describes the route's
+  static topology, not tracked progress.
+- **`Star Type`** is this row's own system's main star's EDSM-reported
+  type (e.g. "K (Yellow-Orange)" - EDSM's own reported subType always
+  ends in a literal, redundant "Star" word of its own, which is dropped
+  before display/caching, since the column itself is already headed
+  "Star Type"), independent of `Distance` and of any origin/current
+  position.
+- Both populate **progressively** in the background after Save/restore -
+  the table itself appears immediately with these columns blank, filling
+  in over the next moments as each lookup resolves, never blocking the
+  UI. A system EDSM has no coordinates/star data for - or a lookup that
+  fails outright (offline, EDSM unreachable, etc.) - simply leaves that
+  cell blank permanently, rather than blocking, freezing, retrying
+  forever, or showing a guess.
+- Since `Distance` is chained (previous row → this row), a row whose own
+  coordinates are genuinely unavailable from EDSM also blanks the *next*
+  row's `Distance`, even though that next row's own data may be perfectly
+  fine. To make the true culprit obvious at a glance rather than requiring
+  the CMDR to cross-reference `Star Type` or guess, `Distance` shows small,
+  light "Plot needed" text in place of a blank cell whenever *this row's
+  own* coordinates are confirmed unavailable from EDSM (this session, or
+  still within the retry cooldown below) - never for a row whose
+  `Distance` is merely blank because the row before it (or, for row 1, the
+  CMDR's own origin position, not row 1's own system) is the actual
+  problem. `Star Type` shows "Target needed" the same way whenever this
+  row's own coordinates are known but its star type specifically isn't -
+  a single `FSDTarget` (no full route plot needed) is enough to fix that,
+  the faster, more direct remedy compared to `Distance`'s own "Plot
+  needed" fix. Neither placeholder replaces a cell that's still
+  mid-resolution (no completed lookup pass has covered it yet), which
+  stays plain blank exactly as before. Both are purely a UI signal,
+  recomputed fresh on every completed enrichment pass and never persisted
+  as such - though the underlying "confirmed unavailable" fact they
+  reflect *is* (see below), so a system shown this way keeps showing it,
+  even across a Save/restore or an app restart, until the retry cooldown
+  actually lapses.
+- Once a Distance/Star Type enrichment pass runs all the way to its own
+  completion (whether triggered by Save, a restore, or a later catch-up
+  refresh) and finds at least one row left showing "Plot needed"/"Target
+  needed", a dismissible advisory banner appears above the table (below
+  "Auto Copy To Clipboard") pointing the CMDR at those per-row hints -
+  "resolve as instructed [fly a full route plot, or a direct target, per
+  the specific row's own placeholder] or ignore this - it has no effect
+  on tracking." Dismissing it hides only the banner itself, never the
+  underlying per-row placeholders, which keep showing regardless. Not
+  shown while a pass is still in progress, or once every row has actually
+  resolved; a fresh Save (first time or after Edit) re-evaluates from
+  scratch, so the banner (and any earlier dismissal) resets for the newly
+  rebuilt table rather than persisting across genuinely different routes.
+- Once resolved, a system's coordinates/star type are cached locally for
+  the rest of the running session, and a second Save/restore within that
+  session referencing the same system name reuses the cached value
+  instantly, with no repeat lookup. Whether that value also survives to
+  the *next* session (persisted indefinitely to the `ResolvedLookups`
+  table, §7) depends on how it was resolved: a value EDSM itself resolved
+  is **not** persisted - EDSM's own lookup is a single batched request per
+  chunk of systems (below), so simply asking it again next session is
+  cheap, and there's no need to remember forever a system EDSM can answer
+  any time. A value resolved instead via a journal/Spansh seed (below) is
+  persisted only if it fills a gap EDSM has already confirmed it can't
+  fill on its own - almost always a procedurally-generated system name -
+  since that's the one case nothing will ever re-derive the value again
+  by asking EDSM a second time. This keeps `ResolvedLookups` bounded by
+  "systems EDSM genuinely can't help with" rather than growing forever
+  with every system a commander has ever seen.
+- An **unresolved** name - EDSM's own response genuinely omitting it,
+  never a transient failure like a timeout or a non-success status, which
+  is always retried on the very next attempt regardless - is remembered
+  too, so the same system isn't queried again for a configurable cooldown
+  (`EdsmUnresolvedRetryHours` in `routejumper.conf`, §5.2's own
+  hand-editable convention, defaulting to 12 hours): in-memory for the
+  rest of the current session, and on disk (§7) so the cooldown survives
+  an app restart as well. EDSM's crowdsourced coverage is very unlikely to
+  meaningfully change within a matter of hours, so repeating the same
+  request within that window is treated as pure waste, not a legitimate
+  retry opportunity. A system that later *does* resolve (a fresh EDSM
+  lookup once the cooldown lapses, or a local journal-derived seed, below)
+  clears its own recorded cooldown immediately, rather than waiting for it
+  to expire on its own.
+- **Coordinates and star type are resolved together, in one request**:
+  EDSM's `api-v1/systems` endpoint returns both a system's coordinates and
+  its primary star's type in the same response when queried with
+  `showCoordinates=1` and `showPrimaryStar=1` together, so there is no
+  separate, per-system endpoint call for star type at all - a single
+  chunked request (batched the same way `Distance`'s own coordinate
+  lookups always have been) resolves both columns for every system in the
+  chunk at once. Coordinates and star type are nonetheless resolved via
+  two independent batched passes, Distance first and Star Type second -
+  a system whose coordinates are already cached (e.g. a route saved
+  before Star Type existed, or simply already known from an earlier
+  session) never goes through the coordinates pass' own network fetch at
+  all, so that pass alone can't be relied on to resolve star type for
+  it; the star-type pass batch-resolves every such remaining system
+  together, in the same chunked shared mechanism, rather than each
+  falling back to its own single-system request. How many systems are
+  bundled into one such request is itself configurable
+  (`EdsmCoordinatesBatchSize` in `routejumper.conf`, §5.2's own
+  hand-editable convention, defaulting to 100 - EDSM doesn't publicly
+  document a per-request cap, so this stays conservative-but-generous
+  rather than assuming an unlimited batch).
+- On a normal app launch with a previously-saved route, `Distance`
+  populates in two passes: once immediately (using whatever origin is
+  already known at that instant, if any), and once more automatically
+  once the restored Captain's/tracked instance's own startup scan
+  actually resolves - since that scan is still asynchronously in flight
+  at the moment the route itself is first restored, row 1's distance
+  would otherwise come back blank on every relaunch despite a Captain/
+  tracked instance being restored moments later.
+- **Both modes also opportunistically fill the same cache for free**,
+  entirely locally, from journal events a commander's own ship raises -
+  in Ship mode, the tracked instance's own journal (§8.3's journal
+  watcher already observes `FSDTarget` live for the `Targeted` row
+  status); in Fleet Carrier mode, the *Captain's* own ship journal
+  (watched independently of the carrier's own `CarrierJumpRequest`/
+  `CarrierLocation` events - a Captain can be flying their own ship
+  around, e.g. escorting the carrier or running their own errands, while
+  the carrier itself jumps on its own schedule):
+  - `FSDTarget`'s own `StarClass` field seeds `Star Type` for whichever
+    system was just targeted. The raw code itself (e.g. `K`, `TTS`) is what
+    gets cached (§7) - display formatting to match EDSM's own naming, minus
+    its redundant trailing "Star" word (e.g. `K` → "K (Yellow-Orange)"), is
+    computed fresh from that code every time it's shown, via a single
+    shared mapping also used to recover a code from EDSM's own resolved
+    text (EDSM never returns a code itself, only display text) - so both
+    sources always render identically for the same real star regardless of
+    which one resolved it first, and a later addition to that mapping
+    retroactively improves every already-cached system with nothing to
+    invalidate. Reformatted only where that mapping is well-established
+    (main-sequence classes, brown dwarfs, neutron stars, black holes,
+    white dwarf subclasses, T Tauri, Herbig Ae/Be, Wolf-Rayet variants,
+    and the carbon star family); anything more exotic is cached as the
+    raw journal code
+    rather than guessing at an unverified format.
+  - Two independent triggers read the companion `NavRoute.json` file
+    (beside the journal, the same convention every other Frontier
+    companion file uses) and seed both `Distance`'s coordinates and
+    `Star Type` for **every** system in the currently-plotted route in
+    one pass: the `NavRoute` journal event itself - a marker-only line
+    (no fields of its own) confirming the file was just (re)written,
+    e.g. the CMDR plotting or re-plotting a route via the galaxy map -
+    and, as a secondary trigger, `FSDTarget`'s own `RemainingJumpsInRoute`
+    field (present only while a multi-jump route is actively plotted),
+    which can catch a still-current route even without a fresh `NavRoute`
+    line (e.g. after an app restart mid-route). Either way, this includes
+    procedurally-generated systems EDSM may have no record of at all,
+    since `NavRoute.json` is the game's own exact calculation for
+    wherever the CMDR is actually about to fly - the one gap it genuinely
+    fills that the route-*tracking* engine itself can't use it for
+    (§5.7/§8.3: the game's own plotted route doesn't necessarily match
+    the pasted one row-for-row) - coordinates/star type are looked up by
+    system name, so they benefit the pasted route regardless of whether
+    it matches the in-game one.
+  - Purely opportunistic caching, never required for anything to work -
+    a system neither of these fills in still falls back to an EDSM
+    lookup exactly as before, and Fleet Carrier mode's own Auto Pilot/row
+    tracking is entirely unaffected by any of it (Captain FSDTarget lines
+    fire no row event at all, only this cache seed).
+  - A seed like this always updates the current session's cache
+    immediately (so the row displays right away, below), but only
+    survives to a later session (persisted to `ResolvedLookups`, §7) if
+    EDSM had already confirmed, at some point, that it genuinely has no
+    record of that exact system - the common case for a system reached
+    only via `NavRoute.json`/Spansh (§4.10-§4.12), which hands over exact
+    data without EDSM ever being asked, isn't persisted the first time
+    it's seen; it's simply supplied fresh from the same source again next
+    session. This is what keeps the underlying cache from growing without
+    bound as a commander visits many systems over time, while still
+    permanently remembering the systems that genuinely need it -
+    procedurally-generated names EDSM can never resolve on its own.
+- **A newly-seeded system refreshes already-displayed rows live**, not
+  only at the next Save/restore - a system resolved via `FSDTarget`/
+  `NavRoute.json` moments after the table was last populated (e.g. mid-
+  session, not just on app launch) updates that row's cell within the
+  next second or so, without requiring an app restart. A row whose value
+  is already fully resolvable from the local cache at the moment of
+  seeding updates immediately, independent of any debounce - since the
+  value is already known, there's nothing to wait on. Only the *remaining*
+  work - genuinely uncached rows that still need an EDSM lookup - is
+  debounced: a single `NavRoute.json` read can seed many systems in a
+  tight loop, which collapses into one such catch-up pass shortly after
+  the burst quiets down rather than one per system.
+
+### 4.10 Import Current Route
+
+- An **"Import Current Route"** button sits in Table state, leftmost of
+  the left-aligned button group (§4.2) - the sole left-hand button shown
+  in Ship mode, since Auto Pilot/Trim for FC are Fleet-Carrier-only.
+  Available unconditionally in both tracking modes, with no Captain/
+  tracked instance needing to be assigned first. Deliberately named
+  around what it does, not the underlying file - `NavRoute.json` is a
+  technical detail most CMDRs have no reason to know about.
+- Clicking it, after confirming (see below), reads `NavRoute.json`
+  directly out of the *configured journal folder* (`JournalDirectory`,
+  §5.2's own `routejumper.conf` setting) - never a specific running
+  instance's own journal path - and replaces the currently-saved route
+  with the currently in-game-plotted route, one system per line, applying
+  immediately: the same end result as if the CMDR had pasted the
+  identical list by hand and clicked Save, with no Edit-state review step
+  in between.
+- Deliberately unconditional: `NavRoute.json`, like `Status.json`/
+  `Cargo.json` (§5.2), is a per-*installation* file, not tied to any one
+  running instance - with several instances running, there's no reliable
+  way to say the file's current contents belong to *this* one rather than
+  another, so gating the button on a specific assignment would both
+  require one unnecessarily and could still be importing some other
+  instance's route regardless. The CMDR is left to judge for themselves,
+  from the imported system list itself, whether it's the route they
+  actually meant.
+- `NavRoute.json`'s own `Route` array always starts with wherever the
+  CMDR was standing when the route was plotted (their departure system),
+  not the first system they're about to jump to - that first entry is
+  deliberately skipped, since a pasted route describes systems to travel
+  *to*, and a CMDR importing this by hand would never type their own
+  current system as the route's first line either.
+- Every entry's coordinates/star type (including the skipped departure
+  entry) are seeded into the same Distance/Star Type cache §4.9 already
+  maintains, "as we go" - not because Save strictly needs it (EDSM would
+  eventually resolve the same values on its own), but because
+  `NavRoute.json` already hands over exact values for free, including any
+  procedurally-generated system EDSM has no record of at all, so the
+  route's own Distance/Star Type columns populate instantly from cache
+  the moment it's saved, rather than waiting on a fresh EDSM round trip
+  for systems that were already known.
+- **Confirmation**: since this outright replaces whatever route is
+  currently saved with no way back, clicking it first shows a plain
+  Yes/No confirmation dialog explaining what's about to happen; declining
+  leaves the current route untouched. Once confirmed, it's applied
+  unconditionally with no further dialog - including on failure (e.g. no
+  route currently plotted in-game, or `NavRoute.json` missing/unreadable):
+  the CMDR already deliberately chose to run this, so a second popup
+  would only add friction; a failure is logged (Help > Logs, §3.8) rather
+  than surfaced as its own message box.
+
+### 4.11 Trim for FC (Fleet Carrier mode)
+
+- A **"Trim for FC"** button sits in Table state, immediately after
+  Import Current Route (§4.10) and before Auto Pilot in the same
+  left-aligned group (§4.2) - **Fleet Carrier mode only** (hidden entirely
+  in Ship mode, the same as Auto Pilot itself), since it's a
+  fleet-carrier-specific planning aid: a real fleet carrier's own maximum
+  jump range is a fixed 500ly, unlike a solo ship's own range, which
+  varies by build/fuel and isn't tracked here.
+- Clicking it, after confirming (see below), collapses the currently-saved
+  route's rows down to a series of hops no longer than 500ly each,
+  dropping whichever intermediate rows aren't actually needed to stay
+  within that reach - useful for a route pasted, or imported (§4.10), with
+  many closely-spaced waypoints (e.g. a neutron-highway plotter's own
+  output), simplified down to only the systems a fleet carrier genuinely
+  needs to jump via. A greedy "farthest-reachable waypoint" walk: starting
+  from the Captain's carrier's own real current location (always kept -
+  see below), it repeatedly advances to the farthest-along row still
+  within 500ly in a straight line of the last kept one, never skipping
+  past a genuine &gt;500ly gap between two adjacent rows (that row is kept
+  too - there's no way to skip it regardless). The route's last row is
+  always kept as well.
+- **Requires a Captain currently assigned** (Roles tab, §5.4) **with their
+  carrier's own current location known** (§5.3's Fleet carrier location
+  field) - the pasted route's own row 1 is only ever wherever the CMDR
+  *started* planning the route, not necessarily where the carrier
+  genuinely is right now (it may already be mid-route, or have detoured
+  for a tritium depot), so trimming from that assumed starting point
+  instead of the carrier's real one risks plotting an inefficient first
+  hop. Clicking the button with no Captain assigned shows a message box
+  explaining this and does not proceed - no Yes/No confirmation is even
+  reached. With a Captain assigned but their carrier's own location not
+  yet known this session (§5.3: it's resolved from `CarrierJump`/
+  `CarrierLocation`, confirmed against `CarrierStats`, which only fires
+  once the Carrier Management panel has been opened), a message box
+  instead tells the CMDR to open Carrier Management in-game and try
+  again, also without proceeding.
+- The carrier's real current location becomes the trimmed route's own new
+  first entry, and the greedy walk above is anchored from it instead of
+  the pasted route's row 1 - unless the carrier is already sitting at row
+  1's own system, in which case nothing is prepended (there's nothing for
+  a same-system entry to anchor differently). This is what keeps the
+  first jump efficient: a walk anchored on the carrier's real position can
+  discover that row 1 itself is skippable if the carrier can already
+  reach further ahead in a single hop, something a walk anchored on row 1
+  itself could never find.
+- Applies **immediately** once confirmed - the same effect as if the
+  trimmed list (with the carrier's own location prepended, per above) had
+  been pasted and Save clicked, with no Edit-state review step in
+  between. The trim itself is a deterministic, purely mechanical distance
+  calculation with nothing for the CMDR to judge or second-guess once
+  they've agreed to run it at all.
+- **Confirmation**: since this permanently discards whatever rows get
+  dropped, clicking it - once the Captain/carrier-location preconditions
+  above are satisfied - first shows the same kind of plain Yes/No
+  confirmation dialog Import Current Route (§4.10) uses; declining leaves
+  the route untouched. Once confirmed, it's applied with no further
+  dialog either way - including "every row was already within range,
+  nothing removed" - logged (Help > Logs) rather than surfaced as its own
+  message box.
+- Requires every row's own coordinates, and the carrier's own current
+  system's coordinates, to already be known (§4.9's Distance column,
+  resolved via EDSM or seeded from a journal) - a route with any row
+  whose coordinates are still resolving, or confirmed unavailable, can't
+  be trimmed reliably, since a leg distance involving it isn't known;
+  this, too, is logged rather than shown as a dialog, and leaves the
+  route untouched.
+
+### 4.12 Spansh Integration
+
+- **Spansh > Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…**
+  (§3.4) each open the same small modal dialog to calculate a route
+  between two systems via [Spansh](https://spansh.co.uk)'s own
+  route-plotting API and import it straight into the Route tab -
+  available regardless of which tab is currently showing, and in both
+  tracking modes (unlike Auto Pilot, Trim for FC, or any other
+  Fleet-Carrier-only feature) - differing only in which of the dialog's
+  own three tabs (below) starts selected. Used with the express
+  permission of Spansh's own author, Gareth Harper - who has separately
+  confirmed any of Spansh's undocumented endpoints may be used this way,
+  discovered via browser developer tools, on the sole condition that the
+  app itself never spams the site - credited directly in the dialog, in
+  a footer shared by all three tabs below (unlike each tab's own
+  footnote, below), so it's visible regardless of which one is currently
+  showing (EDSM, §4.9, carries no equivalent in-app credit yet - see the
+  Scope table's own out-of-scope note on this).
+- The dialog holds three tabs (left room for further Spansh tools as
+  further tabs later): **Fleet Carrier**, **Neutron Plotter**, and
+  **Galaxy Plotter** - each its own **Source** and **Destination** system
+  field, a live autocomplete search against Spansh as the CMDR types
+  (debounced - `SpanshAutocompleteDebounceMs` in `routejumper.conf`,
+  §5.2's own hand-editable convention, defaulting to 250ms), and its own
+  **Calculate** button; the three tabs' Calculate operations are
+  independent of each other (starting one doesn't cancel the others).
+  All three tabs stay reachable via the dialog's own tab strip regardless
+  of which menu item opened it.
+- A custom autocomplete control (not a stock `ComboBox`) is used
+  deliberately - a `ComboBox` bound the way this needs (two-way `Text`,
+  two-way `SelectedItem`, an async-populated `ItemsSource`) was confirmed
+  live to auto-select-and-highlight the whole text box the instant typed
+  text exactly matched a suggestion (wiping out further typing) and to
+  close its dropdown after the very first arrow-key press, since WPF ties
+  a `ComboBox`'s `SelectedItem` to every arrow press, not just a final
+  Enter/click.
+- On every tab, **Calculate** is enabled only once both Source and
+  Destination have an actual selected suggestion (not just typed,
+  unconfirmed text) - on the Neutron Plotter tab, also only once Range
+  and Efficiency (below) are both non-blank; on the Galaxy Plotter tab,
+  also only once the CMDR's own ship loadout has resolved into a usable
+  ship build (below) and Cargo is non-blank. Clicking it requests a
+  route from Spansh and polls the result every 5 seconds - an
+  indeterminate progress bar (§4.4's own "no known duration" cue) plus a
+  status message ("Requesting route from Spansh…", "Queued…", a
+  capitalized version of whatever in-progress state Spansh itself
+  reports, ...) reflect progress the whole time, independently for
+  each tab. Starting a new Calculate on a tab while that same tab's own
+  previous one is still in flight cancels the previous one first, the
+  same "starting a new one cancels whichever was running" convention
+  macro Play already uses (§6.5); closing the dialog while any tab's
+  calculation is in flight cancels all three, rather than leaving any
+  running against nothing.
+- **On success** (any tab), every jump Spansh returns seeds the same
+  Distance/Star Type cache EDSM lookups populate (§4.9) - coordinates
+  and the system's real, stable system address (id64) - before the
+  route itself replaces the currently-saved route (the System text of
+  every returned jump, one per line, including the source system itself
+  - Spansh's own response always lists it as the route's first entry)
+  and is Saved, exactly as if that list had been pasted and Save
+  clicked by hand, with no Edit-state review step and no confirmation
+  dialog first - opening this dialog and clicking Calculate is already
+  the deliberate action, the same "no second are-you-sure" precedent
+  Import Current Route/Trim for FC apply once *they've* already been
+  confirmed (§4.10, §4.11). This is what lets the freshly-imported
+  route's Distance/Star Type columns populate instantly from cache
+  rather than waiting on a fresh EDSM round trip for systems Spansh
+  already named the exact position of. An empty jump list (Spansh's own
+  job somehow completing with nothing to import) is logged and leaves
+  the route untouched rather than replacing it with nothing.
+- **On failure** (any tab - Spansh reports the job itself failed, the
+  request/poll couldn't reach Spansh at all, or - Neutron Plotter/Galaxy
+  Plotter only - Spansh rejected the request outright before ever
+  queuing a job, e.g. an out-of-range Range/Efficiency or a
+  Source/Destination it has no record of), the status message explains
+  why (Spansh's own reported reason, verbatim, for an outright
+  rejection) and the dialog is left open and otherwise unchanged - no
+  route replacement happens, and Calculate can be retried.
+- The **Fleet Carrier** tab's own Calculate is deliberately a single,
+  direct source → destination hop sequence - it has no notion of a
+  fleet carrier's tritium capacity or restock planning along the way. A
+  footnote - positioned below the tab area at the parent dialog's own
+  full width (the same width as the shared Gareth Harper credit below
+  it, rather than each tab's own narrower content column to the right
+  of the left-hand tab strip), but still conditional on this tab being
+  the one currently active, unlike that shared credit - instead links
+  out (default browser) to Spansh's own hosted **Fleet Carrier Router**
+  (`https://spansh.co.uk/fleet-carrier`), which does account for both;
+  the CMDR pastes that tool's own result in by hand (or uses
+  Import Current Route, §4.10, once it's plotted in-game) when that
+  heavier planning is actually needed.
+  - Its own **Source** is pre-filled, when known, from the Captain's own
+    fleet carrier's real current location (§5.3's own Fleet carrier
+    location field, Fleet Carrier mode only - never pre-filled in Ship
+    mode, which has no fleet-carrier concept at all). Unlike the Neutron
+    Plotter tab's own Source pre-fill (below), this can't simply drop in
+    the locally-known name as-is - this tab's own Calculate posts a
+    Spansh-assigned id, not a name - so opening the dialog kicks off a
+    background search for that exact system name and applies the result
+    only once (and if) a suggestion matching it exactly comes back,
+    without disturbing anything the CMDR has already done themselves
+    (an actual pick, or text already typed into Source) by the time it
+    resolves. Silently leaves Source unfilled - the same as if it had
+    never been attempted - if the search fails, or if Spansh has no
+    record of that exact name.
+- The **Neutron Plotter** tab calculates a neutron-highway route instead
+  - the same Source/Destination fields, an editable **Range** (ly) and
+  **Efficiency** (Spansh's own route optimisation/speed trade-off,
+  1-100, pre-filled with Spansh's own default of 60) field, and a
+  **Regular supercharge**/**Overcharge supercharge** radio-button choice
+  (below). Range/Efficiency are neither validated client-side -
+  Spansh's own response already reports a clear, human-readable reason
+  for anything it rejects (e.g. "range must be greater than 10 LY"),
+  shown via the status message per the failure case above. On success,
+  the route is replaced with only the route's own waypoints (the
+  neutron boost stops plus the final destination), not a line for every
+  single ordinary hop the CMDR will actually fly between them - a route
+  to feed into **Trim for FC** (§4.11) or fly manually in Ship mode,
+  not a full turn-by-turn flight plan. Each waypoint's own `jumps`
+  (ordinary hops since the previous waypoint) is imported alongside its
+  system name, shown as the Route table's own Neutron-only `Jumps`
+  column (§4.2) - tagging the saved route as a Neutron Plotter one until
+  it's next Saved from anything else (§4.1/§4.2's own Edit-confirmation
+  dialog).
+  - **Range** always starts blank, entered by hand - it's the CMDR's own
+    call what range to plan the route around (fully fuelled, a
+    particular cargo load, a hypothetical build, ...), not something
+    this app should presume for them. Deliberately not pre-filled from
+    the CMDR's own current ship's `Loadout` journal event
+    (`MaxJumpRange`, the same event §5.3's own `CargoCapacity` already
+    comes from) - that field reflects only whatever fuel/cargo the ship
+    happened to be carrying at the moment it was last logged, one
+    specific and uncontrolled state that may not match what the CMDR
+    actually wants to plan around here.
+  - **Source** is likewise pre-filled, when known, from that same
+    instance's own current system (the same field the Route tab's own
+    row-1 Distance calculation already uses, §4.9) - shown as an
+    already-selected suggestion (not merely typed text) so Calculate can
+    be enabled without the CMDR needing to interact with the
+    autocomplete at all, but it remains fully editable: typing further
+    clears the selection, the same as any other autocomplete field here,
+    requiring a fresh pick before Calculate re-enables.
+  - **Regular supercharge**/**Overcharge supercharge** picks Spansh's
+    own `supercharge_multiplier` request parameter - 4 for a regular
+    neutron/white dwarf supercharge, or 6 for a ship fitted with an
+    overcharged FSD booster (confirmed against Spansh's own web
+    client's bundled JS, whose own two radio buttons post exactly those
+    values). Defaults to **Overcharge** only when that same instance's
+    most recent `Loadout` event has its `FrameShiftDrive` slot filled
+    with a module whose `Item` id ends in `_overchargebooster_mkii`
+    (case-insensitive) - matched by that suffix alone, not the full id
+    (`int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii` is
+    the only variant known as of writing), so a future size/class
+    variant of the same booster is still recognised without a code
+    change. Defaults to **Regular** otherwise (including when no
+    `Loadout` has been seen yet this session) - always a plain,
+    freely-editable radio choice from there on regardless of how it was
+    defaulted, the same as Source above.
+  - A footnote - positioned below the tab area at the parent dialog's
+    own full width, the same as the Fleet Carrier tab's own footnote
+    above, but conditional on *this* tab being the one currently active
+    - links out (default browser) to Spansh's own hosted **Neutron
+    Plotter** (`https://spansh.co.uk/plotter`) for anything this tab's
+    own plain source → destination Calculate doesn't cover (waypoint/via
+    planning, visualising the route, ...).
+- The **Galaxy Plotter** tab calculates an *exact* route instead - one
+  that accounts for the CMDR's own real ship build (fuel usage, jump
+  range, supercharge/injection options), unlike the Neutron Plotter
+  tab's own flat Range figure. The same Source/Destination fields, plus
+  an editable **Cargo** (t, pre-filled from that same instance's own
+  currently-tracked cargo total, §5.3/§8) and **Reserve tank size** (t,
+  always starts at Spansh's own default of 0), an **Algorithm** dropdown
+  (Spansh's own `fuel`/`fuel_jumps`/`guided`/`optimistic`/`pessimistic`
+  route-planning strategies, pre-filled with its own default,
+  `optimistic`), and six independent checkboxes for Spansh's own route
+  options - already supercharged at the start, use supercharge boosts,
+  use FSD injections, use FSD injections only when required, exclude
+  secondary-economy systems, and refuel at every scoopable star (Spansh's
+  own defaults: off, on, off, off, off, on respectively) - all always
+  freely editable.
+  - Unlike the other two tabs, this one needs the CMDR's own ship build,
+    not just a system name/number - resolved by re-reading that same
+    instance's own journal in the background (its latest `Loadout`
+    event's `Ship`, `Modules` array including any `Engineering`,
+    `UnladenMass`, and `FuelCapacity`) the moment this ViewModel is
+    constructed (i.e. as soon as the Spansh dialog is opened, regardless
+    of which tab is initially selected), so it's ready before Calculate
+    would actually be clicked. While that resolution is still in
+    progress, or if it fails, the tab's own status message explains why
+    (e.g. "Reading ship loadout…", "No ship loadout logged yet this
+    session - open the in-game Outfitting or Ship screen once, then
+    reopen this dialog.", or a specific reason like "No Frame Shift
+    Drive found in this ship's loadout.") and Calculate stays disabled
+    until it resolves - the same "explain why blocked" convention Trim
+    for FC's own preconditions already follow (§4.11).
+  - The resolved ship build feeds Spansh's own request purely as derived
+    numbers (fuel range/mass/tank-capacity figures, resolved by
+    reproducing Spansh's own client-side calculation from the ship's
+    `Loadout` data, confirmed against Spansh's production client) -
+    there is deliberately no separate "ship build" upload of any kind:
+    confirmed live that Spansh's own server-side route computation only
+    ever uses those derived numbers, never anything else about the ship.
+  - On success, only the route's own waypoints are kept (mirroring the
+    Neutron Plotter tab's own result, not a line for every single
+    ordinary hop) - a route to feed into **Trim for FC** (§4.11) or fly
+    manually in Ship mode, not a full turn-by-turn flight plan. Each
+    waypoint's own `must_refuel`/`must_inject`/`has_neutron` flags are
+    imported alongside its system name, shown as the Route table's own
+    Galaxy-only `Refuel`/`Inject`/`Neutron` columns (§4.2) - tagging the
+    saved route as a Galaxy Plotter one until it's next Saved from
+    anything else (§4.1/§4.2's own Edit-confirmation dialog).
+  - A footnote - positioned below the tab area at the parent dialog's own
+    full width, the same as the other two tabs' own footnotes, but
+    conditional on *this* tab being the one currently active - explains
+    that this plots an exact route using the CMDR's own real ship build
+    rather than a flat range figure, and links out (default browser) to
+    Spansh's own hosted **Galaxy Plotter** (`https://spansh.co.uk/exact-plotter`)
+    for how to follow the calculated route in-game, and detailed
+    explanations of its parameters/routing algorithms - none of which
+    this dialog's own compact form has room to cover.
 
 ---
 
@@ -621,6 +1357,22 @@ commander's own).
   the route (a deliberately circular route) is the one case "first
   occurrence" can point at the wrong instance of it - the manual "Set
   next system" override (§4.2) exists for exactly that.
+- This "complete every earlier row" behaviour applies equally to the
+  one-off catch-up result above and to an ordinary, genuinely live
+  `Plotted`/`Arrived` event during live tailing — even one that targets a
+  row further ahead than the current one (e.g. the carrier's real path
+  skipped over a pasted row entirely). `Plotted`/`Arrived` are both
+  authoritative, confirmed progress (a real `CarrierJumpRequest`, or a
+  real arrival) rather than a mere intention, so a request/arrival
+  landing further along the pasted route than expected is still real
+  proof the carrier passed that point — live or replayed makes no
+  difference to that fact. `Targeted` (Ship mode, §8.3) is the one kind
+  that never sweeps anything, at any time - a locked jump target is only
+  ever an intention, never proof anything was actually reached; see
+  §8.3's own Targeted handling for how a stale target is cleared instead
+  without inventing false progress. A genuine off-route deviation is what
+  the manual "Set next system" override (§4.2) is for, as a deliberate
+  action.
 
 **Transitions and timing** (all measured from a journal event's own
 timestamp, never from when the app happens to read the line; each fires
@@ -1058,22 +1810,57 @@ operation opens and closes its own short-lived connection. A persistence
 failure (e.g. a permissions issue) degrades to "nothing persisted" rather
 than the app failing to start.
 
+A second table in the same database, `ResolvedLookups (Kind TEXT,
+SystemKey TEXT, Value TEXT, PRIMARY KEY (Kind, SystemKey))`, holds the
+subset of the coordinate/star-type cache (§4.9) that's actually worth
+keeping forever - one row per `(Kind, SystemKey)`, `Kind` one of
+`Coords`/`StarType`. A value EDSM itself resolves is never written here
+(session-only, §4.9) - only a journal/Spansh seed that fills a system EDSM
+has already confirmed it can't resolve on its own is. System address
+(id64) is likewise never written here at all currently - nothing displays
+it yet, so it stays session-only in memory until a feature that needs it
+exists. Deliberately its own table rather than more `Settings` rows (which
+is where this cache used to live, as prefixed keys like `EdsmCoords:SOL`)
+- its access pattern (a point lookup keyed by `(Kind, SystemKey)` on
+essentially every route row) is different enough to benefit from its own
+schema, the same rationale as `UnresolvedLookups` below; the composite
+primary key is already the only index this needs. `StarType`'s own
+`Value` is a canonical `StarClass` code (e.g. `K`, `TTS`), never
+pre-formatted display text - see §4.9's own note on why.
+
+A third table in the same database, `UnresolvedLookups (Kind TEXT,
+SystemKey TEXT, LastAttemptUtc TEXT, PRIMARY KEY (Kind, SystemKey))`,
+backs the EDSM retry cooldown (§4.9) - deliberately its own table for the
+same reason as `ResolvedLookups` above; the composite primary key is
+already the only index this needs.
+
 A separate, deliberately hand-editable `routejumper.conf` sits beside the
 database (see §5.2) for configuration a user might reasonably want to
-change directly in a text editor — currently just the journal folder —
-rather than internal app state like the table below.
+change directly in a text editor — the journal folder, the log
+housekeeping settings §12 describes, the EDSM retry cooldown
+(`EdsmUnresolvedRetryHours`, §4.9) and coordinate/star-type request batch
+size (`EdsmCoordinatesBatchSize`, §4.9), and the Spansh dialog's own
+Source/Destination autocomplete debounce (`SpanshAutocompleteDebounceMs`,
+§4.12, default 250ms) — rather than internal app state like the table
+below.
 
 | What | Persisted when | Restored when |
 |---|---|---|
 | Route text | Every Save (first time or after Edit) | App startup, rebuilt via the normal Save path |
+| Route type (Plain/Neutron/Galaxy) and per-row Jumps/Refuel/Inject/Neutron data (§4.2/§4.12) | Every ImportFromSpansh with a Neutron/Galaxy route type | App startup, re-applied after the normal Save path rebuilds Rows — reset to Plain/cleared by every Save (manual, Import Current Route, Trim for FC, or this same restore), so only a Save immediately following a Spansh import (i.e. never, outside ImportFromSpansh itself) can leave it non-Plain |
 | Window position, size, maximized state | Window closing | App startup — in place of the default rightmost-monitor placement, unless the persisted position is no longer reachable on the current monitor setup |
-| Route table column widths (icon, `#`, `System` only — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
+| Route table column widths (icon, `#`, `System`, `Distance`, `Jumps`, `Refuel`, `Inject`, `Neutron`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
+| Journal/Spansh-seeded system coordinates/star type that fill a confirmed EDSM gap, in `ResolvedLookups` (§4.9, §4.12) | First seed of that system after EDSM has already confirmed it has no record of it | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached. A value EDSM itself resolves, or a seed that isn't filling a confirmed gap, is cached only for the running session and isn't written here at all — see §4.9. System address (id64) is likewise session-only, not persisted, until a feature that consumes it exists |
+| EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
 | Controls tab key bindings | Every successful capture (§6.2) | App startup, per action — falling back to that action's default binding until first rebound |
 | Controls tab recorded macros | Every new recording, edit, or delete (§6.5) | App startup, as a single collection |
 | Announcement voice, volume, muted (§3.4, §3.5) | Every change | App startup, falling back to the engine's own default voice, 100 volume, and unmuted until first changed |
+| Automatic update check enabled (§3.5, §3.7) | Every change | Checked fresh on every launch, before the silent check would otherwise run - falling back to enabled until first changed |
+| Tracking mode (Fleet Carrier/Ship, §3.4) | Every toggle | App startup, falling back to Fleet Carrier mode until first changed |
+| Tracked instance, by commander FID (§8.2) | Assigned/explicitly unassigned | Every Track tab refresh, while currently unassigned in memory |
 
 - Role assignment is restored by FID (not `ProcessId`, which doesn't
   survive a process restart) — this covers both "app just launched" and
@@ -1096,7 +1883,184 @@ rather than internal app state like the table below.
 
 ---
 
-## 8. Non-Functional Requirements
+## 8. Track Tab (Ship Mode)
+
+Only visible while Ship mode is the current tracking mode (§3.4) — Roles
+and Controls are hidden while this tab is shown, and vice versa. A leaner
+counterpart to the Roles tab: one role instead of two (just "the tracked
+instance"), no macros, no cargo-capacity gating — Ship mode has no Auto
+Pilot to feed, so all that matters is which single running instance's own
+ship ED:FC Auto Pilot should passively track.
+
+### 8.1 Instance discovery
+Reuses §5.1's scanning mechanism verbatim — the same `EliteDangerous64.exe`
+process discovery, the same background-thread Refresh (button disables
+itself for the duration; the rest of the app stays interactive), and the
+same empty-state message. Each card shows only commander name, current
+location, and journal filename — no cargo/carrier fields, since they're
+irrelevant to picking an instance to track. Clicking a card's journal
+filename copies it to the clipboard and plays a confirmation sound, the
+same as §5.3's equivalent (no visual indicator afterward, unlike the
+Route tab's own click-to-copy).
+
+### 8.2 Tracking a single instance
+- A single **Track** toggle button per card (in place of Roles' separate
+  Captain/Engineer buttons) assigns/unassigns that instance as the one
+  tracked. Assigning to a new instance unassigns whichever instance
+  previously held it — there is only ever one tracked instance at a time.
+- Assigning resets the whole route (every row: icon → None, Status →
+  blank), then applies that instance's own ship's *current* status to it
+  as a single result computed from the whole journal — the same
+  reset-then-replay principle §5.4/§5.7 use for Captain, but scoped to
+  this commander's own ship (§8.3), explicitly never their fleet carrier
+  even if the same journal also contains carrier events (§8.4). Also
+  triggers a background rescan of this tab, the same as assigning
+  Captain does for Roles.
+- Unassigning (explicitly, or because the tracked instance stops
+  running) leaves the route table exactly as displayed — tracking simply
+  stops, the same as clearing Captain (§5.4). A role holder's process no
+  longer running clears the in-memory assignment but leaves the
+  persisted FID alone (§7), so it's picked back up automatically if that
+  commander's instance reappears.
+- Persisted by commander FID, not `ProcessId` (§7) — a restored match on
+  a later refresh goes through the same reset-and-replay as a fresh
+  manual assignment.
+- Switching *away* from Ship mode (back to Fleet Carrier) stops watching
+  the tracked instance's journal but does not clear the assignment —
+  switching back to Ship mode later resumes it with a fresh
+  reset-and-replay, the same as a fresh assignment.
+
+### 8.3 Journal-driven route updates
+Analogous to §5.7, but driven by the commander's own ship, not a fleet
+carrier, with a different event vocabulary and different timing. Unlike
+§5.7's carrier tracking - where a single `CarrierJumpRequest`/
+`CarrierLocation` stream is both "what's the current system" and "is
+anything locked in" rolled together - Ship mode deliberately keeps two
+things independent, since real play (the CMDR repeatedly targeting or
+re-targeting systems, including well off-route, without necessarily ever
+jumping) can change one without the other:
+
+- **Current system** (drives Complete/in-progress, exactly like §5.7's
+  composite Arrived step: whichever row matches → Complete, blank; the
+  next row, if any, → in-progress) is calculated **only** from
+  `Location` and `FSDJump` - both genuinely authoritative "the ship is
+  now at system X" statements, never from `FSDTarget`/`StartJump`, which
+  are only ever intentions or an in-flight jump, not proof of arrival.
+  Whichever of the two fires later always wins. If the named system
+  isn't found in the route at all (the CMDR is genuinely off-route, or
+  hasn't reached the route yet), **nothing is marked Complete** - the
+  table is left exactly as it was rather than guessing.
+  - `FSDJump` itself is not applied immediately, even though it carries
+    the arrival system name - see the Arrived sub-bullet below for why
+    (Music confirmation).
+  - `Location` (session start, a relog, or another definite-position
+    snapshot) *is* applied immediately, with no such wait - it isn't the
+    tail end of a just-completed jump, so there's nothing to wait for. It
+    never puts the next row into `Cooldown`, even though it's a live
+    event: a positional snapshot is not proof a jump just completed, and
+    it supersedes any `FSDJump` arrival still awaiting Music confirmation
+    below (a fresher, more authoritative statement of position wins).
+- **`Targeted`** is a separate overlay, never itself proof of arrival and
+  never able to complete anything: `FSDTarget` (selecting/locking a jump
+  target, e.g. in the galaxy map) sets Status to `Targeted` on whichever
+  not-yet-complete row it names - there is only ever one `Targeted` row
+  at a time. Real play shows Elite's own multi-route auto-target
+  behaviour typically firing the *next* hop's `FSDTarget` while the
+  *current* hop is still `Jumping`/`Cooldown` - the CMDR pre-selecting,
+  or the game auto-selecting, the following waypoint before the current
+  one has actually finished. Applying it immediately in that window would
+  mark the wrong (not-yet-current) row, so it's deferred until the
+  in-flight cycle actually finishes (`Cooldown` clears), then applied to
+  whichever row is genuinely current at that point. This also naturally
+  covers a CMDR manually re-targeting mid-jump out of habit, not just the
+  game's own automatic behaviour.
+  `Targeted` is cleared - by a fresh `FSDTarget` for a different or
+  off-route system, or by `NavRouteClear` (the CMDR explicitly clearing
+  their plotted route) - without ever leaving the row it was on looking
+  like the route's current row. A row that only ever showed its icon
+  *because* it was `Targeted` reverts fully to no icon at all once
+  cleared; only the one row current system has genuinely reached (see
+  above) keeps its icon regardless of any targeting churn elsewhere. This
+  is what makes repeatedly targeting or re-targeting various systems,
+  on or off route, without ever actually jumping, behave correctly: it
+  only ever changes which row (if any) shows the `Targeted` overlay,
+  never which row is Complete or current.
+- **`Jumping`**: `StartJump` with `JumpType` `"Hyperspace"` sets Status to
+  `Jumping`, immediately — `"Supercharge"` (an in-system neutron/
+  white-dwarf FSD boost that doesn't change system) is ignored. Unlike
+  Fleet Carrier mode's own `Jumping` transition, there is no lead time to
+  derive: `StartJump` only ever fires once a jump is already, genuinely
+  underway.
+- **Arrived's `FSDJump` path**: not applied directly off `FSDJump`, even
+  though it carries the arrival system name — `FSDJump` fires while the
+  game is still mid-transition (loading/settling), too early to treat as
+  arrived for Cooldown-timing purposes. The actual signal is the `Music`
+  event that follows it: a `MusicTrack` of `DestinationFromHyperspace` or
+  `Supercruise` (both valid — which one depends on some other in-game
+  factor not yet understood) once the game has actually settled into
+  normal flight at the destination. `FSDJump` records a pending arrival;
+  the next qualifying `Music` event resolves it into the real current-
+  system update above. A generous fallback timer resolves the pending
+  arrival anyway if neither Music track shows up in time — a backstop,
+  not the expected path.
+- **`Cooldown`** (shown on the row *after* the arrived-at one, same
+  convention as §5.7): clears a **provisional** fixed duration after
+  the current system updates to the arrived-at row via a genuinely live
+  `FSDJump`/Music resolution specifically - never off `Location`, which
+  never sets `Cooldown` at all (see above). Ships do have a real FSD
+  cooldown after a jump (not merely cosmetic dressing to mirror Fleet
+  Carrier mode's own vocabulary) — its exact real-world duration hasn't
+  been measured yet, so a placeholder value is used pending that
+  measurement.
+- Unlike Fleet Carrier mode, there is no known journal event for an
+  aborted/interrupted ship jump (Elite's schema has no
+  `StartJumpCancelled`) — a jump interrupted mid-charge (e.g. by an
+  attack) leaves its row stuck on `Jumping` until the CMDR uses the
+  existing manual "Set next system" override (§4.2); it is not
+  automatically recovered.
+- Same catch-up principle as §5.7: on assignment (or resuming after a
+  mode switch), the whole journal is read first, oldest to newest by
+  line order, to compute a single authoritative result for *each* of the
+  independent pieces above - current system (whichever of `Location`/
+  `FSDJump` came last), an in-flight jump (a Hyperspace `StartJump` not
+  yet superseded by a later `Location`/`FSDJump`), and a still-open
+  target (an `FSDTarget` not yet superseded by `NavRouteClear` or by the
+  ship actually having since jumped or arrived) - and only those derived
+  results are applied, never one event per historical line. This is what
+  lets catch-up correctly resolve "the ship really did arrive at Deciat,
+  *and* separately has a fresh, not-yet-acted-on target locked on Sol" as
+  two simultaneous, independent facts, rather than a single "whichever
+  event merely happened most recently in the file" answer. Only after
+  this does live tailing begin.
+
+### 8.4 Distinguishing the ship from a fleet carrier
+A commander who also owns a fleet carrier has both `FSDTarget`/
+`StartJump`/`FSDJump` (their own ship) and `CarrierJumpRequest`/
+`CarrierLocation`/`CarrierJump` (their carrier) events in the same
+journal. Ship mode's tracking is never confused by this: the ship-event
+family carries no `CarrierID`/`CarrierType` fields at all, and is
+structurally separate from the carrier-event family — no filtering is
+needed the way Roles' Captain assignment needs (§5.7), since there's no
+value-level ambiguity to resolve in the first place.
+
+### 8.5 Auto Copy To Clipboard
+Works identically to §4.6, with no Ship-mode-specific changes — a
+live-observed ship arrival (the `FSDJump` line itself, ahead of the
+delayed Arrived/Cooldown UI transition, the same "ready before the UI
+catches up" timing §4.6 already documents for carriers) copies the next
+row's system, if the toggle is on.
+
+### 8.6 No Auto Pilot
+Ship mode has no macro automation at all — the CMDR plots and flies every
+jump manually, since the precision required (aligning a neutron/
+white-dwarf boost, avoiding a collision) must stay in their own hands.
+The Route tab's Auto Pilot button is hidden, not merely disabled, while
+Ship mode is active (§4.2), and any run already in progress is stopped
+outright the instant Ship mode is switched on.
+
+---
+
+## 9. Non-Functional Requirements
 
 - **Framework:** WPF, .NET 8 (`net8.0-windows`), MVVM throughout — no
   business logic in code-behind. The window-placement, focus-management,
@@ -1111,10 +2075,25 @@ rather than internal app state like the table below.
   `MaterialDesignThemes`/`MaterialDesignColors`, `Microsoft.Data.Sqlite`,
   and `System.Speech` (the OS speech engine used for §4.8's spoken
   announcements).
+- **Network:** the Route tab's Distance/Star Type columns (§4.9) are this
+  app's first feature making outbound calls to a third-party web service -
+  [EDSM](https://www.edsm.net), free and requiring no API key. Every call
+  is best-effort (never blocks Save, the UI, or app startup), cached for
+  the running session (persisted indefinitely only for the rarer case of
+  a system EDSM genuinely can't resolve, §4.9/§7), and sends only system
+  names, never commander/journal data.
+  The Spansh dialog (§4.12) is the app's second such integration - unlike
+  EDSM, it's used with Spansh's own author's express permission against
+  undocumented, internal endpoints. The Fleet Carrier and Neutron Plotter
+  tabs only ever send the two system names/ids the CMDR themselves
+  selected, never commander/journal data. The Galaxy Plotter tab
+  additionally sends numeric fuel/mass/tank-capacity figures derived from
+  the CMDR's own ship's `Loadout` journal event (§4.12) - never the raw
+  journal data itself, and never anything commander-identifying.
 
 ---
 
-## 9. Styling — Material Design
+## 10. Styling — Material Design
 
 - `App.xaml` merges a `materialDesign:BundledTheme` (`PrimaryColor="Blue"`,
   `SecondaryColor="Cyan"`, `BaseTheme="Light"`) plus
@@ -1129,7 +2108,7 @@ rather than internal app state like the table below.
 
 ---
 
-## 10. Acceptance Criteria
+## 11. Acceptance Criteria
 
 1. Launching the app shows **Route**, **Roles**, **Controls** tabs with
    headings on the left edge; Route is selected by default.
@@ -1395,14 +2374,134 @@ rather than internal app state like the table below.
     stays that way (Auto Pilot does not play the macro again for it)
     until the real CarrierJumpRequest arrives and moves it to "Plotted",
     even if that takes an indeterminate amount of time.
-50. File > **About** opens a modal dialog showing the app icon, "ED:FC
+50. Help > **About** opens a modal dialog showing the app icon, "ED:FC
     Auto Pilot", its installed version (or "Development build" for an
-    unpackaged run), and the fan-made/not-affiliated disclaimer. File >
+    unpackaged run), and the fan-made/not-affiliated disclaimer. Help >
     **Check for Updates** runs an on-demand version of the same check
-    already run silently on every launch, and reports the outcome
-    (up to date / downloaded, installs on next exit / not available for
-    this build / check failed) via a message box.
-51. Panic mode: a Captain's plot or Engineer's refuel macro that doesn't
+    already run silently on every launch (when enabled, criterion 77),
+    always regardless of that setting, and reports the outcome (up to
+    date / downloaded, installs on next exit / not available for this
+    build / check failed) via a message box.
+51. The **Fleet Carrier / Ship** toolbar toggle (§3.4) defaults to Fleet
+    Carrier selected. Selecting Ship immediately hides the Roles and
+    Controls tabs, shows the Track tab, and hides the Route tab's Auto
+    Pilot button; selecting Fleet Carrier again reverses all three. The
+    toggle state persists across a restart.
+52. Switching to Ship Mode while Auto Pilot is engaged stops it outright
+    (button reverts to hidden, not just re-locked) rather than leaving a
+    macro silently playing in the background.
+53. The Track tab scans for running Elite Dangerous instances the same
+    way the Roles tab does (empty-state message, background-thread
+    Refresh), showing commander name, current location, and journal
+    filename per card - no cargo/carrier fields. Exactly one instance can
+    be tracked at a time; a single **Track** button per card
+    assigns/unassigns it, unassigning whichever instance previously held
+    it.
+54. Assigning a tracked instance resets the whole route, then applies
+    that instance's own ship's current status to it as a single
+    catch-up result computed from the whole journal (§8.3) - explicitly
+    the CMDR's own ship, never a fleet carrier they might also own, even
+    though both event families can appear in the same journal.
+55. A row's Status progresses `Targeted` (on `FSDTarget`) → `Jumping`
+    (on `StartJump` with `JumpType` `"Hyperspace"`, immediately, no lead
+    time) → *(arrived: row Complete, next row current)* → `Cooldown`
+    (cleared after a provisional fixed duration) → blank, driven by the
+    tracked instance's own ship journal. `Targeted` observed while
+    another row is `Jumping` or `Cooldown` is deferred until that cycle
+    finishes, rather than being applied to the wrong (not-yet-current)
+    row - confirmed against real journal data showing Elite's own
+    multi-route auto-target behaviour does this routinely.
+56. The composite Arrived step is driven by a `Music` event
+    (`MusicTrack` `"DestinationFromHyperspace"` or `"Supercruise"`)
+    following `FSDJump`, not by `FSDJump` itself - confirmed against real
+    journal data that `FSDJump` alone fires too early for Cooldown
+    timing. "Auto Copy To Clipboard" is unaffected by this and still
+    fires immediately off the live `FSDJump` line itself.
+57. An `FSDTarget` naming a system that isn't in the route at all clears
+    whichever row was previously showing `Targeted` back to blank rather
+    than leaving it stuck - e.g. targeting an off-route system, then
+    plotting a multi-jump in-game route elsewhere whose own first-hop
+    `FSDTarget` names an intermediate system the pasted route never
+    mentions. The cleared row's icon reverts to none at all, unless it's
+    also the route's one genuine current row (see criterion 64), in which
+    case that row's own icon is unaffected.
+58. Unassigning the tracked instance (explicitly, or because its process
+    stops running) leaves the route table exactly as displayed, with no
+    forced reset. Switching away from Ship mode behaves the same way;
+    switching back (or reassigning) always re-derives progress from a
+    fresh reset-and-catch-up.
+59. The tracking mode and tracked instance (by FID) both survive an app
+    restart with no manual reconfiguration required, restoring in Ship
+    mode with the same instance re-tracked (once it's running again) if
+    that's how the app was left.
+60. Saving or restoring a route computes each row's `Distance` and
+    `Star Type` (§4.9) asynchronously against EDSM without blocking the
+    table's own appearance - the table shows immediately with both
+    columns blank, filling in progressively as each lookup resolves. Row
+    1's `Distance` is measured from the CMDR's own ship's current system
+    (Fleet Carrier mode: the Captain's; Ship mode: the tracked instance's)
+    at that moment, not a fleet carrier's own position.
+61. A system EDSM has no data for, or a lookup that fails outright (e.g.
+    offline), leaves that row's `Distance`/`Star Type` cell blank rather
+    than blocking, freezing, retrying forever, or crashing. A
+    successfully-resolved system is never queried again on a later
+    Save/restore *within the same running session* - its coordinates/star
+    type are reused from the local cache instantly. Across an app
+    restart, a system EDSM itself resolved is queried again (cheap, via
+    the same batched request, §4.9) rather than reused from disk; only a
+    journal/Spansh seed that filled a system EDSM had already confirmed
+    it can't resolve survives the restart, reused instantly with no
+    lookup at all.
+62. A commander's own ship `FSDTarget`/`NavRoute` events opportunistically
+    seed `Star Type`/`Distance`'s coordinate cache (§4.9) - `FSDTarget`'s
+    own `StarClass` field, and `NavRoute.json` (read on either a live
+    `NavRoute` event or `FSDTarget`'s own `RemainingJumpsInRoute` field) -
+    in both Fleet Carrier mode (the Captain's own ship, independent of
+    the carrier's own jump tracking) and Ship mode, and an
+    already-displayed row refreshes live once a seed resolves it -
+    without requiring a Save, restore, or app restart.
+63. A `Plotted`/`Arrived` event that targets a row further ahead than
+    expected (the carrier/CMDR skipped over one or more pasted rows
+    entirely) completes those skipped rows too, live or replayed alike -
+    both represent authoritative, confirmed progress (a real
+    `CarrierJumpRequest`, or a real arrival), never a mere intention. A
+    `Targeted` event (Ship mode, §8.3) never completes anything, at any
+    time - a locked jump target is only ever an intention. A genuine
+    off-route deviation the CMDR never intended is corrected via the
+    manual "Set next system" override (§4.2), not inferred automatically.
+64. Ship mode's current-system tracking (§8.3) is driven only by
+    `Location`/`FSDJump`, never by `FSDTarget`/`StartJump`. Repeatedly
+    targeting or re-targeting various systems - on or off route - without
+    ever actually jumping never marks any row Complete and never leaves
+    more than one row showing an icon of its own: the route's one
+    genuine current row (wherever `Location`/`FSDJump` last confirmed the
+    ship to be, or row 1 by default before either has fired) always keeps
+    its own icon regardless of the targeting churn, and a row that only
+    ever showed an icon *because* it was `Targeted` fully reverts to no
+    icon at all - never left looking like the current row - the instant
+    it stops being targeted (superseded by a different target, an
+    off-route target, or `NavRouteClear`).
+65. `NavRouteClear` (Ship mode's own ship, and the Captain's own ship in
+    Fleet Carrier mode) clears whichever row is currently showing
+    `Targeted`, the same as a fresh off-route `FSDTarget` would (see
+    criterion 64).
+66. Ship mode's `Location` event (session start, a relog, or another
+    definite-position snapshot) updates current-system tracking
+    immediately, the same as a confirmed `FSDJump` arrival, but never
+    puts the next row into `Cooldown`, even when observed live - only a
+    genuinely just-completed hyperspace jump (`FSDJump`/Music) does that.
+    A `Location` observed while an earlier `FSDJump` is still awaiting
+    Music confirmation supersedes it - the superseded pending arrival
+    never fires.
+67. Ship mode's catch-up (assigning a tracked instance, or resuming after
+    a mode switch) resolves current-system, in-flight-jump, and
+    still-open-target as three independent results from the whole
+    journal, not a single "whichever event happened most recently in the
+    file" answer - e.g. a journal showing a confirmed arrival followed by
+    a fresh, not-yet-acted-on target correctly applies *both*: the
+    arrived-at row (and everything before it) becomes Complete, and the
+    targeted row (wherever it is in the route) shows `Targeted`.
+68. Panic mode: a Captain's plot or Engineer's refuel macro that doesn't
     run all the way to its own end — for any reason, including being
     cancelled/superseded by the *other* Auto Pilot trigger, not just an
     outright failure of its own — stops Auto Pilot immediately and shows
@@ -1411,12 +2510,17 @@ rather than internal app state like the table below.
     still stops Auto Pilot and shows the equivalent banner unless: for
     the Captain's plot, the row has actually left `Plotting` (a real
     `CarrierJumpRequest` was observed); for the Engineer's refuel, a
-    fresh rescan of their instance immediately afterward shows a
-    strictly higher carrier fuel level than right before the macro
-    started — with no exception for a depot already believed full or a
-    fuel level not known at all beforehand; both are themselves treated
-    as suspicious rather than skipped.
-52. An Auto Pilot-triggered resolution of `{TRITIUM_LOOPS}` never resolves
+    fresh rescan of their instance immediately afterward shows a genuine
+    `CarrierDepositFuel` event for their carrier timestamped after the
+    macro started playing — not a before/after comparison of the carrier
+    fuel level itself, since a jump's own fuel consumption is never
+    logged, so the last known level routinely predates the very jump this
+    refuel is for and a depot refilled back to that stale ceiling would
+    show no numeric increase despite a real deposit; with no exception
+    for a depot already believed full or a fuel level not known at all
+    beforehand — a rescan showing no fresh deposit at all is itself
+    treated as suspicious rather than skipped.
+69. An Auto Pilot-triggered resolution of `{TRITIUM_LOOPS}` never resolves
     to a value whose script would take longer than 4 minutes 45 seconds
     to actually play, even when the CMDR's own cargo/fuel data implies a
     larger, full-refill loop count — estimated from the script's own
@@ -1424,3 +2528,319 @@ rather than internal app state like the table below.
     expansion) rather than assumed. A manual Play/Step's own
     **Test {TRITIUM_LOOPS}** value (§6.1) is never capped this way, since
     it carries no real-world timing constraint of its own.
+70. The **Help** menu shows **Logs** above **About**; clicking About still
+    opens the same modal dialog it always has (§3.6), now reached from Help
+    instead of File.
+71. Help > Logs opens a non-modal window (§3.8) that starts empty and
+    shows only entries logged from that point on; a significant event
+    logged anywhere in the app (a role assignment, a journal-driven row
+    transition, an Auto Pilot trigger, a macro record/play, an HTTP
+    request to EDSM, ...) appears in it within about a second, without
+    blocking whatever the CMDR is doing on another tab. Closing it and
+    reopening it shows a blank window again, even within the same
+    session.
+72. Every log line - written to file, or shown in the Logs window - is
+    timestamped and carries a level and a category (§12). Logging never
+    measurably slows down route tracking, Auto Pilot, or macro playback -
+    a log call itself never performs file I/O on the calling thread.
+73. The log file directory (`%LocalAppData%\EDFCAutoPilot\Logs`) contains
+    one date-stamped file per day, tailable from a separate process (e.g.
+    `Get-Content -Wait`) with new lines appearing within about a second of
+    being logged. A file that grows past the configured per-file size cap
+    rolls to a new, numbered segment for the same day rather than growing
+    unbounded.
+74. Housekeeping (retention days / per-file size cap / total size cap, all
+    configurable in `routejumper.conf`, defaulting to 7 days / 10MB / 100MB)
+    keeps the Logs folder bounded automatically, without requiring the
+    CMDR to delete old files by hand - deleting the oldest files first
+    once the total size cap is exceeded, and never deleting the file
+    currently being written to.
+75. A single EDSM request per chunk (`showCoordinates=1&showPrimaryStar=1`
+    together) resolves both `Distance` and `Star Type` for every system in
+    it - a system whose coordinates come back in that response with a
+    `primaryStar` type populates both columns' caches, and a later lookup
+    of either never triggers a second request for a system already fully
+    resolved by the first.
+76. A system EDSM's response genuinely omits (not a network/HTTP-level
+    failure, which is always retried on the very next attempt) is not
+    queried again for `EdsmUnresolvedRetryHours` (`routejumper.conf`,
+    default 12) - neither later in the same session nor, restarting the
+    app within that window, on a fresh one either. A system that resolves
+    before the cooldown lapses (a later successful EDSM lookup once it
+    does, or a local journal-derived seed) is queried normally again from
+    that point on, with its recorded cooldown cleared immediately.
+77. Help > **Check for Updates** replaces the old File-menu location for
+    that item (File now holds only Preferences and Exit - the Fleet
+    Carrier/Ship mode toggle was never a menu item to begin with, §3.4);
+    the Preferences dialog's "Automatically check for updates on startup"
+    checkbox, checked by default, persists immediately and is restored on
+    every launch. Unchecking it silently skips the automatic startup
+    check on every later launch until re-checked; Help > Check for
+    Updates itself is unaffected either way and always runs when clicked.
+78. Table state's **"Import Current Route"** button (leftmost of the
+    left-aligned group, both tracking modes, unconditionally - no
+    Captain/tracked instance needs to be assigned) shows a Yes/No
+    confirmation dialog first; declining leaves the route untouched.
+    Confirming reads `NavRoute.json` directly out of the configured
+    journal folder and replaces the saved route with every system from
+    its `Route` array *except* the first (the CMDR's own departure
+    system, not a system to travel to), applying immediately - the same
+    end result as pasting that list and clicking Save, with no Edit-state
+    review step and no further dialog either way. Every entry's own
+    coordinates/star type (including the skipped one) are seeded into the
+    Distance/Star Type cache (§4.9) along the way. With no route currently
+    plotted in-game (or `NavRoute.json` missing/unreadable), nothing
+    changes and the outcome is logged rather than shown as a dialog.
+79. In Fleet Carrier mode only, Table state's **"Trim for FC"** button
+    (immediately after Import Current Route and before Auto Pilot in the
+    same left-aligned group) requires a Captain currently assigned with
+    their carrier's own current location known - clicking it with no
+    Captain assigned shows a message box saying so and does not proceed;
+    with a Captain assigned but their carrier's location not yet known
+    this session, a message box instead says to open Carrier Management
+    in-game and does not proceed either. With both satisfied, it shows the
+    same kind of Yes/No confirmation first; declining leaves the route
+    untouched. Confirming prepends the carrier's own real current location
+    as the route's new first entry (unless it's already row 1's own
+    system) and collapses the result down to a series of hops no longer
+    than 500ly each, anchored from that real location rather than the
+    pasted route's own row 1, dropping only the rows not actually needed
+    to stay within that reach, and applies it immediately (equivalent to
+    pasting the trimmed list and clicking Save, with no Edit-state review
+    step and no further dialog). Hidden entirely in Ship mode. If any
+    row's own coordinates (including the carrier's own current system)
+    aren't yet known, nothing is changed and the outcome is logged rather
+    than shown as a dialog.
+80. **Spansh > Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…**
+    (§4.12) each open the same modal dialog, in either tracking mode,
+    with a Fleet Carrier tab, a Neutron Plotter tab, and a Galaxy Plotter
+    tab, each with its own Source/Destination autocomplete fields and its
+    own Calculate button, enabled only once both have an actual selected
+    suggestion (the Neutron Plotter tab's own Calculate also requires
+    its Range and Efficiency fields to be non-blank; the Galaxy Plotter
+    tab's own Calculate also requires its own ship-build resolution to
+    have completed and Cargo to be non-blank - see criterion 87).
+    Clicking any of them polls Spansh every 5 seconds (indeterminate
+    progress + status text) until that tab's own job completes or fails;
+    on completion, every returned jump's coordinates/system address are
+    seeded into the Distance/Star Type cache and the saved route is
+    replaced with the jump list, applying immediately with no
+    confirmation dialog (opening Calculate is itself the deliberate
+    action) - on failure, the route is left untouched and the status
+    message explains why (the Neutron Plotter/Galaxy Plotter tabs' own
+    outright-rejection failures, e.g. an out-of-range Range, show
+    Spansh's own reported reason verbatim). Starting a new Calculate on
+    a tab, or closing the dialog, while that tab's own job is already in
+    flight cancels it first; the three tabs' own Calculate operations
+    don't cancel each other.
+81. **Spansh > Fleet Carrier…** opens the dialog with the Fleet Carrier
+    tab already selected; **Spansh > Neutron Plotter…** opens it with
+    the Neutron Plotter tab already selected instead; **Spansh > Galaxy
+    Plotter…** opens it with the Galaxy Plotter tab already selected
+    instead - either way, all three tabs remain reachable from inside
+    the dialog afterward. The Fleet
+    Carrier tab's own **Source** is pre-filled, when known, from the
+    Captain's own fleet carrier's real current location (Fleet Carrier
+    mode only - never in Ship mode) via a background search for that
+    exact system name, applying the resulting Spansh-resolved suggestion
+    only if the CMDR hasn't already picked or typed something into
+    Source themselves in the meantime, and leaving it unfilled if the
+    search fails or turns up no exact match.
+82. The Neutron Plotter tab's own **Range** field always starts blank -
+    it isn't pre-filled from the CMDR's own current ship's `Loadout`
+    event's `MaxJumpRange`, since that reflects only whatever fuel/cargo
+    was aboard when last logged, not necessarily what the CMDR wants to
+    plan the route around. Its own **Source** field, by contrast, is
+    pre-filled when known, from that same
+    instance's own current system, shown as an already-selected
+    suggestion (Calculate can be clicked without touching the
+    autocomplete at all) that's still fully editable - typing further
+    clears the selection, requiring a fresh pick, the same as any other
+    autocomplete field in this dialog. Its own Regular/Overcharge
+    supercharge radio choice defaults to Overcharge only when that same
+    `Loadout` event's `FrameShiftDrive` slot module `Item` ends in
+    `_overchargebooster_mkii` (case-insensitive), Regular otherwise -
+    also a plain, freely-editable radio choice from there on regardless
+    of how it was defaulted.
+83. Each tab's own footnote (Fleet Carrier's link to Spansh's hosted
+    Fleet&nbsp;Carrier&nbsp;Router; Neutron Plotter's link to Spansh's
+    hosted Neutron&nbsp;Plotter; Galaxy Plotter's link to Spansh's hosted
+    Galaxy&nbsp;Plotter - each link's own text uses non-breaking
+    spaces between its words so it never wraps mid-name) is shown only
+    while that specific tab is the one currently selected, and is
+    positioned below the tab area at the dialog's own full width - the
+    same width the shared Gareth Harper credit beneath it uses - rather
+    than inside each tab's own narrower content column to the right of
+    the left-hand tab strip.
+84. `Distance` and `Star Type` are each resolved via their own single
+    batched EDSM request covering every row in the route (chunked at
+    `EdsmCoordinatesBatchSize`, `routejumper.conf`, default 100) -
+    including when a route's coordinates are already cached (from an
+    earlier session, or seeded via §4.9's journal/Spansh paths) but its
+    star types aren't, which still resolves via one batched request for
+    every such row, never one request per row.
+85. Once a Distance/Star Type enrichment pass completes and at least one
+    row is left showing "Plot needed"/"Target needed", a dismissible
+    banner appears above the Route table pointing at those per-row hints;
+    it doesn't appear while a route is still fully resolved, or while a
+    pass is still in progress. Dismissing it hides only the banner - the
+    per-row placeholders it refers to are unaffected. A fresh Save
+    re-evaluates and, if the same or a different gap is still there,
+    shows the banner again regardless of an earlier dismissal.
+86. The Engineer's refuel (and its own "Refueling in 30/5 seconds"
+    announcements) is never scheduled for the route's own last row - a
+    route that reaches its last row's `Jumping` status with Engineer
+    assigned neither speaks a "Refueling..." announcement nor plays the
+    Engineer's macro for it. When Auto Pilot stops itself because the
+    whole route reached Complete (not a manual Stop, not a panic-mode
+    stop), a one-off "You have arrived at your destination. Thank you
+    for flying with ED F.C. Auto Pilot." announcement is spoken, muted the
+    same as any other announcement (§3.4).
+87. The Galaxy Plotter tab's own Calculate stays disabled, with an
+    explanatory status message, until the CMDR's own ship build has
+    resolved from a background re-read of the relevant instance's
+    journal (the Captain's in Fleet Carrier mode, the tracked instance's
+    in Ship mode - the same instance the Neutron Plotter tab's own
+    Source pre-fills from) - a session with no `Loadout` event logged
+    yet, or a `Loadout` whose `FrameShiftDrive` slot module isn't
+    recognised, each show their own specific reason rather than a
+    generic failure. Once resolved, Calculate also requires Source,
+    Destination, and Cargo to be set, the same as the other two tabs'
+    own requirements.
+88. The Galaxy Plotter tab's own Cargo field is pre-filled, when known,
+    from that same instance's own currently-tracked cargo total (§5.3/
+    §8), and Reserve tank size always starts at Spansh's own default of
+    0 - both remain freely editable. Its own Algorithm dropdown defaults
+    to Spansh's own default, `optimistic`, and its six route-option
+    checkboxes each default to Spansh's own defaults for that option -
+    all seven remain freely editable regardless of how they started.
+89. The numeric fields the Galaxy Plotter tab sends Spansh (fuel
+    range/mass/tank-capacity figures) are derived entirely from the
+    resolved ship build, reproducing Spansh's own client-side
+    calculation - confirmed live that Spansh's own server-side route
+    computation for this endpoint never uses anything else about the
+    ship (a request whose ship-build upload was replaced with an empty
+    placeholder, and a second with it omitted entirely, both computed an
+    identical route using only these derived numbers), so no such upload
+    is sent at all.
+90. Calculating a route via the Neutron Plotter tab shows a `Jumps` column
+    immediately right of `Distance` (ordinary hops since the previous
+    waypoint, from Spansh's own response); calculating via the Galaxy
+    Plotter tab instead shows `Refuel`/`Inject`/`Neutron` columns in the
+    same position (a checkmark per row wherever Spansh's own response
+    flags that waypoint as needing it, or being a neutron/white dwarf
+    star). Neither set of columns shows for a route pasted/typed by hand,
+    imported via Import Current Route, trimmed via Trim for FC, or
+    calculated via the Fleet Carrier tab, and the two sets are never both
+    shown at once.
+91. This data (which of the three route types the saved route is, and
+    each row's own Jumps/Refuel/Inject/Neutron values) survives an app
+    restart the same way the route text itself does - including *every*
+    restart in a row, not just the first: restoring a Neutron/Galaxy
+    route re-persists its own type/data immediately (the same Save() call
+    this restore reuses already reset both back to Plain/empty on disk as
+    its own unconditional behavior, so skipping that re-persist step
+    would leave the on-disk value silently wrong from that point on,
+    invisible until the *next* restart). Saving a plain route (typing it
+    by hand, Import Current Route, Trim for FC, or re-Saving after Edit)
+    always reverts to a plain route with none of these columns,
+    discarding whatever Neutron/Galaxy data the previously-saved route
+    had - only a fresh Spansh Neutron/Galaxy calculation re-populates
+    them. The `Jumps`/`Refuel`/`Inject`/`Neutron` columns' own widths are
+    persisted individually the same way the other resizable columns are
+    (§4.2/§7), even while not currently showing.
+92. Clicking Edit on a currently-saved Neutron or Galaxy Plotter route
+    shows a Proceed/Cancel dialog warning that continuing will convert it
+    back to a plain route, discarding its extra column data; declining
+    leaves the table exactly as it was, still showing those columns.
+    Clicking Edit on a plain route shows no such dialog. Edit itself
+    remains disabled exactly when it always has been (before any Save,
+    or while Auto Pilot is engaged).
+93. Saving or restoring a Neutron/Galaxy Plotter route forces Ship mode
+    (even from Fleet Carrier mode, and even if Fleet Carrier mode was the
+    persisted state from a previous session) and disables the Fleet
+    Carrier chip, with no confirmation dialog; the chip's own tooltip
+    reads "Not appropriate for Neutron Plotter routes."/"Not appropriate
+    for Galaxy Plotter routes." as appropriate, plus a sentence saying
+    Edit reverts it to a plain route. The route reverting to Plain
+    (Edit-&gt;Save, Import Current Route, or Trim for FC) re-enables the
+    chip immediately, without switching back to Fleet Carrier mode on its
+    own.
+
+---
+
+## 12. Logging
+
+A background, non-blocking logging facility used throughout the app to
+record significant events for diagnosis - outbound HTTP requests, every
+journal event either watcher actually *acts on* (a row transition, an
+opportunistic Distance/Star Type cache seed from FSDTarget/NavRoute.json,
+`CarrierStats`), journal-watch start/stop, role/track assignment, "Auto
+Copy To Clipboard" firing, Auto Pilot triggers and panic-mode stops, macro
+recording/playback, update checks, and persistence failures. Each such
+line carries only the fields that specific action actually used (e.g. the
+targeted system name and resolved star type for an FSDTarget seed - never
+the event's full raw JSON), not a generic dump of the journal line. Two
+independent sinks receive every logged entry: a durable, date-stamped file
+(always written to, whether or not the Logs window is open) and the Logs
+window itself (§3.8, only while it's open).
+
+- **Never on the hot path**: logging a line only ever enqueues it onto an
+  in-memory queue - never disk I/O, never blocking, on the thread that
+  calls it. This matters most for the event-driven Sequencing/ engine
+  (CLAUDE.md's non-negotiable rule) and for macro playback, where input
+  timing matters - logging must never become a source of the kind of
+  delay CLAUDE.md already forbids reintroducing there. A single
+  background writer drains the queue and does the actual file I/O.
+- **Format**: each line is `yyyy-MM-dd HH:mm:ss.fff [LEVEL ] Category:
+  message`, e.g. `2026-08-15 09:05:03.250 [INFO ] Http: -> GET
+  https://www.edsm.net/api-v1/systems?...`. Levels are Debug/Info/Warn/
+  Error; Warn/Error entries may carry an exception's type and message.
+  Categories group related events (`Http`, `Journal`, `AutoPilot`,
+  `Roles`, `Track`, `Route`, `Macro`, `Update`, `Settings`, `Config`,
+  `Edsm`, `Spansh`, `Scan`, `App`).
+- **HTTP requests**: every outbound HTTP request this app makes directly
+  (EDSM's coordinate/star-type lookups, §4.9, and the Spansh dialog's own
+  search/route-calculation/poll requests, §4.12 - the app's only two
+  direct-HttpClient integrations) is logged on both the way out (method +
+  URL) and the way back (status code + elapsed time), or as a warning if
+  it fails outright. Velopack's own internal update-check HTTP calls aren't
+  individually visible this way (Velopack owns its own HTTP stack with no
+  logging seam) - those are covered instead by an Info/Warn line around
+  each update check's own start/outcome (§3.7).
+- **File** (`%LocalAppData%\EDFCAutoPilot\Logs\routejumper-yyyy-MM-dd.log`,
+  or `.Dev` for an unpackaged run, same convention as `routejumper.db`/
+  `routejumper.conf`, §7): one file per calendar day, opened for append
+  with a share mode that allows a separate process to read it
+  concurrently (e.g. tailing it with `Get-Content -Wait` or similar) -
+  the background writer flushes after draining whatever's currently
+  queued, so a concurrent tail sees new lines with minimal lag without
+  paying a flush's cost on every single line during a burst. A file that
+  crosses the configured per-file size cap mid-day rolls to a new,
+  numbered segment (`routejumper-yyyy-MM-dd.2.log`, `.3.log`, ...) rather
+  than growing without bound.
+- **Housekeeping**: keeps the Logs folder bounded automatically, using
+  three settings read from `routejumper.conf` (§5.2's own file, the same
+  hand-editable, `Key=Value` convention `JournalDirectory` already uses -
+  written with their defaults into a freshly-created config file, and
+  re-read periodically, not just once at startup, so a hand-edit takes
+  effect without an app restart):
+
+  | Key | Default | Meaning |
+  |---|---|---|
+  | `LogRetentionDays` | `7` | Files last written this many days ago or older are deleted |
+  | `LogMaxFileSizeMB` | `10` | Per-file cap before rolling to a new numbered segment |
+  | `LogMaxTotalSizeMB` | `100` | Total cap across every log file - oldest files are deleted first once exceeded |
+
+  Housekeeping runs at startup, whenever the writer rolls to a new file
+  (a new day, or a size-triggered rollover), and periodically in the
+  background - never against the file currently being written to.
+- **Logs window** (§3.8): a live, in-memory mirror of the same entries,
+  for as long as it's open - never the durable record itself, and never
+  required for anything to be logged (the file sink runs regardless of
+  whether this window has ever been opened).
+- Logging failures (e.g. a permissions issue creating the Logs folder or
+  writing a file) degrade to "this entry wasn't written to disk" rather
+  than crashing the app or interrupting whatever triggered the log call -
+  the same "nothing persisted rather than a hard failure" philosophy
+  `AppSettingsStore`/`AppConfigStore` already use for their own I/O (§7).

@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Services;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.ViewModels
 {
@@ -550,6 +551,7 @@ namespace RouteJumper.ViewModels
             _recordingTargetProcessId = instance.ProcessId;
             _recordingTargetCommanderName = instance.CommanderName;
 
+            Log.Info("Macro", $"Recording started against {instance.CommanderName}.");
             _activeRecorder = new InputRecorder(_recordingTargetWindow, ResolveRecordToken);
             _activeRecorder.Start();
             IsRecording = true;
@@ -624,6 +626,7 @@ namespace RouteJumper.ViewModels
             _activeRecorder.Dispose();
             _activeRecorder = null;
             IsRecording = false;
+            Log.Info("Macro", $"Recording stopped - {steps.Count} step(s) captured.");
 
             // Always a new entry - SPEC §6.3: "If a recording already exists and the user
             // clicks the record button again, the application should start a new recording and
@@ -731,6 +734,7 @@ namespace RouteJumper.ViewModels
             _playbackCts = cts;
             IsPlaying = true;
             PlaybackErrorMessage = null;
+            Log.Info("Macro", $"Playing \"{macro.Name}\" against {instance.CommanderName}.");
 
             Func<string?> getNextSystemName = useTestValues ? () => NextSystemTestOverride : _getNextSystemName;
             var player = new MacroPlayer(instance.WindowHandle, ResolveActionBinding, getNextSystemName, AutoWaitMs);
@@ -771,14 +775,17 @@ namespace RouteJumper.ViewModels
                 }
 
                 await player.PlayAsync(scriptToPlay, cts.Token);
+                Log.Info("Macro", "Playback finished.");
                 return true;
             }
             catch (OperationCanceledException)
             {
+                Log.Info("Macro", "Playback cancelled.");
                 return false;
             }
             catch (PlaybackAbortedException ex)
             {
+                Log.Warn("Macro", $"Playback aborted: {ex.Message}");
                 PlaybackErrorMessage = ex.Message;
                 return false;
             }

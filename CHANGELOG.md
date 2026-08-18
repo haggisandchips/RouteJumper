@@ -1,11 +1,188 @@
 # Changelog
 
-All notable changes to ED:FC Auto Pilot are documented in this file.
+All notable changes to ED:FC Auto Pilot are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Added
+
+- Logs window: an **Open Logs Folder** button opens the on-disk log
+  files directly — since the window itself only ever shows entries
+  logged while it's open, this is how to get at anything logged earlier
+  in the session or in a previous one.
+- **Ship mode**: a toggle beside the menu bar switching between Fleet
+  Carrier mode (the default) and a leaner, purely passive Ship mode for
+  a solo commander flying their own hand-plotted route (e.g. from a
+  neutron-highway planner) — no macro automation at all, just the same
+  row-by-row progress tracking, against your own ship's journal instead
+  of a Captain's. Adds a new **Track** tab (a single-instance
+  counterpart to Roles) shown only in Ship mode; Roles/Controls and the
+  Route tab's Auto Pilot button are hidden while it's active.
+- Route tab **`Distance`** and **`Star Type`** columns, populated in the
+  background against [EDSM](https://www.edsm.net) — leg distance between
+  each row (and from your current position to row 1), and each row's own
+  system's main star type. A system EDSM has no coordinates for shows
+  "Plot needed" instead of a blank cell (or "Target needed" if only the
+  star type is missing), so the actual gap is obvious rather than a
+  knock-on effect of the row before it.
+- Auto Pilot **panic mode**: stops itself immediately and shows a
+  closeable banner if a plot/refuel macro is interrupted for any reason,
+  if the Captain's macro finishes without a real jump request following,
+  or if the Engineer's macro finishes without the carrier's fuel level
+  actually having gone up on a fresh check — rather than risking the
+  carrier jumping further and further away on the strength of a macro
+  that's silently stopped working. A `{TRITIUM_LOOPS}` resolution is now
+  also capped so the Engineer's refuel script can never take long enough
+  to still be playing when the Captain's own next plot comes due.
+- Background app logging: a rolling, date-stamped log file
+  (`%LocalAppData%\EDFCAutoPilot\Logs\`) plus a live, non-modal **Help >
+  Logs** viewer (with a "Wrap text" option), covering HTTP requests to
+  EDSM, journal-driven row transitions, role/track assignment, Auto
+  Pilot triggers and panic-mode stops, macro recording/playback, update
+  checks, and persistence failures. Housekeeping (retention days, and
+  per-file/total size caps) is configurable in `routejumper.conf`.
+- A **Help** menu, holding Logs, Check for Updates, and About (the
+  latter two moved out of File).
+- A Preferences checkbox to turn off the silent startup update check
+  entirely — Help > Check for Updates always still works on demand
+  regardless.
+- Route tab **Import Current Route**: reads whatever route is currently
+  plotted in-game (`NavRoute.json`) and replaces the saved route with it
+  in one click — available in both tracking modes, with no Captain/
+  tracked instance needing to be assigned first. **Trim for FC** (Fleet
+  Carrier mode only) collapses a saved route down to a series of hops no
+  longer than 500ly each, dropping whichever intermediate systems aren't
+  actually needed to stay within a fleet carrier's real jump range — a
+  planning aid for a route pasted or imported with many closely-spaced
+  waypoints (e.g. a neutron-highway plotter's own output). Requires a
+  Captain currently assigned with their carrier's own current location
+  known (prompting to assign one, or to open Carrier Management in-game,
+  otherwise) — that real location becomes the trimmed route's new first
+  entry and anchors the trim itself, rather than the pasted route's own
+  row 1, since the carrier may already be mid-route by the time this is
+  clicked and trimming from the wrong assumed starting point risks an
+  inefficient first hop. Both confirm via a Yes/No dialog first (each
+  replaces/rewrites the saved route outright) and then apply immediately,
+  left-to-right in the order you'd actually use them: Import Current
+  Route, Trim for FC, Auto Pilot.
+- **Spansh integration**: a new top-level **Spansh** menu (**Fleet
+  Carrier…** / **Neutron Plotter…**) opens a dialog to calculate a route
+  between two systems (autocomplete Source/Destination fields) via
+  Spansh's own route-plotting API and import it straight into the Route
+  tab, replacing the currently-saved route the same way Import Current
+  Route does — either menu item opens the same dialog, just starting on
+  its own matching tab. Its own Source is pre-filled, where known, from
+  your Captain's fleet carrier's real current location. Polls the
+  calculation every 5 seconds with an indeterminate progress indicator
+  while it's running. A footnote links out to Spansh's own hosted Fleet
+  Carrier Router (which accounts for tritium capacity and schedules
+  restock stops along the way — this dialog's own Calculate is a single
+  direct hop sequence, not tritium-aware) for that heavier
+  planning job instead. Every jump Spansh returns seeds the same
+  Distance/Star Type cache EDSM lookups use, so the imported route's
+  columns populate instantly rather than needing a fresh EDSM round
+  trip. Used with the express permission of Spansh's author, Gareth
+  Harper, credited in the dialog itself.
+- **Neutron Plotter**: a second tab in the Spansh dialog, alongside
+  Fleet Carrier, calculating a neutron-highway route instead — the same
+  Source/Destination autocomplete, plus an editable Range (ly) and
+  Efficiency (Spansh's own route optimisation/speed trade-off, 1–100,
+  defaulting to 60) field, and a Regular/Overcharge supercharge choice
+  (defaulting to Overcharge only when your current ship's Frame Shift
+  Drive is fitted with an overcharged booster). Range always starts
+  blank — it's your own call what range to plan around, not something
+  guessed on your behalf. On success, the imported route holds only the
+  neutron boost stops plus the final destination, not every ordinary
+  hop between them, ready to feed into Trim for FC or fly manually. A
+  footnote links out to Spansh's own hosted Neutron Plotter for
+  anything beyond a plain source → destination Calculate.
+- A dismissible banner above the Route table when Distance/Star Type
+  enrichment finishes with one or more systems still showing "Plot
+  needed"/"Target needed" — points at those per-row hints instead of
+  leaving it to be noticed row by row. Resets on every fresh Save.
+- A spoken "You have arrived at your destination. Thank you for flying
+  with ED F.C. Auto Pilot." announcement when Auto Pilot stops itself
+  because the whole route reached Complete — not spoken for a manual
+  Stop or a panic-mode stop, both already self-explanatory on their own.
+
+### Changed
+
+- EDSM coordinate and star-type lookups are now resolved together in a
+  single request per batch of systems, retiring the separate, more
+  heavily-throttled per-system endpoint star type used to need. A
+  system EDSM confirms has no record of isn't queried again for a
+  configurable cooldown (`EdsmUnresolvedRetryHours` in
+  `routejumper.conf`, default 12 hours) — in memory for the rest of the
+  session, and on disk so the cooldown survives a restart too.
+- EDSM cache writes to disk no longer block the in-memory cache
+  update/UI notification that drives the Route tab's live-refresh — a
+  burst of seeds (e.g. reading a freshly-plotted `NavRoute.json`)
+  updates the table essentially instantly, with the (comparatively slow)
+  database write trailing behind on its own background queue.
+- Coordinate/star-type/system-address caching moved off prefixed
+  `Settings` rows onto its own `ResolvedLookups` table, mirroring
+  `UnresolvedLookups`' own existing rationale for a separate schema.
+- The EDSM request batch size is now configurable
+  (`EdsmCoordinatesBatchSize` in `routejumper.conf`), defaulting to 100
+  systems per request instead of the previous hardcoded 10.
+- The coordinate/star-type cache no longer persists every system ever
+  resolved, indefinitely — a value EDSM itself resolves is now kept only
+  for the running session (asking EDSM again next launch is cheap, now
+  that it's a single batched request), and a journal/Spansh seed is
+  written to disk only when it fills a system EDSM has already confirmed
+  it has no record of. System address (id64) is no longer persisted at
+  all — nothing reads it yet. Keeps `routejumper.db` bounded instead of
+  growing with every system a commander has ever visited.
+
+### Fixed
+
+- `Star Type` no longer shows the bare journal code for the brown dwarf
+  classes (L, T, Y) — now formatted as "L (Brown dwarf)", "T (Brown
+  dwarf)", and "Y (Brown dwarf)", matching the main-sequence classes'
+  own display style.
+- Ship mode: a genuinely live-tailed `FSDTarget` naming a system not in
+  the pasted route could leave a stale `Targeted` row icon stuck showing
+  instead of clearing it.
+- Route tab: the `Status`/`#` column headers could render sitting above
+  the `System` column instead of aligned with it.
+- `Star Type` values no longer repeat the redundant trailing "Star" word
+  EDSM's own data already ends in (e.g. "K (Yellow-Orange)" instead of
+  "K (Yellow-Orange) Star").
+- A journal-targeted system (e.g. a T Tauri star, raw code `TTS`) and
+  the same system resolved via EDSM ("T Tauri") could show different
+  `Star Type` text depending on which source resolved it first — and
+  since the cache was permanent, the mismatch never healed itself once
+  cached. `Star Type` is now always cached as the canonical journal
+  code and formatted fresh on read, so both sources converge on
+  identical text regardless of resolution order.
+- `Distance` and `Star Type` could each end up firing their own
+  separate EDSM request per system instead of genuinely batching
+  together — most visibly on a route whose coordinates were already
+  cached (e.g. from an earlier session) but whose star types weren't,
+  which fell back to one EDSM request per row. Star Type now always
+  resolves via a single batched request covering every system in the
+  route.
+- Auto Pilot's last row spoke "Refueling in 30 seconds"/"Refueling in 5
+  seconds" for a refuel that then never actually happened — the route
+  completing (which stops Auto Pilot) raced the scheduled refuel and
+  cancelled it out from under itself. The Engineer's refuel (and its own
+  announcements) is no longer scheduled at all for the route's own last
+  row, since there's no next row left to jump anywhere with regardless.
+- Auto Pilot's Engineer-refuel panic mode could falsely trigger after a
+  real, successful refuel — confirmed against a real session's own
+  journal, where a genuine deposit reaching a full 1000t was flagged as
+  "not replenished" because the carrier had also read 1000t the last
+  time its fuel was checked, *before* the jump that this refuel was
+  topping back up after. Elite's journal never logs the fuel a jump
+  itself consumes, so that last known reading routinely predates the
+  jump the refuel exists to recover from, and a depot refilled back to
+  that stale ceiling showed no numeric increase despite a real deposit
+  having just happened. The check now confirms a genuine
+  `CarrierDepositFuel` event for the carrier timestamped after the
+  macro started playing, rather than comparing fuel levels before/after.
 
 ## [1.3.0] - 2026-08-13
 
@@ -84,7 +261,7 @@ and this project follows [Semantic Versioning](https://semver.org/).
   announcements several real minutes of lead time to work with instead
   of only the short Auto Pilot delay itself.
 - The app's own display name (Explorer's file Properties, Task Manager,
-  and Velopack's Start Menu shortcut) is now "ED:FC Auto Pilot",
+  and Velopack's Start Menu shortcut) is now "ED:FC Auto Pilot",
   matching the main window's own title/taskbar text.
 - Renamed the exe itself (`RouteJumper.exe` → `EDFCAutoPilot.exe`), the
   `%LocalAppData%` settings folder (`RouteJumper` → `EDFCAutoPilot`),

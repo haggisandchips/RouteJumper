@@ -1,10 +1,14 @@
+using System.Globalization;
 using RouteJumper.Common;
 using RouteJumper.Models;
 
 namespace RouteJumper.ViewModels
 {
     /// <summary>
-    /// Represents one row of the Route table: Icon | # | System | Status.
+    /// Represents one row of the Route table: Icon | # | System | Distance | [Jumps, Neutron
+    /// Plotter routes only | Refuel/Inject/Neutron, Galaxy Plotter routes only] | Star Type |
+    /// Status - see RouteViewModel.RouteType/IsNeutronRoute/IsGalaxyRoute for the conditional
+    /// columns' own visibility.
     /// </summary>
     public class RouteRowViewModel : ObservableObject
     {
@@ -13,10 +17,18 @@ namespace RouteJumper.ViewModels
         private string _systemText = string.Empty;
         private string _status = string.Empty;
         private bool _isCopiedToClipboard;
+        private double? _distance;
+        private string? _starType;
+        private EdsmLookupState _ownCoordinatesState = EdsmLookupState.Resolving;
+        private EdsmLookupState _ownStarTypeState = EdsmLookupState.Resolving;
         private DateTime? _phaseEndUtc;
         private DateTime? _phaseStartUtc;
         private double _progress;
         private string _timeRemainingDisplay = string.Empty;
+        private int? _jumps;
+        private bool? _mustRefuel;
+        private bool? _mustInject;
+        private bool? _hasNeutron;
 
         public RowIcon Icon
         {
@@ -68,6 +80,138 @@ namespace RouteJumper.ViewModels
         {
             get => _isCopiedToClipboard;
             set => SetProperty(ref _isCopiedToClipboard, value);
+        }
+
+        /// <summary>
+        /// Leg distance in light-years, previous row -&gt; this row - row 1's "previous" is
+        /// wherever the CMDR's own ship (Fleet Carrier mode: the Captain's; Ship mode: the tracked
+        /// instance's) was when the route was last saved; every other row is the static distance
+        /// between two named systems. Set once by RouteRowEnrichmentService after Save/restore,
+        /// never by RouteSequencer - this describes the route's static topology, not tracked
+        /// progress, so it's deliberately outside CLAUDE.md's event-driven rule for Sequencing/.
+        /// Null (blank cell, see DistanceDisplay) until resolved, or permanently if EDSM has no
+        /// coordinates for one of the two systems involved.
+        /// </summary>
+        public double? Distance
+        {
+            get => _distance;
+            set
+            {
+                if (SetProperty(ref _distance, value))
+                {
+                    OnPropertyChanged(nameof(DistanceDisplay));
+                }
+            }
+        }
+
+        /// <summary>
+        /// This row's own coordinate-lookup outcome, independent of the Distance chain - set by
+        /// RouteRowEnrichmentService each pass (SPEC §4.9). Drives the "Plot needed" placeholder:
+        /// true (Unavailable) only when *this* row's own system is the one EDSM has no data for,
+        /// never for a row whose Distance is merely blank because the row before it (or, for row
+        /// 1, the CMDR's own origin position) is the actual problem.
+        /// </summary>
+        public EdsmLookupState OwnCoordinatesState
+        {
+            get => _ownCoordinatesState;
+            set
+            {
+                if (SetProperty(ref _ownCoordinatesState, value))
+                {
+                    OnPropertyChanged(nameof(IsDistancePlaceholder));
+                    OnPropertyChanged(nameof(DistanceDisplay));
+                    OnPropertyChanged(nameof(IsStarTypePlaceholder));
+                    OnPropertyChanged(nameof(StarTypeDisplay));
+                }
+            }
+        }
+
+        /// <summary>This row's own star-type lookup outcome - see OwnCoordinatesState's doc comment for the general shape. Drives the "Target needed" placeholder.</summary>
+        public EdsmLookupState OwnStarTypeState
+        {
+            get => _ownStarTypeState;
+            set
+            {
+                if (SetProperty(ref _ownStarTypeState, value))
+                {
+                    OnPropertyChanged(nameof(IsStarTypePlaceholder));
+                    OnPropertyChanged(nameof(StarTypeDisplay));
+                }
+            }
+        }
+
+        /// <summary>True when this row's own coordinates are confirmed unavailable from EDSM this session - drives "Plot needed" in the Distance cell.</summary>
+        public bool IsDistancePlaceholder => OwnCoordinatesState == EdsmLookupState.Unavailable;
+
+        /// <summary>
+        /// True when this row's own coordinates resolved fine but its own star type specifically
+        /// didn't - drives "Target needed" in the Star Type cell. Deliberately excludes the case
+        /// where coordinates are themselves unavailable (IsDistancePlaceholder already covers
+        /// that row; a full route plot fixes both, so Star Type doesn't need its own separate
+        /// callout there too).
+        /// </summary>
+        public bool IsStarTypePlaceholder =>
+            OwnCoordinatesState == EdsmLookupState.Resolved && OwnStarTypeState == EdsmLookupState.Unavailable;
+
+        /// <summary>What the Distance cell actually shows: "Plot needed" if this row's own coordinates are confirmed unavailable, "12.3 ly" once resolved, or blank while still resolving/blocked by a neighboring row.</summary>
+        public string DistanceDisplay => IsDistancePlaceholder
+            ? "Plot needed"
+            : Distance is { } distance
+                ? $"{distance.ToString("0.0", CultureInfo.InvariantCulture)} ly"
+                : string.Empty;
+
+        /// <summary>
+        /// This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange)"), set once
+        /// by RouteRowEnrichmentService after Save/restore. Null (blank cell) until resolved, or
+        /// permanently if EDSM has no record of this system at all.
+        /// </summary>
+        public string? StarType
+        {
+            get => _starType;
+            set
+            {
+                if (SetProperty(ref _starType, value))
+                {
+                    OnPropertyChanged(nameof(StarTypeDisplay));
+                }
+            }
+        }
+
+        /// <summary>What the Star Type cell actually shows: "Target needed" if coordinates are known but star type specifically isn't, the resolved star type, or blank.</summary>
+        public string StarTypeDisplay => IsStarTypePlaceholder ? "Target needed" : StarType ?? string.Empty;
+
+        /// <summary>
+        /// Neutron Plotter only (RouteViewModel.IsNeutronRoute) - ordinary hops since the
+        /// previous waypoint, straight from Spansh's own response (SpanshRouteJump.Jumps). Set
+        /// once by RouteViewModel.ImportFromSpansh/RestoreFromSettings, never by RouteSequencer -
+        /// a static fact about the route's own topology, not tracked progress, same as Distance/
+        /// StarType. Null for any Plain/Galaxy row.
+        /// </summary>
+        public int? Jumps
+        {
+            get => _jumps;
+            set => SetProperty(ref _jumps, value);
+        }
+
+        /// <summary>Galaxy Plotter only (RouteViewModel.IsGalaxyRoute) - whether a refuel is needed at this waypoint (SpanshRouteJump.MustRefuel). See Jumps' own doc comment for how/when this is set.</summary>
+        public bool? MustRefuel
+        {
+            get => _mustRefuel;
+            set => SetProperty(ref _mustRefuel, value);
+        }
+
+        /// <summary>Galaxy Plotter only - whether an FSD injection is needed at this waypoint (SpanshRouteJump.MustInject). See Jumps' own doc comment for how/when this is set.</summary>
+        public bool? MustInject
+        {
+            get => _mustInject;
+            set => SetProperty(ref _mustInject, value);
+        }
+
+        /// <summary>Galaxy Plotter only - whether this waypoint is (or is near) a neutron/white dwarf star (SpanshRouteJump.HasNeutron). See Jumps' own doc comment for how/when this is set.</summary>
+        public bool? HasNeutron
+        {
+            get => _hasNeutron;
+            set => SetProperty(ref _hasNeutron, value);
         }
 
         /// <summary>

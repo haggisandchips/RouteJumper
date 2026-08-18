@@ -5,6 +5,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:converters="clr-namespace:RouteJumper.Converters"
              xmlns:behaviors="clr-namespace:RouteJumper.Behaviors"
+             xmlns:common="clr-namespace:RouteJumper.Common"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              mc:Ignorable="d"
              d:DesignHeight="500" d:DesignWidth="700">
@@ -15,6 +16,11 @@
         <converters:RowIconToVisibilityConverter x:Key="RowIconToVisibilityConverter" />
         <converters:AutoPilotLabelConverter x:Key="AutoPilotLabelConverter" />
         <converters:BoolToHiddenVisibilityConverter x:Key="BoolToHiddenVisibilityConverter" />
+
+        <!-- Gives the Jumps/Refuel/Inject/Neutron DataGridColumns below a stable path back to
+             this page's own DataContext (RouteViewModel) - see BindingProxy's own doc comment for
+             why a DataGridColumn can't reach it any more directly. -->
+        <common:BindingProxy x:Key="ViewModelProxy" Data="{Binding}" />
 
         <!-- Same appearance/selection behavior as the toolkit's own cell style - just without
              the "current cell" border a click leaves behind. That border comes from the base
@@ -84,15 +90,55 @@
         <Grid Visibility="{Binding IsSaved, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
+
+            <!-- Dismissible advisory (SPEC §4.9) shown once a completed Distance/Star Type
+                 enrichment pass confirms at least one row is stuck showing "Plot needed"/"Target
+                 needed" - not an error (Secondary palette, not the red ValidationError brush
+                 MainWindow's own playback-failure banner uses, §6.5), just a nudge pointing at
+                 the per-row placeholders themselves, which stay showing regardless of whether
+                 this is dismissed. Re-evaluated (and un-dismissed) fresh on every Save. -->
+            <Border Grid.Row="0"
+                    Visibility="{Binding ShowUnresolvedSystemsBanner, Converter={StaticResource BoolToVisibilityConverter}}"
+                    Background="{DynamicResource MaterialDesign.Brush.Secondary}"
+                    Padding="10,6"
+                    Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <materialDesign:PackIcon Grid.Column="0"
+                                              Kind="InformationOutline"
+                                              Foreground="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,8,0" />
+                    <TextBlock Grid.Column="1"
+                               Text="Some systems couldn't be resolved from EDSM. Follow each row's own &quot;Plot needed&quot;/&quot;Target needed&quot; hint to fill them in, or ignore this - it has no effect on tracking."
+                               Foreground="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="2"
+                            Style="{StaticResource MaterialDesignIconButton}"
+                            Foreground="{DynamicResource MaterialDesign.Brush.Secondary.Foreground}"
+                            Padding="4"
+                            Command="{Binding DismissUnresolvedSystemsBannerCommand}"
+                            ToolTip="Dismiss"
+                            AutomationProperties.Name="Dismiss unresolved systems notice">
+                        <materialDesign:PackIcon Kind="Close" Width="16" Height="16" />
+                    </Button>
+                </Grid>
+            </Border>
 
             <!-- Session-only preference - not shown while editing, not persisted across app
                  restarts. Copies the next system to the clipboard the instant a live-monitored
                  CarrierLocation event is observed for the assigned Captain's carrier, ahead of
                  the route table's own (deliberately delayed) status update. -->
-            <StackPanel Grid.Row="0"
+            <StackPanel Grid.Row="1"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         Margin="0,0,0,8">
@@ -104,7 +150,7 @@
             </StackPanel>
 
             <DataGrid x:Name="RouteDataGrid"
-                      Grid.Row="1"
+                      Grid.Row="2"
                       Style="{StaticResource MaterialDesignDataGrid}"
                       ItemsSource="{Binding Rows}"
                       AutoGenerateColumns="False"
@@ -147,8 +193,12 @@
                 </DataGrid.RowStyle>
                 <DataGrid.Columns>
 
-                    <!-- Blank icon column -->
-                    <DataGridTemplateColumn Header="" Width="Auto" MinWidth="36">
+                    <!-- Blank icon column - a fixed default (not Auto: DataGridTemplateColumn's
+                         Auto-sizing measured this narrower than the 18x18 PackIcon actually
+                         needs on a fresh, never-resized launch, clipping it) - 54 is 50% wider
+                         than the icon's own former 36px MinWidth floor, which stays as a
+                         drag-resize floor below. -->
+                    <DataGridTemplateColumn Header="" Width="54" MinWidth="36">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <materialDesign:PackIcon Visibility="{Binding Icon, Converter={StaticResource RowIconToVisibilityConverter}}"
@@ -231,6 +281,142 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+
+                    <!-- Leg distance, previous row -> this row (row 1's "previous" is wherever the
+                         CMDR's own ship was when the route was last saved) - see
+                         RouteRowViewModel.Distance's own doc comment. Resolved asynchronously
+                         against EDSM after Save/restore; blank while still resolving, or while
+                         blocked only by a neighboring row's own missing data. Once this row's own
+                         coordinates are confirmed unavailable from EDSM, DistanceDisplay switches
+                         to small, light "Plot needed" text instead (SPEC §4.9) - the DataTrigger
+                         below supplies the smaller/muted styling for that placeholder text only,
+                         leaving a real resolved distance at the column's normal text style. Same
+                         ElementStyle centering fix as "#" above - a plain DataGridTextColumn's
+                         generated TextBlock doesn't auto-center against Status's taller row
+                         height. -->
+                    <DataGridTextColumn Header="Distance"
+                                         Binding="{Binding DistanceDisplay}"
+                                         Width="90"
+                                         MinWidth="70">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDistancePlaceholder}" Value="True">
+                                        <Setter Property="FontSize" Value="10" />
+                                        <Setter Property="Opacity" Value="0.6" />
+                                        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- Neutron Plotter routes only (RouteViewModel.IsNeutronRoute) - ordinary
+                         hops since the previous waypoint, straight from Spansh's own response
+                         (RouteRowViewModel.Jumps). Column-level Visibility binds via the
+                         BindingProxy declared above (Source={StaticResource ViewModelProxy}), not
+                         ElementName - confirmed live that an ElementName binding into a
+                         DataGridColumn never actually evaluates (it isn't part of the visual tree,
+                         so ElementName's own tree-walk resolution has nothing to walk from),
+                         leaving every one of these four columns stuck at their DP default of
+                         Visible regardless of RouteType. Reuses BoolToVisibilityConverter (already
+                         declared above) rather than a dedicated converter. -->
+                    <DataGridTextColumn Header="Jumps"
+                                         Binding="{Binding Jumps}"
+                                         Width="60"
+                                         MinWidth="50"
+                                         Visibility="{Binding Data.IsNeutronRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                                <Setter Property="HorizontalAlignment" Value="Center" />
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- Galaxy Plotter routes only (RouteViewModel.IsGalaxyRoute) - whether a
+                         refuel/FSD injection is needed, or this waypoint is a neutron/white dwarf
+                         star, straight from Spansh's own response (RouteRowViewModel.MustRefuel/
+                         MustInject/HasNeutron). Same BindingProxy-based column Visibility
+                         technique as Jumps above; each cell shows a small checkmark icon only when
+                         true - null (this row isn't part of a Galaxy route at all) collapses the
+                         same as false, via the same BoolToVisibilityConverter every bool? binds
+                         through elsewhere in this app. -->
+                    <DataGridTemplateColumn Header="Refuel"
+                                             Width="60"
+                                             MinWidth="50"
+                                             Visibility="{Binding Data.IsGalaxyRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <materialDesign:PackIcon Kind="Check"
+                                                          Width="16"
+                                                          Height="16"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Visibility="{Binding MustRefuel, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Header="Inject"
+                                             Width="60"
+                                             MinWidth="50"
+                                             Visibility="{Binding Data.IsGalaxyRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <materialDesign:PackIcon Kind="Check"
+                                                          Width="16"
+                                                          Height="16"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Visibility="{Binding MustInject, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <DataGridTemplateColumn Header="Neutron"
+                                             Width="70"
+                                             MinWidth="60"
+                                             Visibility="{Binding Data.IsGalaxyRoute, Source={StaticResource ViewModelProxy}, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <materialDesign:PackIcon Kind="Check"
+                                                          Width="16"
+                                                          Height="16"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          Foreground="{DynamicResource MaterialDesign.Brush.Secondary}"
+                                                          Visibility="{Binding HasNeutron, Converter={StaticResource BoolToVisibilityConverter}}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- This row's system's main star's EDSM subType (e.g. "K (Yellow-Orange)
+                         Star") - resolved the same way/timing as Distance above. While this row's
+                         own coordinates are known but star type specifically isn't, StarTypeDisplay
+                         shows small, light "Target needed" text instead (SPEC §4.9) - a single
+                         FSDTarget is enough to fix that, no full route plot required, unlike
+                         Distance's "Plot needed". -->
+                    <DataGridTextColumn Header="Star Type"
+                                         Binding="{Binding StarTypeDisplay}"
+                                         Width="150"
+                                         MinWidth="100">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                <Setter Property="VerticalAlignment" Value="Center" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsStarTypePlaceholder}" Value="True">
+                                        <Setter Property="FontSize" Value="10" />
+                                        <Setter Property="Opacity" Value="0.6" />
+                                        <Setter Property="Foreground" Value="{DynamicResource MaterialDesign.Brush.Secondary}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
 
                     <!-- A thin ProgressBar sits below the Status text (its own Grid row, not
                          overlapping) and visually counts down however long the current status
@@ -327,20 +513,51 @@
                 </DataGrid.Columns>
             </DataGrid>
 
-            <StackPanel Grid.Row="2"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Right"
-                        Margin="0,10,0,0">
+            <!-- Import Current Route + Trim for FC + Auto Pilot pinned to the far left (in their
+                 own StackPanel, so each slides in right after the previous one rather than needing
+                 independent positioning) and Edit to the far right of the same Grid - left-to-right
+                 order follows the sequence a CMDR would actually click them in: import/trim the
+                 route first, then engage Auto Pilot last. Import is always visible, in both
+                 tracking modes, leftmost - it's the sole left-hand button in Ship mode, since
+                 Trim/Auto Pilot (ShowTrimButton/ShowAutoPilotButton) are both Fleet-Carrier-only.
+                 Both Import and Trim replace/rewrite the currently-saved route outright, so both
+                 confirm via a Yes/No dialog before doing anything (see RouteView.xaml.cs) - once
+                 confirmed, each applies immediately (no Edit-state detour, no follow-up dialog),
+                 since there's nothing left to review once the CMDR has already said yes. -->
+            <Grid Grid.Row="3" Margin="0,10,0,0">
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Left">
+                    <Button Content="Import Current Route"
+                            Click="OnImportFromNavRouteClick"
+                            Padding="4"
+                            Margin="0,0,8,0" />
+                    <!-- Fleet Carrier mode only (ShowTrimButton) - collapses the saved route's rows
+                         down to a series of hops no more than 500ly apart (RouteViewModel.
+                         TrimToJumpRange), a planning aid for a route pasted/imported with many
+                         closely-spaced waypoints. -->
+                    <Button Content="Trim for FC"
+                            Click="OnTrimToJumpRangeClick"
+                            Visibility="{Binding ShowTrimButton, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Padding="4"
+                            Margin="0,0,8,0" />
+                    <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
+                            Command="{Binding AutoPilotCommand}"
+                            Visibility="{Binding ShowAutoPilotButton, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Width="90"
+                            Padding="4" />
+                </StackPanel>
+                <!-- IsEnabled (not Command) - see RouteView.xaml.cs.OnEditClick's own doc
+                     comment for why a maybe-cancel confirmation dialog can't live behind a bound
+                     Command (WPF's ButtonBase.OnClick always executes Command right after raising
+                     Click, regardless of anything the Click handler does). EditCommand itself is
+                     unchanged and still called directly, from code-behind, once confirmed. -->
                 <Button Content="Edit"
-                        Command="{Binding EditCommand}"
-                        Width="90"
-                        Padding="4"
-                        Margin="0,0,8,0" />
-                <Button Content="{Binding IsAutoPilotRunning, Converter={StaticResource AutoPilotLabelConverter}}"
-                        Command="{Binding AutoPilotCommand}"
+                        IsEnabled="{Binding CanEdit}"
+                        Click="OnEditClick"
+                        HorizontalAlignment="Right"
                         Width="90"
                         Padding="4" />
-            </StackPanel>
+            </Grid>
         </Grid>
 
     </Grid>

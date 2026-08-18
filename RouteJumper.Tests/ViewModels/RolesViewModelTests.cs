@@ -336,6 +336,74 @@ namespace RouteJumper.Tests.ViewModels
         }
 
         [Fact]
+        public void ToggleCaptain_WhileInactive_DoesNotFireRouteResetEvent()
+        {
+            using var dir = new TempDirectory();
+            var trigger = new ManualRowEventTrigger();
+            var instance = Instance(1);
+            var (vm, _) = Create(dir, new[] { instance }, trigger);
+            vm.SetActive(false);
+
+            var received = false;
+            trigger.RowTriggered += (_, _) => received = true;
+
+            vm.ToggleCaptainCommand.Execute(instance);
+
+            Assert.False(received);
+            Assert.True(instance.IsCaptain); // assignment itself still happens while inactive
+        }
+
+        [Fact]
+        public void SetActive_False_StopsWithoutClearingAssignment()
+        {
+            using var dir = new TempDirectory();
+            var instance = Instance(1);
+            var (vm, _) = Create(dir, new[] { instance });
+            vm.ToggleCaptainCommand.Execute(instance);
+
+            vm.SetActive(false);
+
+            // Assignment (in memory) is untouched by deactivation - only the watcher stops.
+            Assert.True(instance.IsCaptain);
+        }
+
+        [Fact]
+        public void SetActive_TrueWithExistingAssignment_FiresFreshResetEvent()
+        {
+            using var dir = new TempDirectory();
+            var trigger = new ManualRowEventTrigger();
+            var instance = Instance(1);
+            var (vm, _) = Create(dir, new[] { instance }, trigger);
+            vm.SetActive(false);
+            vm.ToggleCaptainCommand.Execute(instance); // assignment persists even while inactive
+
+            var received = false;
+            trigger.RowTriggered += (_, e) => received = e.Kind == RowEventKind.Reset;
+
+            vm.SetActive(true);
+
+            Assert.True(received);
+        }
+
+        [Fact]
+        public void RefreshRouteForCurrentCaptain_WhileInactive_IsNoOp()
+        {
+            using var dir = new TempDirectory();
+            var trigger = new ManualRowEventTrigger();
+            var instance = Instance(1);
+            var (vm, _) = Create(dir, new[] { instance }, trigger);
+            vm.ToggleCaptainCommand.Execute(instance);
+            vm.SetActive(false);
+
+            var received = false;
+            trigger.RowTriggered += (_, _) => received = true;
+
+            vm.RefreshRouteForCurrentCaptain();
+
+            Assert.False(received);
+        }
+
+        [Fact]
         public void ToggleCaptain_UnassignsAndClearsPersistedFid()
         {
             using var dir = new TempDirectory();
@@ -347,6 +415,17 @@ namespace RouteJumper.Tests.ViewModels
 
             var settings = new AppSettingsStore(dir.Path);
             Assert.Equal(string.Empty, settings.GetString("CaptainFid"));
+        }
+
+        [Fact]
+        public async Task InitialScanTask_CompletesOnceConstructorsOwnScanFinishes()
+        {
+            using var dir = new TempDirectory();
+            var (vm, _) = Create(dir, new[] { Instance(1) });
+
+            await vm.InitialScanTask;
+
+            Assert.Single(vm.Instances);
         }
     }
 }

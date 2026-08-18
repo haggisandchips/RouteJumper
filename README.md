@@ -1,8 +1,8 @@
-# ED:FC Auto Pilot
+# ED:FC Auto Pilot
 
-ED:FC Auto Pilot is a Windows desktop utility for **Elite Dangerous** fleet
+ED:FC Auto Pilot is a Windows desktop utility for **Elite Dangerous** fleet
 carrier owners. Paste a route (one star system per line), assign a
-Captain's running game instance to it, and ED:FC Auto Pilot watches that
+Captain's running game instance to it, and ED:FC Auto Pilot watches that
 commander's journal file in real time to track the carrier's progress —
 plotting, jumping, arriving, cooling down — row by row, automatically. An
 optional **Auto Pilot** mode goes a step further: it drives the whole
@@ -10,14 +10,19 @@ route to completion itself, playing back a recorded macro to plot each
 jump (and, with an Engineer assigned, another to refuel the carrier)
 without you touching the keyboard.
 
+A **Ship mode** toggle switches to a leaner, purely passive alternative
+for a solo commander flying their own hand-plotted route (e.g. from a
+neutron-highway planner) — no automation, just the same row-by-row
+progress tracking against your own ship's journal.
+
 This is a fan-made tool and is not affiliated with or endorsed by
 Frontier Developments plc. Elite Dangerous is a trademark of Frontier
 Developments plc.
 
-📖 **For everything beyond installation — the three tabs, macro
+📖 **For everything beyond installation — both tracking modes, macro
 scripting, sample scripts, data locations, development, and
 troubleshooting — see the full
-[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).**
+[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).**
 
 ---
 
@@ -40,7 +45,7 @@ bit of persuasion with some parts but we got there.
 
 - **Windows 10/11**, x64.
 - **[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)**
-  (or the .NET 8 SDK, if building from source) — ED:FC Auto Pilot is a WPF
+  (or the .NET 8 SDK, if building from source) — ED:FC Auto Pilot is a WPF
   app (`net8.0-windows`) and does not run on macOS/Linux.
 - **Elite Dangerous**, with journal logging enabled (on by default) and
   a fleet carrier.
@@ -49,11 +54,9 @@ bit of persuasion with some parts but we got there.
 
 Grab the latest installer (`EDFCAutoPilot-win-Setup.exe`) from the project's
 **[GitHub Releases](https://github.com/haggisandchips/RouteJumper/releases)**
-page and run it. From then on ED:FC Auto Pilot checks for and silently installs
+page and run it. From then on ED:FC Auto Pilot checks for and silently installs
 newer releases itself on launch (via [Velopack](https://velopack.io/)) — no
-need to revisit the Releases page for future updates. See
-[Packaging & distributing releases via GitHub](https://haggisandchips.github.io/RouteJumper/development.html#packaging--distributing-releases-via-github)
-in the docs for how releases are produced.
+need to revisit the Releases page for future updates.
 
 The installer isn't code-signed yet, so Windows SmartScreen may warn on
 first run — the project has applied to the
@@ -73,11 +76,17 @@ open source projects, and this note will be updated once that's in place.
    ```
 
 See the [development docs](https://haggisandchips.github.io/RouteJumper/development.html)
-for running the test suite, the project layout, and cutting releases.
+for running the test suite and the project layout. Pull requests are
+welcome.
 
 ---
 
 ## Quick Start
+
+This is the Fleet Carrier + Auto Pilot flow (the default mode). For Ship
+mode's simpler, passive-tracking-only setup, see the
+[Track tab section](https://haggisandchips.github.io/RouteJumper/#track-tab)
+in the docs.
 
 1. **Route tab** — paste your route (one system per line) and click
    **Save**.
@@ -98,13 +107,13 @@ for running the test suite, the project layout, and cutting releases.
    required once Engineer is assigned).
 4. **Route tab** — click **Auto Pilot**.
 
-ED:FC Auto Pilot announces upcoming actions out loud ("Plotting in 30
+ED:FC Auto Pilot announces upcoming actions out loud ("Plotting in 30
 seconds", "Refueling in 5 seconds") before it plots or refuels — once
 you hear one, keep your hands off the mouse/keyboard, since real input
 is about to be sent to the game.
 
 For a full walkthrough of every tab, see the
-[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).
+[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).
 
 ---
 

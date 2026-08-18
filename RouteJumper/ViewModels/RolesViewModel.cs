@@ -3,6 +3,7 @@ using System.Windows;
 using RouteJumper.Common;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
+using RouteJumper.Services.Logging;
 
 namespace RouteJumper.ViewModels
 {
@@ -21,6 +22,7 @@ namespace RouteJumper.ViewModels
         private readonly ManualRowEventTrigger _routeEventTrigger;
         private readonly AppSettingsStore _settings;
         private readonly Func<ObservableCollection<RecordedMacroViewModel>> _getMacros;
+        private readonly IStarSystemLookupService _starSystemLookupService;
 
         private bool _isRefreshing;
         private string _statusText = string.Empty;
@@ -29,6 +31,9 @@ namespace RouteJumper.ViewModels
         private CarrierRouteJournalWatcher? _captainWatcher;
         private RecordedMacroViewModel? _captainMacro;
         private RecordedMacroViewModel? _engineerMacro;
+
+        /// <summary>Fleet Carrier is the app's default/starting mode - see SetActive.</summary>
+        private bool _isActive = true;
 
         /// <summary>
         /// <paramref name="getMacros"/> resolves the Controls tab's live macro list (SPEC §6.4) -
@@ -40,12 +45,14 @@ namespace RouteJumper.ViewModels
             ManualRowEventTrigger routeEventTrigger,
             AppSettingsStore settings,
             IEliteInstanceScanner scanner,
-            Func<ObservableCollection<RecordedMacroViewModel>> getMacros)
+            Func<ObservableCollection<RecordedMacroViewModel>> getMacros,
+            IStarSystemLookupService? starSystemLookupService = null)
         {
             _routeEventTrigger = routeEventTrigger;
             _settings = settings;
             _scanner = scanner;
             _getMacros = getMacros;
+            _starSystemLookupService = starSystemLookupService ?? new EdsmStarSystemLookupService();
 
             Instances = new ObservableCollection<EliteInstanceViewModel>();
             RefreshCommand = new AsyncRelayCommand(RefreshAsync, () => !IsRefreshing);
@@ -55,8 +62,17 @@ namespace RouteJumper.ViewModels
             ClearCaptainMacroCommand = new RelayCommand(() => CaptainMacro = null);
             ClearEngineerMacroCommand = new RelayCommand(() => EngineerMacro = null);
 
-            _ = RefreshAsync();
+            InitialScanTask = RefreshAsync();
         }
+
+        /// <summary>
+        /// Completes once this constructor's own first scan finishes - lets MainViewModel await a
+        /// restored Captain assignment before re-triggering RouteViewModel's own Distance/Star
+        /// Type enrichment (see RouteViewModel.RefreshEnrichment), since that first scan is
+        /// otherwise still in flight (suspended at its own Task.Run) by the time
+        /// RouteViewModel.RestoreFromSettings' Save() call captures its origin system.
+        /// </summary>
+        public Task InitialScanTask { get; }
 
         /// <summary>
         /// Raised whenever anything CanEngageAutoPilot depends on changes - lets MainViewModel
@@ -180,6 +196,37 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
+        /// Enables/disables this ViewModel's own Captain watcher without touching the Captain
+        /// assignment (in memory or persisted) - called by MainViewModel whenever TrackingMode
+        /// changes (mirrored by TrackViewModel's own SetActive for Ship mode). Turning active
+        /// back on with an already-resolved Captain resumes it with a fresh Reset+catch-up,
+        /// exactly as if Captain had just been (re)assigned. Turning active off just stops the
+        /// watcher; the route table is left exactly as displayed.
+        /// </summary>
+        public void SetActive(bool active)
+        {
+            if (_isActive == active)
+            {
+                return;
+            }
+
+            _isActive = active;
+
+            if (!active)
+            {
+                StopCaptainWatch();
+                return;
+            }
+
+            if (_captainProcessId is { } captainProcessId &&
+                Instances.FirstOrDefault(i => i.ProcessId == captainProcessId) is { } instance)
+            {
+                _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
+                StartCaptainWatch(instance);
+            }
+        }
+
+        /// <summary>
         /// Public so ControlsViewModel can await a fresh Roles-tab scan (via a closure supplied
         /// by MainViewModel) before resolving the TRITIUM_LOOPS macro placeholder against the
         /// Engineer's current cargo/carrier-fuel data - RefreshCommand still wraps this same
@@ -279,11 +326,13 @@ namespace RouteJumper.ViewModels
         /// RouteViewModel.Save already gives every row a clean, freshly-constructed starting
         /// state, so there's no separate Reset to fire here the way ToggleCaptain needs one.
         /// If no Captain is assigned, this is a no-op - Save's own default (row 1 marked next)
-        /// is left standing.
+        /// is left standing. Also a no-op while inactive (see SetActive) - a Save can happen on
+        /// the Route tab regardless of which mode is currently active, and must never wake this
+        /// watcher for the inactive mode.
         /// </summary>
         public void RefreshRouteForCurrentCaptain()
         {
-            if (_captainProcessId is null)
+            if (!_isActive || _captainProcessId is null)
             {
                 return;
             }
@@ -315,8 +364,12 @@ namespace RouteJumper.ViewModels
             {
                 captainMatch.IsCaptain = true;
                 _captainProcessId = captainMatch.ProcessId;
-                _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
-                StartCaptainWatch(captainMatch);
+
+                if (_isActive)
+                {
+                    _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
+                    StartCaptainWatch(captainMatch);
+                }
             }
 
             if (_engineerProcessId is null &&
@@ -345,6 +398,7 @@ namespace RouteJumper.ViewModels
 
             if (instance.IsCaptain)
             {
+                Log.Info("Roles", $"Captain unassigned from {instance.CommanderName}.");
                 instance.IsCaptain = false;
                 _captainProcessId = null;
                 _settings.SetString(CaptainFidSettingKey, string.Empty);
@@ -361,6 +415,7 @@ namespace RouteJumper.ViewModels
                 }
             }
 
+            Log.Info("Roles", $"Captain assigned to {instance.CommanderName} - resetting route and replaying their journal.");
             instance.IsCaptain = true;
             _captainProcessId = instance.ProcessId;
             if (IsRealFid(instance.Fid))
@@ -368,15 +423,18 @@ namespace RouteJumper.ViewModels
                 _settings.SetString(CaptainFidSettingKey, instance.Fid);
             }
 
-            // Assigning Captain to an instance starts the route from a clean slate before
-            // replaying that instance's journal - a previous Captain's leftover progress must
-            // not linger and interfere with matching. Fired synchronously (we're already on the
-            // UI thread here), so it's guaranteed to apply before any of the new watcher's
-            // replayed events, which are always queued via the dispatcher (see
-            // StartCaptainWatch) and so can never run ahead of this.
-            _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
+            if (_isActive)
+            {
+                // Assigning Captain to an instance starts the route from a clean slate before
+                // replaying that instance's journal - a previous Captain's leftover progress
+                // must not linger and interfere with matching. Fired synchronously (we're
+                // already on the UI thread here), so it's guaranteed to apply before any of the
+                // new watcher's replayed events, which are always queued via the dispatcher (see
+                // StartCaptainWatch) and so can never run ahead of this.
+                _routeEventTrigger.Fire(RowEventKind.Reset, string.Empty);
+                StartCaptainWatch(instance);
+            }
 
-            StartCaptainWatch(instance);
             NotifyAutoPilotEligibilityChanged();
 
             // Assigning Captain also triggers a reread to refresh this tab - that same reread
@@ -396,6 +454,7 @@ namespace RouteJumper.ViewModels
 
             if (instance.IsEngineer)
             {
+                Log.Info("Roles", $"Engineer unassigned from {instance.CommanderName}.");
                 instance.IsEngineer = false;
                 _engineerProcessId = null;
                 _settings.SetString(EngineerFidSettingKey, string.Empty);
@@ -416,6 +475,7 @@ namespace RouteJumper.ViewModels
                 }
             }
 
+            Log.Info("Roles", $"Engineer assigned to {instance.CommanderName}.");
             instance.IsEngineer = true;
             _engineerProcessId = instance.ProcessId;
             if (IsRealFid(instance.Fid))
@@ -440,6 +500,8 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
+            Log.Info("Roles", $"Captain journal watch started for {instance.CommanderName} ({instance.JournalFilePath}).");
+
             var dispatcher = Application.Current.Dispatcher;
             _captainWatcher = new CarrierRouteJournalWatcher(
                 instance.JournalFilePath,
@@ -453,14 +515,21 @@ namespace RouteJumper.ViewModels
                     {
                         RefreshCommand.Execute(null);
                     }
-                }));
+                }),
+                _starSystemLookupService);
 
             _ = _captainWatcher.StartAsync();
         }
 
         private void StopCaptainWatch()
         {
-            _captainWatcher?.Dispose();
+            if (_captainWatcher is null)
+            {
+                return;
+            }
+
+            Log.Info("Roles", "Captain journal watch stopped.");
+            _captainWatcher.Dispose();
             _captainWatcher = null;
         }
     }

@@ -8,6 +8,7 @@ namespace RouteJumper.Converters
     /// <summary>
     /// Maps a row's icon state and current status to the PackIconKind used to render it:
     ///   Complete                          -> Check (tick)
+    ///   InProgress, Status == "Targeted" -> Target (Ship mode only - see RowEventKind.Targeted)
     ///   InProgress, Status == "Plotting" -> ProgressClock
     ///   InProgress, Status == "Plotted"  -> Hourglass
     ///   InProgress, Status == "Jumping"  -> RocketLaunch
@@ -31,6 +32,8 @@ namespace RouteJumper.Converters
             {
                 switch (status)
                 {
+                    case "Targeted":
+                        return PackIconKind.Target;
                     case "Plotting":
                         return PackIconKind.ProgressClock;
                     case "Plotted":

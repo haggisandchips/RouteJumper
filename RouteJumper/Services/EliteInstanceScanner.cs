@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
+using RouteJumper.Models;
+using RouteJumper.Services.Logging;
 using RouteJumper.ViewModels;
 
 namespace RouteJumper.Services
@@ -33,6 +35,7 @@ namespace RouteJumper.Services
             using var processes = new ProcessList(Process.GetProcessesByName(ProcessName));
             if (processes.Items.Count == 0)
             {
+                Log.Debug("Scan", "No running Elite Dangerous instances found.");
                 return Array.Empty<EliteInstanceViewModel>();
             }
 
@@ -53,6 +56,7 @@ namespace RouteJumper.Services
                 results.Add(BuildInstanceInfo(process, journalPath));
             }
 
+            Log.Debug("Scan", $"Found {results.Count} running Elite Dangerous instance(s).");
             return results;
         }
 
@@ -146,7 +150,10 @@ namespace RouteJumper.Services
                 summary.CarrierBody,
                 journalPath,
                 summary.CarrierId,
-                summary.CarrierFuelLevel);
+                summary.CarrierFuelLevel,
+                summary.CarrierLastDepositUtc,
+                summary.MaxJumpRange,
+                summary.HasOverchargedFsd);
         }
 
         private static DateTime? TryReadFileheaderTimestampUtc(string path)
@@ -205,6 +212,29 @@ namespace RouteJumper.Services
             public int? CargoCapacity { get; init; }
 
             /// <summary>
+            /// The ship's own maximum jump range (ly), from the most recent Loadout event's
+            /// MaxJumpRange field - Frontier computes this for a full fuel tank with whatever
+            /// cargo is currently loaded, not necessarily zero cargo (there's no separate
+            /// "unladen range" field in the journal). Confirmed in practice to read higher than
+            /// the ship's real fully-fuelled, zero-cargo range, so it does *not* pre-fill the
+            /// Spansh dialog's Neutron Plotter Range field (§4.12) - the CMDR types that in by
+            /// hand instead. Captured here regardless, ready for a future proper unladen-range
+            /// calculation to build on.
+            /// </summary>
+            public double? MaxJumpRange { get; init; }
+
+            /// <summary>
+            /// True if the most recent Loadout event's FrameShiftDrive slot is filled with an
+            /// overcharged FSD booster (an <c>Item</c> ending in "_overchargebooster_mkii",
+            /// case-insensitive - the only known variant as of writing is
+            /// <c>int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii</c>, but matching
+            /// on the suffix alone rather than the full id is deliberately future-proof against
+            /// further size/class variants). Used to default the Spansh dialog's Neutron Plotter
+            /// tab (§4.12) to the overcharge supercharge multiplier rather than the regular one.
+            /// </summary>
+            public bool HasOverchargedFsd { get; init; }
+
+            /// <summary>
             /// Defaults to 0, not null - see ReadJournalSummary for why "no Cargo event seen
             /// yet" means an empty hold, not unknown data.
             /// </summary>
@@ -249,6 +279,15 @@ namespace RouteJumper.Services
             /// has been seen for this carrier yet this session.
             /// </summary>
             public int? CarrierFuelLevel { get; init; }
+
+            /// <summary>
+            /// UTC timestamp of the most recent CarrierDepositFuel event for the resolved owned
+            /// CarrierID - see EliteInstanceViewModel.CarrierLastDepositUtc for why this, not a
+            /// before/after CarrierFuelLevel comparison, is what AutoPilotController's Engineer-
+            /// refuel panic check relies on. Null if no deposit into this carrier has been seen
+            /// yet this session.
+            /// </summary>
+            public DateTime? CarrierLastDepositUtc { get; init; }
         }
 
         internal static JournalSummary ReadJournalSummary(string path)
@@ -256,6 +295,8 @@ namespace RouteJumper.Services
             string? commanderName = null;
             string? fid = null;
             int? cargoCapacity = null;
+            double? maxJumpRange = null;
+            bool hasOverchargedFsd = false;
 
             // The ship's Cargo event's own Count includes tritium, so it can't be used directly -
             // what matters for fleet carrier jump planning is free space *for* tritium, and
@@ -291,6 +332,15 @@ namespace RouteJumper.Services
             // level for whichever carrier their own CarrierID names, not necessarily this
             // commander's own.
             var carrierFuelById = new Dictionary<long, int>();
+
+            // Same ownership-agnostic-until-resolved pattern as carrierFuelById above - the
+            // timestamp of the most recent deposit into whichever CarrierID it names, resolved
+            // against ownedCarrierId once the full pass is done. This is what lets a refuel be
+            // confirmed by "did a deposit genuinely happen just now" rather than "did the fuel
+            // number end up higher than whatever was last known" - the latter goes stale the
+            // moment a jump (which consumes fuel with no journal event of its own) happens
+            // between the last known reading and this deposit.
+            var carrierLastDepositUtcById = new Dictionary<long, DateTime>();
 
             try
             {
@@ -332,6 +382,11 @@ namespace RouteJumper.Services
                                 {
                                     cargoCapacity = capValue;
                                 }
+                                if (root.TryGetProperty("MaxJumpRange", out var range) && range.TryGetDouble(out var rangeValue))
+                                {
+                                    maxJumpRange = rangeValue;
+                                }
+                                hasOverchargedFsd = HasOverchargedFrameShiftDrive(root);
                                 break;
 
                             case "Cargo":
@@ -404,10 +459,17 @@ namespace RouteJumper.Services
                                 {
                                     trackedTritium = Math.Max(0, trackedTritium - depositAmountValue);
                                 }
-                                if (root.TryGetProperty("CarrierID", out var depositCarrierId) && depositCarrierId.TryGetInt64(out var depositCarrierIdValue) &&
-                                    root.TryGetProperty("Total", out var depositTotal) && depositTotal.TryGetInt32(out var depositTotalValue))
+                                if (root.TryGetProperty("CarrierID", out var depositCarrierId) && depositCarrierId.TryGetInt64(out var depositCarrierIdValue))
                                 {
-                                    carrierFuelById[depositCarrierIdValue] = depositTotalValue;
+                                    if (root.TryGetProperty("Total", out var depositTotal) && depositTotal.TryGetInt32(out var depositTotalValue))
+                                    {
+                                        carrierFuelById[depositCarrierIdValue] = depositTotalValue;
+                                    }
+
+                                    if (TryReadEventTimestampUtc(root, out var depositTimestampUtc))
+                                    {
+                                        carrierLastDepositUtcById[depositCarrierIdValue] = depositTimestampUtc;
+                                    }
                                 }
                                 break;
 
@@ -537,12 +599,17 @@ namespace RouteJumper.Services
             var carrierFuelLevel = resolvedCarrierId.HasValue && carrierFuelById.TryGetValue(resolvedCarrierId.Value, out var fuel)
                 ? fuel
                 : (int?)null;
+            var carrierLastDepositUtc = resolvedCarrierId.HasValue && carrierLastDepositUtcById.TryGetValue(resolvedCarrierId.Value, out var depositUtc)
+                ? depositUtc
+                : (DateTime?)null;
 
             return new JournalSummary
             {
                 CommanderName = commanderName,
                 Fid = fid,
                 CargoCapacity = cargoCapacity,
+                MaxJumpRange = maxJumpRange,
+                HasOverchargedFsd = hasOverchargedFsd,
                 CurrentCargo = Math.Max(0, latestRawShipCargo - trackedTritium),
                 CurrentTritium = trackedTritium,
                 CurrentSystem = currentSystem,
@@ -551,12 +618,190 @@ namespace RouteJumper.Services
                 CarrierId = resolvedCarrierId,
                 CarrierSystem = carrierSystem,
                 CarrierBody = carrierBody,
-                CarrierFuelLevel = carrierFuelLevel
+                CarrierFuelLevel = carrierFuelLevel,
+                CarrierLastDepositUtc = carrierLastDepositUtc
             };
+        }
+
+        /// <summary>Parses an event's own "timestamp" field the same way TryReadFileheaderTimestampUtc does for the journal's first line.</summary>
+        private static bool TryReadEventTimestampUtc(JsonElement root, out DateTime timestampUtc)
+        {
+            timestampUtc = default;
+            if (root.TryGetProperty("timestamp", out var ts) && ts.GetString() is { } text &&
+                DateTime.TryParse(
+                    text,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                    out var parsed))
+            {
+                timestampUtc = parsed;
+                return true;
+            }
+
+            return false;
         }
 
         private static string? GetString(JsonElement root, string propertyName) =>
             root.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+
+        /// <summary>
+        /// True if a Loadout event's own Modules array has the FrameShiftDrive slot filled with
+        /// an overcharged FSD booster - matched by its Item id ending in
+        /// "_overchargebooster_mkii" (case-insensitive) rather than the full id, so a future
+        /// size/class variant of the same booster is still recognised without a code change.
+        /// </summary>
+        private static bool HasOverchargedFrameShiftDrive(JsonElement loadoutRoot)
+        {
+            if (!loadoutRoot.TryGetProperty("Modules", out var modules) || modules.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var module in modules.EnumerateArray())
+            {
+                if (string.Equals(GetString(module, "Slot"), "FrameShiftDrive", StringComparison.OrdinalIgnoreCase))
+                {
+                    var item = GetString(module, "Item");
+                    return item != null && item.EndsWith("_overchargebooster_mkii", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// A second, on-demand read of one journal file - unlike ReadJournalSummary (called on
+        /// every scan for every instance), this is only called when the Galaxy Plotter tab needs
+        /// a full ship build (Services/Spansh/ShipBuildDerivation, SlefSerializer), so it isn't
+        /// worth folding into the regular scan pass. Same "latest Loadout event wins" rule as
+        /// ReadJournalSummary's own CargoCapacity/MaxJumpRange/HasOverchargedFsd fields, but keeps
+        /// the full Modules array (including Engineering) plus Ship/UnladenMass/FuelCapacity that
+        /// ReadJournalSummary discards. Returns null if the file couldn't be read, or no Loadout
+        /// event has been logged in it at all this session - a Galaxy Plotter route genuinely
+        /// cannot be built without one. Internal (not private) so RouteJumper.Tests can exercise
+        /// it directly, same precedent as ReadJournalSummary.
+        /// </summary>
+        internal static LoadoutSnapshot? ReadLoadoutSnapshot(string path)
+        {
+            LoadoutSnapshot? snapshot = null;
+
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+
+                string? line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    if (JournalEventName.Extract(line) != "Loadout")
+                    {
+                        continue;
+                    }
+
+                    JsonDocument doc;
+                    try
+                    {
+                        doc = JsonDocument.Parse(line);
+                    }
+                    catch (JsonException)
+                    {
+                        continue;
+                    }
+
+                    using (doc)
+                    {
+                        snapshot = ParseLoadoutSnapshot(doc.RootElement);
+                    }
+                }
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+
+            return snapshot;
+        }
+
+        private static LoadoutSnapshot ParseLoadoutSnapshot(JsonElement root)
+        {
+            var ship = GetString(root, "Ship") ?? string.Empty;
+
+            double unladenMass = 0;
+            if (root.TryGetProperty("UnladenMass", out var unladenEl) && unladenEl.TryGetDouble(out var unladenValue))
+            {
+                unladenMass = unladenValue;
+            }
+
+            double fuelMain = 0, fuelReserve = 0;
+            if (root.TryGetProperty("FuelCapacity", out var fuelCapacity) && fuelCapacity.ValueKind == JsonValueKind.Object)
+            {
+                if (fuelCapacity.TryGetProperty("Main", out var mainEl) && mainEl.TryGetDouble(out var mainValue))
+                {
+                    fuelMain = mainValue;
+                }
+                if (fuelCapacity.TryGetProperty("Reserve", out var reserveEl) && reserveEl.TryGetDouble(out var reserveValue))
+                {
+                    fuelReserve = reserveValue;
+                }
+            }
+
+            var modules = new List<LoadoutModule>();
+            if (root.TryGetProperty("Modules", out var modulesEl) && modulesEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var module in modulesEl.EnumerateArray())
+                {
+                    var slot = GetString(module, "Slot");
+                    var item = GetString(module, "Item");
+                    if (slot is null || item is null)
+                    {
+                        continue;
+                    }
+
+                    modules.Add(new LoadoutModule(slot, item, ParseEngineering(module)));
+                }
+            }
+
+            return new LoadoutSnapshot(ship, modules, unladenMass, fuelMain, fuelReserve);
+        }
+
+        private static LoadoutModuleEngineering? ParseEngineering(JsonElement module)
+        {
+            if (!module.TryGetProperty("Engineering", out var engineering) || engineering.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var blueprintName = GetString(engineering, "BlueprintName");
+
+            var level = 0;
+            if (engineering.TryGetProperty("Level", out var levelEl) && levelEl.TryGetInt32(out var levelValue))
+            {
+                level = levelValue;
+            }
+
+            double quality = 0;
+            if (engineering.TryGetProperty("Quality", out var qualityEl) && qualityEl.TryGetDouble(out var qualityValue))
+            {
+                quality = qualityValue;
+            }
+
+            var experimentalEffect = GetString(engineering, "ExperimentalEffect");
+
+            var modifiers = new List<LoadoutModuleModifier>();
+            if (engineering.TryGetProperty("Modifiers", out var modifiersEl) && modifiersEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var modifier in modifiersEl.EnumerateArray())
+                {
+                    var label = GetString(modifier, "Label");
+                    if (label != null && modifier.TryGetProperty("Value", out var valueEl) && valueEl.TryGetDouble(out var value))
+                    {
+                        modifiers.Add(new LoadoutModuleModifier(label, value));
+                    }
+                }
+            }
+
+            return new LoadoutModuleEngineering(blueprintName, level, quality, experimentalEffect, modifiers);
+        }
 
         /// <summary>
         /// Pulls just the tritium entry's Count out of a Cargo event's per-commodity Inventory

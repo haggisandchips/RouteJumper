@@ -22,6 +22,8 @@
     <Window.Resources>
         <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
         <converters:MuteIconConverter x:Key="MuteIconConverter" />
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
     </Window.Resources>
 
     <Grid>
@@ -40,6 +42,7 @@
                 BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -47,17 +50,66 @@
                 <Menu Grid.Column="0" Background="Transparent">
                     <MenuItem Header="_File">
                         <MenuItem Header="_Preferences…" Click="OnPreferencesClick" />
-                        <MenuItem Header="Check for _Updates" Click="OnCheckForUpdatesClick" />
-                        <Separator />
-                        <MenuItem Header="_About" Click="OnAboutClick" />
                         <Separator />
                         <MenuItem Header="E_xit" Click="OnExitClick" />
                     </MenuItem>
+                    <MenuItem Header="_Spansh">
+                        <MenuItem Header="_Fleet Carrier…" Click="OnSpanshFleetCarrierClick" />
+                        <MenuItem Header="_Neutron Plotter…" Click="OnSpanshNeutronPlotterClick" />
+                        <MenuItem Header="_Galaxy Plotter…" Click="OnSpanshGalaxyPlotterClick" />
+                    </MenuItem>
+                    <MenuItem Header="_Help">
+                        <MenuItem Header="_Logs" Click="OnLogsClick" />
+                        <MenuItem Header="Check for _Updates" Click="OnCheckForUpdatesClick" />
+                        <MenuItem Header="_About" Click="OnAboutClick" />
+                    </MenuItem>
                 </Menu>
+
+                <!-- Switches between Fleet Carrier mode (Roles/Controls tabs, Auto Pilot) and
+                     Ship mode (Track tab, no automation) - see MainViewModel.ApplyMode. A pair of
+                     mutually-exclusive choice chips (same RadioButton GroupName), Fleet Carrier
+                     first since it's the default mode, centred in the toolbar strip (this middle
+                     column stretches; File/mute stay Auto-sized either side of it), always visible
+                     regardless of which tab is active. No "Mode" label - which chip is selected
+                     already makes that obvious. Each chip's own ToolTip explains what switching to
+                     it does, but only while it's the "other" (not-currently-selected) chip -
+                     ToolTipService.IsEnabled is bound to the opposite of that chip's own
+                     IsChecked, since the currently-active mode needs no explanation of what
+                     choosing it would do.
+
+                     The Fleet Carrier chip is additionally disabled
+                     (CanSelectFleetCarrierMode) for as long as the saved route is Neutron/Galaxy-
+                     typed - Ship mode is forced the instant such a route is saved/restored
+                     (MainViewModel.OnRouteTypeChanged), so this chip is always the "other" one in
+                     that state and its own ToolTip (now bound, not a literal string) explains why
+                     rather than what switching to it would do. ToolTipService.ShowOnDisabled is
+                     needed here specifically - WPF suppresses a Control's own ToolTip entirely
+                     while IsEnabled is false unless this is explicitly turned on, which would
+                     otherwise hide the one explanation that actually matters in this state. -->
+                <StackPanel Grid.Column="1"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <RadioButton Content="Fleet Carrier"
+                                 GroupName="TrackingMode"
+                                 Style="{StaticResource MaterialDesignChoiceChipPrimaryRadioButton}"
+                                 IsChecked="{Binding IsShipMode, Mode=TwoWay, Converter={StaticResource InverseBooleanConverter}}"
+                                 IsEnabled="{Binding CanSelectFleetCarrierMode}"
+                                 ToolTip="{Binding FleetCarrierModeTooltip}"
+                                 ToolTipService.IsEnabled="{Binding IsShipMode}"
+                                 ToolTipService.ShowOnDisabled="True"
+                                 Margin="0,0,4,0" />
+                    <RadioButton Content="Ship"
+                                 GroupName="TrackingMode"
+                                 Style="{StaticResource MaterialDesignChoiceChipPrimaryRadioButton}"
+                                 IsChecked="{Binding IsShipMode, Mode=TwoWay}"
+                                 ToolTip="Passively track your own ship along a manually-flown route - no automation, you plot and fly every jump yourself."
+                                 ToolTipService.IsEnabled="{Binding IsShipMode, Converter={StaticResource InverseBooleanConverter}}" />
+                </StackPanel>
 
                 <!-- Silences Auto Pilot's spoken plot/refuel announcements (SpeechAnnouncer.Speak) -
                      does not affect the Preferences dialog's own Test button, which always plays. -->
-                <Button Grid.Column="1"
+                <Button Grid.Column="2"
                         Style="{StaticResource MaterialDesignIconButton}"
                         Command="{Binding SpeechAnnouncer.ToggleMuteCommand}"
                         ToolTip="Mute/unmute spoken announcements"
@@ -106,15 +158,22 @@
             </Grid>
         </Border>
 
-        <TabControl Grid.Row="2" Margin="8" TabStripPlacement="Left">
+        <TabControl Grid.Row="2" Margin="8" TabStripPlacement="Left"
+                    SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
             <TabItem Header="Route">
                 <views:RouteView DataContext="{Binding RouteViewModel}" />
             </TabItem>
-            <TabItem Header="Roles">
+            <TabItem Header="Roles"
+                     Visibility="{Binding IsShipMode, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}">
                 <views:RolesView DataContext="{Binding RolesViewModel}" />
             </TabItem>
-            <TabItem Header="Controls">
+            <TabItem Header="Controls"
+                     Visibility="{Binding IsShipMode, Converter={StaticResource BoolToVisibilityConverter}, ConverterParameter=Invert}">
                 <views:ControlsView DataContext="{Binding ControlsViewModel}" />
+            </TabItem>
+            <TabItem Header="Track"
+                     Visibility="{Binding IsShipMode, Converter={StaticResource BoolToVisibilityConverter}}">
+                <views:TrackView DataContext="{Binding TrackViewModel}" />
             </TabItem>
         </TabControl>
     </Grid>

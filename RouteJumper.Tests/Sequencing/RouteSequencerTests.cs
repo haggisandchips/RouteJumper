@@ -66,6 +66,265 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
+        public void Targeted_SetsTargetRowInProgressAndTargetedStatus()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+
+            trigger.Fire(RowEventKind.Targeted, "Sol");
+
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+            Assert.Equal("Targeted", rows[0].Status);
+        }
+
+        [Fact]
+        public void Targeted_WhileAnotherRowIsJumping_IsDeferredNotAppliedImmediately()
+        {
+            // Real journal data: the game's own multi-route auto-target behaviour typically
+            // fires the *next* hop's FSDTarget while the *current* hop is still charging.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Jumping";
+
+            trigger.Fire(RowEventKind.Targeted, "Deciat");
+
+            Assert.Equal(RowIcon.None, rows[1].Icon);
+            Assert.Equal(string.Empty, rows[1].Status);
+        }
+
+        [Fact]
+        public void Targeted_WhileAnotherRowShowingCooldown_IsDeferred()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat", "Wolf 359");
+            rows[1].Icon = RowIcon.InProgress;
+            rows[1].Status = "Cooldown";
+
+            trigger.Fire(RowEventKind.Targeted, "Wolf 359");
+
+            Assert.Equal(RowIcon.None, rows[2].Icon);
+            Assert.Equal(string.Empty, rows[2].Status);
+        }
+
+        [Fact]
+        public void Targeted_DeferredWhileJumping_AppliesOnceCooldownElapsedFires()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Jumping";
+            trigger.Fire(RowEventKind.Targeted, "Deciat"); // deferred - row 0 still Jumping
+
+            trigger.Fire(RowEventKind.Arrived, "Sol", isLive: true, phaseEndUtc: DateTime.UtcNow.AddMinutes(5));
+            Assert.Equal("Cooldown", rows[1].Status); // still not "Targeted" yet
+
+            trigger.Fire(RowEventKind.CooldownElapsed, "Sol");
+
+            Assert.Equal("Targeted", rows[1].Status);
+        }
+
+        [Fact]
+        public void Targeted_SystemNotInRoute_ClearsExistingTargetedStatusButLeavesIconInProgress()
+        {
+            // Real-world scenario: the CMDR manually targets an off-route system, realises it's
+            // too far for one jump, and plots a multi-jump in-game route to somewhere else
+            // instead - the new route's own first-hop FSDTarget names an intermediate system the
+            // pasted route never mentions at all. The row previously shown "Targeted" must not be
+            // left stuck showing a target the ship is no longer actually pointed at.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            trigger.Fire(RowEventKind.Targeted, "Sol");
+            Assert.Equal("Targeted", rows[0].Status);
+
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System");
+
+            Assert.Equal(string.Empty, rows[0].Status);
+            // Still the correct next system to reach - only the stale label was wrong.
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+        }
+
+        [Fact]
+        public void Targeted_DifferentInRouteRowTargetedNext_ClearsThePreviousRowsTargetedStatus()
+        {
+            // Regression test: FindTargetIndex's own Targeted matching has no status precondition
+            // (unlike Jumping/Plotting), so it can land on a genuinely *different* row than
+            // whichever one currently holds "Targeted" (e.g. the CMDR re-targeting a different
+            // in-route waypoint before the old target ever resolved) - the old row must not be
+            // left stuck showing "Targeted" too. There can only ever be one.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat", "Wolf 359");
+            trigger.Fire(RowEventKind.Targeted, "Sol");
+            Assert.Equal("Targeted", rows[0].Status);
+
+            trigger.Fire(RowEventKind.Targeted, "Wolf 359");
+
+            Assert.Equal(string.Empty, rows[0].Status);
+            Assert.Equal("Targeted", rows[2].Status);
+            Assert.Single(rows, r => r.Status == "Targeted");
+        }
+
+        [Fact]
+        public void Targeted_DeferredForDifferentRow_ClearsAnyOtherRowsTargetedStatusOnceFlushed()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat", "Wolf 359");
+            trigger.Fire(RowEventKind.Targeted, "Sol");
+            Assert.Equal("Targeted", rows[0].Status);
+
+            rows[1].Icon = RowIcon.InProgress;
+            rows[1].Status = "Jumping"; // holds the next Targeted event back until it clears
+            trigger.Fire(RowEventKind.Targeted, "Wolf 359"); // deferred
+
+            trigger.Fire(RowEventKind.CooldownElapsed, "Deciat"); // flush point
+
+            Assert.Equal(string.Empty, rows[0].Status);
+            Assert.Equal("Targeted", rows[2].Status);
+            Assert.Single(rows, r => r.Status == "Targeted");
+        }
+
+        [Fact]
+        public void Targeted_SystemNotInRoute_NoRowCurrentlyTargeted_IsNoOp()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System");
+
+            Assert.All(rows, r =>
+            {
+                Assert.Equal(RowIcon.None, r.Icon);
+                Assert.Equal(string.Empty, r.Status);
+            });
+        }
+
+        [Fact]
+        public void Targeted_DeferredSystemNotInRoute_ClearsExistingTargetedOnceFlushed()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Targeted";
+            rows[1].Icon = RowIcon.InProgress;
+            rows[1].Status = "Jumping"; // holds the Targeted event back until CooldownElapsed fires
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System"); // deferred
+
+            trigger.Fire(RowEventKind.CooldownElapsed, "Deciat");
+
+            Assert.Equal(string.Empty, rows[0].Status);
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+        }
+
+        [Fact]
+        public void ClearingTargeted_OnRowThatIsNotTheGenuineCurrentRow_RevertsIconToNone()
+        {
+            // Regression test: a row that only ever became InProgress *because* it was Targeted -
+            // not because real, confirmed progress (Arrived) actually reached it - must not be
+            // left looking like "the next system the route expects to reach" (the Play triangle)
+            // once Targeted clears.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat", "Wolf 359");
+            // Row 0 ("Sol") is the route's genuine current row - what a real freshly-Saved route
+            // (or one caught up via a real Arrived event) always has as its one InProgress row.
+            rows[0].Icon = RowIcon.InProgress;
+
+            trigger.Fire(RowEventKind.Targeted, "Wolf 359"); // a different, later row
+            Assert.Equal(RowIcon.InProgress, rows[2].Icon);
+            Assert.Equal("Targeted", rows[2].Status);
+
+            trigger.Fire(RowEventKind.Targeted, "Some Intermediate System"); // off-route - clears it
+
+            Assert.Equal(RowIcon.None, rows[2].Icon);
+            Assert.Equal(string.Empty, rows[2].Status);
+            // The genuine current row (Sol) is completely unaffected throughout.
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+            Assert.Equal(string.Empty, rows[0].Status);
+        }
+
+        [Fact]
+        public void ClearingTargeted_OnTheGenuineCurrentRow_LeavesIconInProgress()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+
+            trigger.Fire(RowEventKind.Targeted, "Sol");
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+
+            trigger.Fire(RowEventKind.Targeted, "Somewhere else entirely");
+
+            // Sol is still the route's one genuine current row - clearing its stale Targeted
+            // label must not erase its own legitimate InProgress icon.
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+            Assert.Equal(string.Empty, rows[0].Status);
+        }
+
+        [Fact]
+        public void RetargetingADifferentRow_RevertsThePreviousNonCurrentTargetedRowToNone()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat", "Wolf 359");
+            rows[0].Icon = RowIcon.InProgress; // the route's genuine current row
+
+            trigger.Fire(RowEventKind.Targeted, "Deciat"); // not the genuine current row (Sol is)
+            Assert.Equal(RowIcon.InProgress, rows[1].Icon);
+
+            trigger.Fire(RowEventKind.Targeted, "Wolf 359"); // re-targeted elsewhere, still not current
+
+            Assert.Equal(RowIcon.None, rows[1].Icon);
+            Assert.Equal(string.Empty, rows[1].Status);
+            Assert.Equal(RowIcon.InProgress, rows[2].Icon);
+            Assert.Equal("Targeted", rows[2].Status);
+            // Sol, the genuine current row, was never touched by any of this targeting churn -
+            // exactly the "repeatedly targeting random systems without ever jumping" scenario.
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon);
+            Assert.Equal(string.Empty, rows[0].Status);
+        }
+
+        [Fact]
+        public void TargetCleared_ClearsTargetedRowAndRevertsIconIfNotGenuineCurrent()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+
+            trigger.Fire(RowEventKind.Targeted, "Deciat"); // not the genuine current row (Sol is)
+            Assert.Equal(RowIcon.InProgress, rows[1].Icon);
+
+            trigger.Fire(RowEventKind.TargetCleared, string.Empty);
+
+            Assert.Equal(RowIcon.None, rows[1].Icon);
+            Assert.Equal(string.Empty, rows[1].Status);
+        }
+
+        [Fact]
+        public void TargetCleared_NoRowCurrentlyTargeted_IsNoOp()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+            rows[0].Icon = RowIcon.InProgress; // the route's genuine current row
+
+            trigger.Fire(RowEventKind.TargetCleared, string.Empty);
+
+            Assert.Equal(RowIcon.InProgress, rows[0].Icon); // default genuine current row, untouched
+            Assert.Equal(string.Empty, rows[0].Status);
+        }
+
+        [Fact]
+        public void TargetCleared_AlsoClearsAnyDeferredTargeted()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Jumping";
+            trigger.Fire(RowEventKind.Targeted, "Deciat"); // deferred - row 0 still Jumping
+
+            trigger.Fire(RowEventKind.TargetCleared, string.Empty);
+            trigger.Fire(RowEventKind.Arrived, "Sol", isLive: true, phaseEndUtc: DateTime.UtcNow.AddMinutes(5));
+            trigger.Fire(RowEventKind.CooldownElapsed, "Sol"); // flush point - would apply the deferred Targeted if not cleared
+
+            Assert.Equal(string.Empty, rows[1].Status);
+        }
+
+        [Fact]
+        public void Reset_ClearsAnyDeferredTargeted()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Jumping";
+            trigger.Fire(RowEventKind.Targeted, "Deciat"); // deferred
+
+            trigger.Fire(RowEventKind.Reset, string.Empty);
+            // Would have flushed the stale deferred Targeted onto row 1 if Reset hadn't cleared it.
+            trigger.Fire(RowEventKind.CooldownElapsed, "Sol");
+
+            Assert.Equal(string.Empty, rows[1].Status);
+        }
+
+        [Fact]
         public void Plotting_SetsTargetRowInProgressAndPlottingStatusWithNoPhaseEnd()
         {
             var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri");
@@ -141,8 +400,13 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
-        public void Plotted_CompletesEveryEarlierNotYetCompleteRow()
+        public void Plotted_CatchUp_CompletesEveryEarlierNotYetCompleteRow()
         {
+            // isLive defaults to false (see ManualRowEventTrigger.Fire) - this is the one-off
+            // historical catch-up scenario the sweep exists for (e.g. after an app restart
+            // mid-journey, one derived event bringing several rows up to date at once). See the
+            // "Live" counterpart below for why this must *not* also happen for a genuinely live
+            // event.
             var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri", "Wolf 359");
 
             trigger.Fire(RowEventKind.Plotted, "Wolf 359");
@@ -152,6 +416,51 @@ namespace RouteJumper.Tests.Sequencing
             Assert.Equal(RowIcon.Complete, rows[1].Icon);
             Assert.Equal(RowIcon.InProgress, rows[2].Icon);
             Assert.Equal("Plotted", rows[2].Status);
+        }
+
+        [Fact]
+        public void Plotted_Live_TargetingRowFurtherAhead_AlsoCompletesSkippedRows()
+        {
+            // Plotted/Arrived both represent authoritative, confirmed progress (a real carrier
+            // jump request, or - Ship mode - a real Location/FSDJump-derived position), live or
+            // replayed alike - see ApplyRowEvent's own doc comment for why this must sweep the
+            // same way regardless of IsLive. A mere *intention* (Targeted) is the one thing that
+            // never sweeps - see the Targeted-specific tests above.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri", "Wolf 359");
+
+            trigger.Fire(RowEventKind.Plotted, "Wolf 359", isLive: true);
+
+            Assert.Equal(RowIcon.Complete, rows[0].Icon);
+            Assert.Equal(RowIcon.Complete, rows[1].Icon);
+            Assert.Equal(RowIcon.InProgress, rows[2].Icon);
+            Assert.Equal("Plotted", rows[2].Status);
+        }
+
+        [Fact]
+        public void Arrived_Live_SkippingAheadPastNeverVisitedRows_AlsoCompletesSkippedRows()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri", "Wolf 359");
+
+            trigger.Fire(RowEventKind.Arrived, "Wolf 359", isLive: true);
+
+            Assert.Equal(RowIcon.Complete, rows[0].Icon);
+            Assert.Equal(RowIcon.Complete, rows[1].Icon);
+            Assert.Equal(RowIcon.Complete, rows[2].Icon);
+        }
+
+        [Fact]
+        public void Arrived_CatchUp_StillCompletesEveryEarlierNotYetCompleteRow()
+        {
+            // The catch-up path is unaffected by the live-only gating above - a fresh Captain/
+            // tracked-instance assignment must still be able to catch the whole table up from a
+            // single derived "here's where things actually stand" result.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri", "Wolf 359");
+
+            trigger.Fire(RowEventKind.Arrived, "Wolf 359", isLive: false);
+
+            Assert.Equal(RowIcon.Complete, rows[0].Icon);
+            Assert.Equal(RowIcon.Complete, rows[1].Icon);
+            Assert.Equal(RowIcon.Complete, rows[2].Icon);
         }
 
         [Fact]
@@ -191,15 +500,43 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
-        public void Jumping_StaleEventForRowNotCurrentlyPlotted_IsNoOp()
+        public void Jumping_StaleEventForRowInCooldown_IsNoOp()
         {
             var (_, trigger, rows) = CreateWithRows("Sol");
             rows[0].Icon = RowIcon.InProgress;
-            rows[0].Status = string.Empty; // never plotted, or already moved on
+            rows[0].Status = "Cooldown"; // already moved on to a different phase
 
             trigger.Fire(RowEventKind.Jumping, "Sol");
 
-            Assert.Equal(string.Empty, rows[0].Status);
+            Assert.Equal("Cooldown", rows[0].Status);
+        }
+
+        [Fact]
+        public void Jumping_BlankRow_AppliesAsShipModeFallback()
+        {
+            // Ship mode: StartJump can legitimately fire without a preceding Targeted event
+            // having been observed for this specific hop (e.g. the target was set in a
+            // now-rotated-out previous journal file) - Jumping must still apply rather than
+            // leaving the row stuck forever.
+            var (_, trigger, rows) = CreateWithRows("Sol");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = string.Empty;
+
+            trigger.Fire(RowEventKind.Jumping, "Sol");
+
+            Assert.Equal("Jumping", rows[0].Status);
+        }
+
+        [Fact]
+        public void Jumping_RowAlreadyTargeted_Applies()
+        {
+            var (_, trigger, rows) = CreateWithRows("Sol");
+            rows[0].Icon = RowIcon.InProgress;
+            rows[0].Status = "Targeted";
+
+            trigger.Fire(RowEventKind.Jumping, "Sol");
+
+            Assert.Equal("Jumping", rows[0].Status);
         }
 
         [Fact]
@@ -264,6 +601,22 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
+        public void Arrived_LiveButNoPhaseEndUtc_DoesNotSetCooldownOnNextRow()
+        {
+            // Ship mode's Location-derived Arrived (see ShipRouteJournalWatcher) is live but
+            // carries no PhaseEndUtc - a mere positional snapshot (session start, a relog,
+            // docking somewhere) isn't proof a jump just completed, so it must never imply a
+            // cooldown is now counting down, even though it's a genuinely live event.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri");
+
+            trigger.Fire(RowEventKind.Arrived, "Sol", isLive: true); // no phaseEndUtc
+
+            Assert.Equal(RowIcon.InProgress, rows[1].Icon);
+            Assert.Equal(string.Empty, rows[1].Status);
+            Assert.Null(rows[1].PhaseEndUtc);
+        }
+
+        [Fact]
         public void Arrived_NoNextRow_LeavesNothingInProgress()
         {
             var (_, trigger, rows) = CreateWithRows("Sol");
@@ -290,15 +643,37 @@ namespace RouteJumper.Tests.Sequencing
         }
 
         [Fact]
-        public void CooldownElapsed_ArrivedRowNotFound_IsNoOp()
+        public void CooldownElapsed_NoRowShowingCooldown_IsNoOp()
         {
             var (_, trigger, rows) = CreateWithRows("Sol", "Alpha Centauri");
+            rows[0].Icon = RowIcon.Complete;
             rows[1].Icon = RowIcon.InProgress;
-            rows[1].Status = "Cooldown";
+            rows[1].Status = string.Empty;
 
-            trigger.Fire(RowEventKind.CooldownElapsed, "Nowhere");
+            trigger.Fire(RowEventKind.CooldownElapsed, "Sol");
 
-            Assert.Equal("Cooldown", rows[1].Status);
+            Assert.Equal(string.Empty, rows[1].Status);
+            Assert.Equal(RowIcon.InProgress, rows[1].Icon);
+        }
+
+        [Fact]
+        public void CooldownElapsed_RepeatedSystemName_ClearsTheRowActuallyShowingCooldown()
+        {
+            // Regression test: matching CooldownElapsed's own SystemName against the *first*
+            // Complete row with that name (rather than searching for whichever row is actually
+            // showing "Cooldown" directly) could match a much earlier, already-finished visit,
+            // leaving the real Cooldown row stuck forever once its one-shot timer fired against
+            // the wrong target.
+            var (_, trigger, rows) = CreateWithRows("Sol", "Deciat", "Sol", "Wolf 359");
+            rows[0].Icon = RowIcon.Complete; // first (earlier) visit to Sol, long done
+            rows[1].Icon = RowIcon.Complete; // Deciat, also done
+            rows[2].Icon = RowIcon.Complete; // second visit to Sol, just arrived
+            rows[3].Icon = RowIcon.InProgress;
+            rows[3].Status = "Cooldown"; // the real Cooldown row, after the *second* Sol
+
+            trigger.Fire(RowEventKind.CooldownElapsed, "Sol");
+
+            Assert.Equal(string.Empty, rows[3].Status);
         }
 
         [Fact]

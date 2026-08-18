@@ -19,6 +19,7 @@ namespace RouteJumper
         private readonly AppSettingsStore _settings = new();
 
         private HwndSource? _hwndSource;
+        private LogsWindow? _logsWindow;
 
         public MainWindow()
         {
@@ -165,21 +166,81 @@ namespace RouteJumper
         private void OnExitClick(object sender, RoutedEventArgs e) => Close();
 
         /// <summary>
-        /// Opens the modal Preferences dialog, bound directly to the shared SpeechAnnouncer - a
-        /// modal dialog is inherently a view-layer concern (same carve-out as the
-        /// window-placement/clipboard-monitoring code elsewhere in this file), so it's opened
-        /// here rather than via a ViewModel command.
+        /// Opens the modal Preferences dialog, bound directly to the shared SpeechAnnouncer/
+        /// UpdatePreferences - a modal dialog is inherently a view-layer concern (same carve-out
+        /// as the window-placement/clipboard-monitoring code elsewhere in this file), so it's
+        /// opened here rather than via a ViewModel command.
         /// </summary>
         private void OnPreferencesClick(object sender, RoutedEventArgs e)
         {
             var mainViewModel = (MainViewModel)DataContext;
-            new PreferencesWindow(mainViewModel.SpeechAnnouncer) { Owner = this }.ShowDialog();
+            new PreferencesWindow(mainViewModel.SpeechAnnouncer, mainViewModel.UpdatePreferences) { Owner = this }.ShowDialog();
         }
 
         /// <summary>Opens the modal About dialog (icon, name, version, disclaimer) - same view-layer carve-out as the Preferences dialog above.</summary>
         private void OnAboutClick(object sender, RoutedEventArgs e)
         {
             new AboutWindow { Owner = this }.ShowDialog();
+        }
+
+        /// <summary>Spansh &gt; Fleet Carrier… - opens the Spansh dialog with the Fleet Carrier tab already selected.</summary>
+        private void OnSpanshFleetCarrierClick(object sender, RoutedEventArgs e) => OpenSpanshDialog(initialTabIndex: 0);
+
+        /// <summary>Spansh &gt; Neutron Plotter… - opens the Spansh dialog with the Neutron Plotter tab already selected.</summary>
+        private void OnSpanshNeutronPlotterClick(object sender, RoutedEventArgs e) => OpenSpanshDialog(initialTabIndex: 1);
+
+        /// <summary>Spansh &gt; Galaxy Plotter… - opens the Spansh dialog with the Galaxy Plotter tab already selected.</summary>
+        private void OnSpanshGalaxyPlotterClick(object sender, RoutedEventArgs e) => OpenSpanshDialog(initialTabIndex: 2);
+
+        /// <summary>
+        /// Opens the modal Spansh dialog (Spansh menu) - a fresh SpanshImportViewModel each time
+        /// (unlike Preferences/About, this one has real per-open state: in-flight searches/a
+        /// calculation), wired to RouteViewModel.ImportFromSpansh so a successfully calculated
+        /// route replaces the currently-saved one, the same view-layer carve-out as the other
+        /// dialogs opened from here. <paramref name="initialTabIndex"/> is 0 for Fleet Carrier, 1
+        /// for Neutron Plotter, 2 for Galaxy Plotter (SpanshImportWindow.xaml's own TabControl
+        /// order) - matches whichever menu item was actually clicked, rather than always
+        /// defaulting to the first tab.
+        /// </summary>
+        private void OpenSpanshDialog(int initialTabIndex)
+        {
+            var mainViewModel = (MainViewModel)DataContext;
+            var (knownCurrentSystem, knownCarrierSystem, hasOverchargedFsd, knownJournalFilePath, knownCurrentCargo) = mainViewModel.GetKnownShipState();
+            var viewModel = new SpanshImportViewModel(
+                new SpanshRouteService(),
+                mainViewModel.RouteViewModel.ImportFromSpansh,
+                knownCurrentSystem: knownCurrentSystem,
+                knownCarrierSystem: knownCarrierSystem,
+                defaultToOvercharge: hasOverchargedFsd,
+                knownJournalFilePath: knownJournalFilePath,
+                knownCurrentCargo: knownCurrentCargo);
+            new SpanshImportWindow(viewModel, initialTabIndex) { Owner = this }.ShowDialog();
+        }
+
+        /// <summary>
+        /// Opens the non-modal Logs window (Help &gt; Logs) - unlike Preferences/About, this is
+        /// deliberately not a dialog: it needs to stay usable (and keep live-updating) while the
+        /// user keeps working the rest of the app. A second click while it's already open just
+        /// brings the existing one to the front rather than opening a duplicate. Owned by this
+        /// window so it closes automatically alongside the main window, same as any other owned
+        /// dialog here - it holds no state of its own worth keeping open past that point.
+        /// </summary>
+        private void OnLogsClick(object sender, RoutedEventArgs e)
+        {
+            if (_logsWindow is null)
+            {
+                _logsWindow = new LogsWindow { Owner = this };
+                _logsWindow.Closed += (_, _) => _logsWindow = null;
+                _logsWindow.Show();
+                return;
+            }
+
+            if (_logsWindow.WindowState == WindowState.Minimized)
+            {
+                _logsWindow.WindowState = WindowState.Normal;
+            }
+
+            _logsWindow.Activate();
         }
 
         private bool _checkingForUpdates;

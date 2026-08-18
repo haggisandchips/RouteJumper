@@ -4,161 +4,220 @@ title: User Guide
 
 # ED:FC Auto Pilot User Guide
 
-This page covers what ED:FC Auto Pilot does, how each tab works, where its
-data lives, and how to troubleshoot common issues. For installing the
-app and the fastest path to a working Auto Pilot setup, see the
+For installing the app, see the
 [README](https://github.com/haggisandchips/RouteJumper#readme). For the
-macro scripting language and ready-to-use sample scripts, see
-[Macro Scripting](macro-scripting.md). For building from source,
-running tests, and cutting releases, see [Development](development.md).
+macro scripting language and sample scripts, see
+[Macro Scripting](macro-scripting.md). For building from source, see
+[Development](development.md).
 
 ---
 
 ## What it does
 
-- **Tracks a pasted route** against a Captain's real Elite Dangerous
-  journal — no manual bookkeeping. Handles plots, cancellations, and
-  cooldowns.
-- **Drives the route automatically (Auto Pilot)** by playing a recorded
-  macro against the Captain's game window to plot each jump, and (if an
-  Engineer is assigned) another macro to refuel the carrier every
-  cooldown.
-- **Records and replays keyboard/mouse macros** against any running
-  Elite Dangerous instance — a small scripting language (see
-  [Macro Scripting](macro-scripting.md)) lets you hand-edit what gets
-  recorded, or write scripts from scratch.
-- **Detects every running Elite Dangerous instance** on the machine and
-  matches each one to its journal file, showing commander, cargo,
-  location, and fleet carrier status live.
-- **Copies the next system to the clipboard automatically** as the
-  carrier arrives, so it's ready to paste into the game.
-- **Announces upcoming Auto Pilot actions out loud** ("Plotting in 30
-  seconds", "Refueling in 5 seconds") via the OS speech engine, so you
-  don't have to keep watching the app to know when it's about to send
-  input to the game. Configurable (voice, volume) via File > Preferences,
-  and mutable via the button beside the File menu.
+ED:FC Auto Pilot tracks a pasted route against a real Elite Dangerous
+journal. Switch between two mutually exclusive modes with the **Fleet
+Carrier / Ship** toggle beside the menu bar:
 
-## The three tabs
+- **Fleet Carrier mode** (default) — assign a Captain's game instance on
+  the **Roles** tab and ED:FC Auto Pilot tracks the carrier's progress,
+  with an optional **Auto Pilot** that flies the whole route itself.
+- **Ship mode** — assign your own instance on the **Track** tab and
+  ED:FC Auto Pilot tracks your ship's progress passively — there's no
+  automation, since you plot and fly every jump yourself.
+
+Both modes:
+
+- Show each row's leg distance and destination star type, looked up
+  automatically from [EDSM](https://www.edsm.net).
+- Copy the next system to the clipboard as you arrive.
+- Detect every running Elite Dangerous instance and match it to its
+  journal file.
+- Calculate and import a route via the **Spansh** menu — see
+  [Spansh integration](#spansh-integration).
+- Log everything significant to a file and an optional live viewer
+  (Help > Logs) — see [Logs](#logs).
+
+Fleet Carrier mode also adds Auto Pilot: recorded macros that plot each
+jump and (if an Engineer is assigned) refuel the carrier every cooldown,
+with spoken lead-time announcements before each action.
+
+## The tabs
 
 ### Route tab
 
-The main working screen. It starts in an **Edit** state — a plain
-multi-line text box — where you paste a route, one system per line.
-Clicking **Save** turns it into a read-only table with a status icon,
-row number, system name, and status for each row, and switches to a
-**Table** state with **Edit** and **Auto Pilot** buttons.
+Starts in **Edit** — paste a route, one system per line, and click
+**Save** to build the table. The table shows each row's status, `#`,
+`System`, `Distance`, `Star Type`, and status text. A route calculated
+via **Spansh > Neutron Plotter…** additionally shows a `Jumps` column
+right of `Distance` (ordinary hops since the previous waypoint); one via
+**Spansh > Galaxy Plotter…** shows `Refuel`/`Inject`/`Neutron` columns
+there instead. Below the table:
 
-- Clicking a row copies its system name to the clipboard (with a
-  confirmation sound and a small clipboard icon on the row).
-- Right-clicking a row offers **"Set next system"** — a manual override
-  that marks every row before it Complete, makes it the current row, and
-  resets everything after it. This is your escape hatch whenever
-  automatic detection gets it wrong or the carrier goes off-route.
-- **"Auto Copy To Clipboard"** (a toggle above the table) copies the
-  *next* system to the clipboard the instant the carrier is observed
-  arriving — handy for quickly pasting into the game's galaxy map.
-- **Auto Pilot** (enabled once a Captain is assigned with a macro
-  selected for them — see the Roles tab) drives the whole route to
-  completion: it plays the Captain's macro to plot each jump, waits out
-  each cooldown, and (with an Engineer assigned) plays the Engineer's
-  macro to refuel in between. It stops itself once every row is
-  Complete, or immediately if you click it again, or if the underlying
-  Captain/Engineer/macro requirements stop being met mid-run.
+- **Import Current Route** — replaces the saved route with whatever's
+  currently plotted in-game.
+- **Trim for FC** (Fleet Carrier mode only) — collapses the route to
+  hops of 500ly or less, the carrier's real jump range. Requires a
+  Captain assigned with their carrier's current location known.
+- **Auto Pilot** (Fleet Carrier mode only) — drives the whole route by
+  playing the Captain's macro to plot each jump and the Engineer's to
+  refuel each cooldown, stopping itself once the route completes, if you
+  click it again, or if its "panic mode" trips (see below).
+- **Edit** — go back to the text box to change the route. For a Neutron/
+  Galaxy Plotter route, this asks you to confirm first, since it converts
+  the route back to a plain one and loses the extra columns above.
 
-A row's status cycles automatically as the journal reports real
-progress: *(blank)* → `Plotted` → `Jumping` → *(arrived, row completes,
-next row becomes current)* → `Cooldown` → *(blank again)*. While Auto
-Pilot is engaged, a row also passes through `Plotting` between blank and
-`Plotted` — the moment its macro starts playing, until the game
-confirms the jump was actually requested. A small countdown
-("`Plotted (0:11:32)`") and progress bar show how long is left in the
-current phase; `Plotting` shows an indeterminate spinner instead, since
-there's no way to know in advance how long it'll take.
+Click a row to copy its system name to the clipboard. Right-click a row
+for **"Set next system"** — a manual override for correcting the current
+row when automatic tracking gets it wrong. The **"Auto Copy To
+Clipboard"** toggle above the table copies the next system automatically
+as you arrive at each one.
+
+`Distance`/`Star Type` fill in automatically after Save. A system EDSM
+has no data for shows "Plot needed" (or "Target needed" if only the star
+type is missing) — plotting a route to it, or just targeting it, in-game
+fixes this live with no re-save needed.
+
+A row's status cycles automatically: in **Fleet Carrier mode**, *(blank)*
+→ `Plotted` → `Jumping` → *(arrived)* → `Cooldown` → *(blank)*; while
+Auto Pilot is engaged, it also passes through `Plotting` while its macro
+is playing. In **Ship mode**, `Targeted` → `Jumping` → *(arrived)* →
+`Cooldown` → *(blank)*.
+
+**Panic mode**: Auto Pilot stops immediately and shows a banner if a
+plot/refuel macro doesn't complete normally (eg focus was lost), or
+completes but the expected result (a jump request, or a fresh fuel
+deposit) isn't actually seen.
 
 ### Roles tab
 
-Lists every running `EliteDangerous64.exe` process as a card (commander
-name, cargo, current location, fleet carrier name/location/fuel, window
-position/monitor), refreshed on launch and on demand via **Refresh**.
+**Fleet Carrier mode only.** Lists every running Elite Dangerous
+instance as a card (commander, cargo, location, carrier name/location/
+fuel), refreshed on launch and via **Refresh**.
 
-- Assign **Captain** to the instance whose journal ED:FC Auto Pilot should
-  track — this resets the route and replays that commander's journal
-  history to catch it up to the carrier's real current status in one
-  step.
-- Assign **Engineer** to the instance Auto Pilot should use to refuel
-  the carrier (only offered to an instance with free cargo capacity).
-- Pick which recorded macro (from the Controls tab) each role should
-  play once Auto Pilot is engaged, under **Captain plots via** /
+- Assign **Captain** — the instance whose journal ED:FC Auto Pilot
+  tracks. Resets and re-derives the route from that commander's journal.
+- Assign **Engineer** — the instance Auto Pilot uses to refuel the
+  carrier (needs free cargo capacity).
+- Pick which recorded macro each role uses under **Captain plots via** /
   **Engineer refuels via**.
 
-Both roles are persisted (by commander FID, which survives a game
-restart, not by process ID) and restored automatically next launch.
+Both roles persist across restarts and game relaunches.
 
 ### Controls tab
 
-Where key bindings and macros live — the automation vocabulary Auto
-Pilot (and manual playback) is built from.
+**Fleet Carrier mode only.** Where key bindings and macros live.
 
-- **Options**: **Auto Pilot delay (ms)** (default `5000`) — the extra
-  settle time given to the game's UI around a jump's cooldown before
-  Auto Pilot's next macro plays — and **Auto wait (ms)** (default
-  `300`) — the pacing delay automatically inserted after every
-  instruction a script executes. A second row of test-only fields lets
-  you try a script from this tab without a live route or a running
-  instance in the right cargo/fuel state.
-- **Key Bindings**: the nine named actions (`UP`, `DOWN`, `LEFT`,
-  `RIGHT`, `SELECT`, `PREV_PANEL`, `NEXT_PANEL`, `EXIT`, `RIGHT_PANEL`)
-  a script refers to by name — click a binding to rebind it to any
-  key/chord.
-- **Running Instances**: its own independent scan of running game
-  instances, used purely as the record/playback target.
-- **New Script** (the file-plus icon, grouped with Record/Stop/Play) /
-  **Record** / **Stop** / **Play**: New Script creates a new, empty
-  macro and opens it straight in the editor, for writing (or pasting
-  in) a script by hand instead of recording one — no running instance
-  required (see [Sample scripts](macro-scripting.md#sample-scripts) for
-  three ready to use this way). Record instead captures real
-  keyboard/mouse input against a selected instance as a new named
-  macro; Play replays any recorded macro against any selected instance.
-  Click a macro's pencil icon to open the full-size editor (name +
-  script text + a syntax-reference panel), where you can also **Step**
-  through a script one instruction at a time.
+- **Options** — **Auto Pilot delay (ms)** (default `5000`) and
+  **Auto wait (ms)** (default `300`), plus test-only fields for trying a
+  script from this tab without a live route.
+- **Key Bindings** — the nine named actions (`UP`, `DOWN`, `LEFT`,
+  `RIGHT`, `SELECT`, `PREV_PANEL`, `NEXT_PANEL`, `EXIT`, `RIGHT_PANEL`) a
+  script refers to by name. Click one to rebind it.
+- **Running Instances** — used as the record/playback target.
+- **New Script** / **Record** / **Stop** / **Play** — New Script opens a
+  blank macro in the editor for writing one by hand (see
+  [Sample scripts](macro-scripting.md#sample-scripts)); Record captures
+  real input against a selected instance; Play replays a recorded macro
+  against a selected instance. Click a macro's pencil icon to open the
+  full editor, where you can also **Step** through it one instruction at
+  a time.
+
+### Track tab
+
+**Ship mode only.** A leaner version of the Roles tab for a solo
+commander flying their own route. Lists running instances (commander,
+location, journal filename); a single **Track** button per card
+assigns/unassigns it as the one instance ED:FC Auto Pilot follows.
+There's no macro automation in this mode — you fly, the app just tracks.
+
+---
+
+## Spansh integration
+
+**Spansh > Fleet Carrier…** / **Spansh > Neutron Plotter…** /
+**Spansh > Galaxy Plotter…** open a dialog to calculate a route via
+[Spansh](https://spansh.co.uk) and import it straight into the Route
+tab, in either tracking mode.
+
+- **Fleet Carrier** tab — a direct source → destination hop sequence.
+  Doesn't account for tritium/restock planning; for that, use Spansh's
+  own hosted Fleet Carrier Router (linked in the dialog).
+- **Neutron Plotter** tab — a neutron-highway route between two systems,
+  with editable Range/Efficiency and a Normal/Overcharge supercharge
+  choice. Imports only the boost stops plus the destination, plus each
+  one's own `Jumps` count (see [Route tab](#route-tab)).
+- **Galaxy Plotter** tab — an *exact* route using your ship's own real
+  jump range, fuel usage, and supercharge/injection options, rather than
+  a flat range figure — the ship build is read from your journal
+  automatically, so there's nothing to fill in beyond Source/Destination,
+  Cargo, and a handful of route-option checkboxes. Imports only the
+  route's own waypoints, plus each one's own Refuel/Inject/Neutron flags.
+
+Type into Source/Destination for a live autocomplete search, then click
+**Calculate**. On success, the route replaces your saved route
+immediately.
+
+---
+
+## Logs
+
+**Help > Logs** opens a live viewer for everything ED:FC Auto Pilot logs
+during a session — journal-driven row transitions, EDSM requests, Auto
+Pilot triggers and panic-mode stops, macro playback, and more.
+
+It's live-only: it shows entries logged while it's open, starting blank
+every time — so open it *before* reproducing an issue, not after.
+Everything is also written to a date-stamped file under
+`%LocalAppData%\EDFCAutoPilot\Logs\`; click **Open Logs Folder** in the
+Logs window to jump straight there for anything that already happened.
 
 ---
 
 ## Data & configuration locations
 
-ED:FC Auto Pilot stores its own state in `%LocalAppData%\EDFCAutoPilot\`:
+ED:FC Auto Pilot stores its state in `%LocalAppData%\EDFCAutoPilot\`:
 
 | File | Contents |
 |---|---|
-| `routejumper.db` | SQLite key/value store — route text, window bounds/column widths, Captain/Engineer role + macro assignment, key bindings, recorded macros, Options |
-| `routejumper.conf` | Plain-text, hand-editable `Key=Value` config — currently just `JournalDirectory`, defaulting to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder. Edit this (while the app is closed or running — it's re-read on every Roles tab refresh) to point at a non-default journal location. |
+| `routejumper.db` | SQLite store — route text, window bounds, role/macro assignment, key bindings, recorded macros, options, EDSM lookup cache |
+| `routejumper.conf` | Plain-text, hand-editable config — `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping, EDSM retry/batch settings, Spansh autocomplete debounce |
+| `Logs\routejumper-yyyy-MM-dd.log` | Date-stamped log files, size/age-capped automatically |
 
-Not persisted, by design: per-row route progress/status (re-derived from
-the journal on every launch), the last-selected tab, and "Auto Copy To
-Clipboard"/the Controls tab's test-value fields (always reset to their
-defaults on a fresh launch).
+Not persisted: per-row route progress (re-derived from the journal on
+launch), the last-selected tab, "Auto Copy To Clipboard", and the
+Controls tab's test-value fields.
 
 ---
 
 ## Troubleshooting
 
-- **"No running Elite Dangerous instances found."** — ED:FC Auto Pilot only
-  detects `EliteDangerous64.exe` processes; make sure the game is
-  actually running (not just the launcher), then click **Refresh**.
-- **Journal file shows "Not found" for a running instance** — the
-  journal folder is wrong (see `routejumper.conf` above), or the
-  process/journal timestamps are more than 5 minutes apart (a very slow
-  launch). Confirm `JournalDirectory` points at your actual
+Start with **Help > Logs** if you can reproduce the issue — it shows what
+the app actually saw and did, live. If the issue already happened, it
+opens blank; click **Open Logs Folder** in that window (or browse to
+`%LocalAppData%\EDFCAutoPilot\Logs\`) for the same detail on disk.
+
+- **"No running Elite Dangerous instances found."** — make sure the game
+  itself is running (not just the launcher), then click **Refresh**.
+- **Journal shows "Not found" for a running instance** — check
+  `JournalDirectory` in `routejumper.conf` points at your real
   `Saved Games\Frontier Developments\Elite Dangerous` folder.
-- **A macro doesn't seem to do anything in-game** — ED:FC Auto Pilot sends
-  real synthesized input (`SendInput`), which only reaches whichever
-  window currently has focus; don't touch the mouse/keyboard yourself
-  while a macro plays, and make sure the target game window isn't
-  minimized.
-- **Auto Pilot button stays disabled** — it requires a Captain assigned
-  with a macro selected for them (Roles tab), and, only if an Engineer
-  is *also* assigned, a macro selected for them too.
-- **No spoken announcements** — check the mute button beside the File
-  menu isn't engaged, and that Volume is above 0 in File > Preferences.
+- **`Distance`/`Star Type` stay blank or show "Plot needed"/"Target
+  needed"** — EDSM has no record of that system (common for
+  freshly-generated ones); it's retried periodically, not on every Save.
+- **A macro doesn't seem to do anything in-game** — it sends real
+  synthesized input, which only reaches the focused window; don't touch
+  the mouse/keyboard while a macro plays, and make sure the game window
+  isn't minimized.
+- **Auto Pilot button stays disabled or disappears** — hidden entirely
+  in Ship mode; in Fleet Carrier mode it needs a Captain assigned with a
+  macro selected (and, if Engineer is also assigned, a macro for them
+  too).
+- **Auto Pilot stopped with a banner message** — that's panic mode
+  reacting to something unexpected; the banner explains what, and Help >
+  Logs has the fuller picture.
+- **No spoken announcements** — check the mute button beside the menu
+  bar, and Volume in File > Preferences.
+- **Spansh dialog shows "Failed: ..."** — Spansh rejected the request or
+  couldn't be reached; the status message explains why. Calculate stays
+  disabled until Source/Destination are picked from the autocomplete,
+  not just typed.

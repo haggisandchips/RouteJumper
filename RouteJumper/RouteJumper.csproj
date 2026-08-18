@@ -36,6 +36,17 @@
   </ItemGroup>
 
   <!--
+    Static Frame Shift Drive / Guardian FSD Booster stat tables the Galaxy Plotter tab needs to
+    turn a ship's Loadout event into Spansh's own /api/generic/route request fields (Services\
+    Spansh\ShipBuildDerivation) - vendored, trimmed copies of EDCD/coriolis-data's own module
+    data (see FrameShiftDriveCatalog's own doc comment for the source URLs), not hand-typed.
+    First embedded-resource precedent in this project.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Services\Spansh\Data\*.json" />
+  </ItemGroup>
+
+  <!--
     App.xaml is normally compiled as ApplicationDefinition, which makes the WPF SDK
     targets auto-generate a Main() entry point. Velopack needs to run before any
     Application/window is created, so App.xaml.cs supplies its own Main() instead -

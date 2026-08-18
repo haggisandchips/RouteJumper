@@ -52,6 +52,66 @@ namespace RouteJumper.Tests.Services
         }
 
         [Fact]
+        public void ReadJournalSummary_Loadout_ReadsMaxJumpRange()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"CargoCapacity\":256,\"MaxJumpRange\":45.23}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Equal(45.23, summary.MaxJumpRange);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_NoLoadoutEventAtAll_MaxJumpRangeIsNull()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Commander\",\"FID\":\"F123\",\"Name\":\"Jameson\"}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Null(summary.MaxJumpRange);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_FrameShiftDriveSlotHasOverchargeBooster_HasOverchargedFsdIsTrue()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"Modules\":[" +
+                "{\"Slot\":\"MainEngines\",\"Item\":\"int_engine_size6_class5\"}," +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_overcharge_size8_class5_overchargebooster_mkii\"}" +
+                "]}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.True(summary.HasOverchargedFsd);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_FrameShiftDriveSlotHasRegularFsd_HasOverchargedFsdIsFalse()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"Modules\":[" +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_size6_class5\"}" +
+                "]}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.False(summary.HasOverchargedFsd);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_NoLoadoutEventAtAll_HasOverchargedFsdIsFalse()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Commander\",\"FID\":\"F123\",\"Name\":\"Jameson\"}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.False(summary.HasOverchargedFsd);
+        }
+
+        [Fact]
         public void ReadJournalSummary_NoCargoEventAtAll_DefaultsToZeroNotUnknown()
         {
             using var dir = new TempDirectory();
@@ -181,6 +241,40 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(20, summary.CurrentTritium);
             Assert.Equal(600, summary.CarrierFuelLevel);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_CarrierDepositFuel_ResolvesLastDepositTimestampAgainstOwnedCarrier()
+        {
+            // AutoPilotController's Engineer-refuel panic check (see its own class doc comment)
+            // relies on this timestamp, not a before/after CarrierFuelLevel comparison, since a
+            // jump's own fuel consumption is never itself logged to the journal.
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"timestamp\":\"2026-08-16T22:18:10Z\",\"event\":\"CarrierStats\",\"CarrierID\":555,\"Name\":\"Serenity\"}",
+                "{\"timestamp\":\"2026-08-16T22:18:20Z\",\"event\":\"CarrierLocation\",\"CarrierID\":555,\"CarrierType\":\"FleetCarrier\",\"StarSystem\":\"Deciat\"}",
+                "{\"timestamp\":\"2026-08-16T22:59:18Z\",\"event\":\"CarrierDepositFuel\",\"CarrierID\":555,\"Amount\":85,\"Total\":1000}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Equal(new DateTime(2026, 8, 16, 22, 59, 18, DateTimeKind.Utc), summary.CarrierLastDepositUtc);
+        }
+
+        [Fact]
+        public void ReadJournalSummary_CarrierDepositFuel_IntoUnownedCarrier_LeavesLastDepositTimestampNull()
+        {
+            // Same ownership-agnostic-until-resolved guard as CarrierFuelLevel itself - a deposit
+            // into a squadron carrier this commander doesn't own must never look like proof of
+            // their own Engineer refuel having happened.
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"timestamp\":\"2026-08-16T22:18:10Z\",\"event\":\"CarrierStats\",\"CarrierID\":555,\"Name\":\"Serenity\"}",
+                "{\"timestamp\":\"2026-08-16T22:18:20Z\",\"event\":\"CarrierLocation\",\"CarrierID\":555,\"CarrierType\":\"FleetCarrier\",\"StarSystem\":\"Deciat\"}",
+                "{\"timestamp\":\"2026-08-16T22:59:18Z\",\"event\":\"CarrierDepositFuel\",\"CarrierID\":999,\"Amount\":85,\"Total\":1000}");
+
+            var summary = EliteInstanceScanner.ReadJournalSummary(path);
+
+            Assert.Null(summary.CarrierLastDepositUtc);
         }
 
         [Fact]
@@ -436,6 +530,98 @@ namespace RouteJumper.Tests.Services
         {
             var match = EliteInstanceScanner.MatchJournal(CurrentProcess, new List<(string, DateTime)>(), new HashSet<string>());
             Assert.Null(match);
+        }
+    }
+
+    public class EliteInstanceScannerReadLoadoutSnapshotTests
+    {
+        private static string WriteJournal(TempDirectory dir, params string[] lines)
+        {
+            var path = dir.CombinePath($"Journal.{Guid.NewGuid():N}.log");
+            File.WriteAllLines(path, lines);
+            return path;
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_NoLoadoutEventAtAll_ReturnsNull()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Commander\",\"FID\":\"F123\",\"Name\":\"Jameson\"}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            Assert.Null(snapshot);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_UnreadableFile_ReturnsNull()
+        {
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(@"Z:\does-not-exist\Journal.log");
+
+            Assert.Null(snapshot);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_FullEngineeredLoadout_CapturesShipModulesMassAndFuel()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"event\":\"Loadout\",\"Ship\":\"anaconda\",\"UnladenMass\":1000.5," +
+                "\"FuelCapacity\":{\"Main\":32.0,\"Reserve\":0.63}," +
+                "\"Modules\":[" +
+                "{\"Slot\":\"MainEngines\",\"Item\":\"int_engine_size6_class5\"}," +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_size6_class5\"," +
+                "\"Engineering\":{\"BlueprintName\":\"FSD_LongRange\",\"Level\":5,\"Quality\":0.98," +
+                "\"ExperimentalEffect\":\"special_fsd_heavy\"," +
+                "\"Modifiers\":[{\"Label\":\"FSDOptimalMass\",\"Value\":1150.0,\"OriginalValue\":900.0,\"LessIsGood\":0}," +
+                "{\"Label\":\"FSDHeatRate\",\"Value\":180.0,\"OriginalValue\":200.0,\"LessIsGood\":1}]}}" +
+                "]}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            Assert.NotNull(snapshot);
+            Assert.Equal("anaconda", snapshot!.Value.Ship);
+            Assert.Equal(1000.5, snapshot.Value.UnladenMass);
+            Assert.Equal(32.0, snapshot.Value.FuelCapacityMain);
+            Assert.Equal(0.63, snapshot.Value.FuelCapacityReserve);
+            Assert.Equal(2, snapshot.Value.Modules.Count);
+
+            var fsd = snapshot.Value.Modules.Single(m => m.Slot == "FrameShiftDrive");
+            Assert.Equal("int_hyperdrive_size6_class5", fsd.Item);
+            Assert.NotNull(fsd.Engineering);
+            Assert.Equal("FSD_LongRange", fsd.Engineering!.Value.BlueprintName);
+            Assert.Equal(5, fsd.Engineering.Value.Level);
+            Assert.Equal(0.98, fsd.Engineering.Value.Quality);
+            Assert.Equal("special_fsd_heavy", fsd.Engineering.Value.ExperimentalEffect);
+            Assert.Equal(2, fsd.Engineering.Value.Modifiers.Count);
+            Assert.Contains(fsd.Engineering.Value.Modifiers, m => m.Label == "FSDOptimalMass" && m.Value == 1150.0);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_ModuleWithNoEngineering_HasNullEngineering()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir, "{\"event\":\"Loadout\",\"Ship\":\"sidewinder\",\"Modules\":[" +
+                "{\"Slot\":\"FrameShiftDrive\",\"Item\":\"int_hyperdrive_size2_class1\"}" +
+                "]}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            var fsd = Assert.Single(snapshot!.Value.Modules);
+            Assert.Null(fsd.Engineering);
+        }
+
+        [Fact]
+        public void ReadLoadoutSnapshot_MultipleLoadoutEvents_LatestWins()
+        {
+            using var dir = new TempDirectory();
+            var path = WriteJournal(dir,
+                "{\"event\":\"Loadout\",\"Ship\":\"sidewinder\"}",
+                "{\"event\":\"Loadout\",\"Ship\":\"anaconda\"}");
+
+            var snapshot = EliteInstanceScanner.ReadLoadoutSnapshot(path);
+
+            Assert.Equal("anaconda", snapshot!.Value.Ship);
         }
     }
 }
