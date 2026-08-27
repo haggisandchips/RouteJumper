@@ -3,6 +3,11 @@ description: User guide, macro scripting reference, and developer docs for ED:FC
 theme: jekyll-theme-cayman
 show_downloads: false
 
+# Docs are deployed to a /docs subpath alongside the companion app (/app) -
+# see .github/workflows/pages.yml. Without this, Jekyll would generate
+# root-relative links assuming it owns the whole site.
+baseurl: /RouteJumper/docs
+
 # jekyll-github-metadata (pulled in by the github-pages gem) needs this to
 # resolve repo-relative info (e.g. the "Edit this page" link data) when it
 # can't detect an origin remote itself - e.g. a local preview where only

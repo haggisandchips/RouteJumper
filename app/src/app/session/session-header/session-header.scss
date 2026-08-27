@@ -1,0 +1,40 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background: var(--mat-sys-surface-container);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  &--loading {
+    color: var(--mat-sys-on-surface-variant);
+    font-style: italic;
+  }
+}
+
+.route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.system {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+mat-chip.status-completed {
+  --mat-chip-label-text-color: var(--mat-sys-on-primary-container);
+  --mat-chip-elevated-container-color: var(--mat-sys-primary-container);
+}
+
+mat-chip.status-panicked {
+  --mat-chip-label-text-color: var(--mat-sys-on-error-container);
+  --mat-chip-elevated-container-color: var(--mat-sys-error-container);
+}

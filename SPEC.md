@@ -40,6 +40,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | A top-level **Spansh** menu (§3.4) holding **Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…** (§4.12): calculate a route between two systems via Spansh's own route-plotting API and import it straight into the Route tab, available in both tracking modes - the Galaxy Plotter tab additionally uses the CMDR's own real ship build (re-read from that instance's journal in the background) to plot an exact route accounting for fuel usage and supercharge/injection options | Proper on-screen credit for EDSM specifically (§4.9) — e.g. an attribution line/link in the About dialog (§3.6) or on the Route tab itself - a planned future enhancement, not built yet. (Spansh, §4.12, already carries its own in-dialog credit.) |
 | Material Design styling | |
 | Importing whatever route is currently plotted in-game ("Import Current Route", §4.10), unconditionally, in both tracking modes; trimming a saved route down to a max-500ly-per-hop series of jumps (§4.11, "Trim for FC", Fleet Carrier mode only) - both apply immediately after a Yes/No confirmation, with no in-between review step | |
+| A companion site (§13): a QR code/link next to the Auto Pilot button opens a small, mobile-friendly Angular site (hosted alongside the docs via GitHub Pages) showing a live, read-only feed of an in-progress Auto Pilot run - route/jump plotted, arrived in system, refueled, panic-mode stop | Any authentication beyond a session's own unguessable URL, and any companion-site feature beyond the live event feed itself (e.g. two-way control) - a planned future enhancement, not built yet |
 
 ---
 
@@ -1701,7 +1702,7 @@ the list is replaced by an italic hint pointing at a starting point:
 "No macros recorded yet. See the docs' sample scripts for
 ready-to-use examples, or click New Script above to write one by hand."
 — "sample scripts" is a real link, opening the docs site's
-[Sample scripts](https://haggisandchips.github.io/RouteJumper/macro-scripting.html#sample-scripts)
+[Sample scripts](https://haggisandchips.github.io/RouteJumper/docs/macro-scripting.html#sample-scripts)
 section in the default browser. Disappears for good the moment the
 first macro exists, the same as any other empty-state message elsewhere
 in the app.
@@ -1834,6 +1835,13 @@ backs the EDSM retry cooldown (§4.9) - deliberately its own table for the
 same reason as `ResolvedLookups` above; the composite primary key is
 already the only index this needs.
 
+A fourth table, `CompanionSessions (SessionId TEXT PRIMARY KEY,
+DeleteAfterUtc TEXT NOT NULL)`, backs the companion site's own
+self-managed housekeeping (§13) - the desktop app records a finished
+session here once its retention window is known, and deletes it (from
+both this table and Firestore) once that instant passes. Deliberately its
+own table for the same reason as the others above.
+
 A separate, deliberately hand-editable `routejumper.conf` sits beside the
 database (see §5.2) for configuration a user might reasonably want to
 change directly in a text editor — the journal folder, the log
@@ -1841,8 +1849,13 @@ housekeeping settings §12 describes, the EDSM retry cooldown
 (`EdsmUnresolvedRetryHours`, §4.9) and coordinate/star-type request batch
 size (`EdsmCoordinatesBatchSize`, §4.9), and the Spansh dialog's own
 Source/Destination autocomplete debounce (`SpanshAutocompleteDebounceMs`,
-§4.12, default 250ms) — rather than internal app state like the table
-below.
+§4.12, default 250ms), the companion site's own base URL
+(`CompanionSiteBaseUrl`, §13, defaulting to the real deployed site —
+hand-editable to a local `ng serve` address while testing the Angular app
+itself), and how long a finished companion session is retained before
+the desktop app's own housekeeping deletes it
+(`CompanionSessionRetentionHours`, §13, default 72 hours) — rather than
+internal app state like the table below.
 
 | What | Persisted when | Restored when |
 |---|---|---|
@@ -1852,6 +1865,7 @@ below.
 | Route table column widths (icon, `#`, `System`, `Distance`, `Jumps`, `Refuel`, `Inject`, `Neutron`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Journal/Spansh-seeded system coordinates/star type that fill a confirmed EDSM gap, in `ResolvedLookups` (§4.9, §4.12) | First seed of that system after EDSM has already confirmed it has no record of it | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached. A value EDSM itself resolves, or a seed that isn't filling a confirmed gap, is cached only for the running session and isn't written here at all — see §4.9. System address (id64) is likewise session-only, not persisted, until a feature that consumes it exists |
 | EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
+| Companion session id + its own delete-after instant, in `CompanionSessions` (§13) | Every `EndSession` call, once Auto Pilot actually stops | Every app launch — a session whose delete-after instant has already passed is deleted from Firestore and forgotten locally; one not yet due is left alone |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
@@ -2073,8 +2087,9 @@ outright the instant Ship mode is switched on.
   refresh (a background-thread scan).
 - **No external dependencies** beyond the .NET/WPF base class libraries,
   `MaterialDesignThemes`/`MaterialDesignColors`, `Microsoft.Data.Sqlite`,
-  and `System.Speech` (the OS speech engine used for §4.8's spoken
-  announcements).
+  `System.Speech` (the OS speech engine used for §4.8's spoken
+  announcements), and `QRCoder` (renders the companion site's QR code,
+  §13).
 - **Network:** the Route tab's Distance/Star Type columns (§4.9) are this
   app's first feature making outbound calls to a third-party web service -
   [EDSM](https://www.edsm.net), free and requiring no API key. Every call
@@ -2090,6 +2105,14 @@ outright the instant Ship mode is switched on.
   additionally sends numeric fuel/mass/tank-capacity figures derived from
   the CMDR's own ship's `Loadout` journal event (§4.12) - never the raw
   journal data itself, and never anything commander-identifying.
+  The companion site's Firestore REST calls (§13) are the app's third -
+  deliberately unauthenticated (no API key, no sign-in), sending only a
+  route's start/end system names, per-row system names, plain status
+  text, and timestamps - never commander/journal data, and never anything
+  beyond what §13's own event vocabulary already describes. Every call is
+  best-effort and fire-and-forget, exactly like EDSM's own lookups - a
+  failure never blocks Auto Pilot or route tracking, and is simply logged
+  (category `Companion`, §12) rather than retried or surfaced to the CMDR.
 
 ---
 
@@ -2766,6 +2789,28 @@ outright the instant Ship mode is switched on.
     (Edit-&gt;Save, Import Current Route, or Trim for FC) re-enables the
     chip immediately, without switching back to Fleet Carrier mode on its
     own.
+94. The companion site's QR/link button (§13) next to the Auto Pilot
+    button is shown only while `IsAutoPilotRunning` is true and a session
+    was actually started successfully - hidden the rest of the time, with
+    no error surfaced to the CMDR if the session failed to start (logged
+    instead). Clicking it shows a popup with the QR code and a "Copy
+    Link" button; scanning the code or opening the copied link opens the
+    Angular companion app at that exact session.
+95. Each of the four companion event kinds - a jump plotted, an arrival,
+    a confirmed refuel, and a panic-mode stop - appears in the companion
+    site's live feed on a best-effort basis shortly after the
+    corresponding in-app event, without blocking or measurably delaying
+    Auto Pilot or route tracking either way.
+96. A companion site publish failure (Firestore unreachable, a non-success
+    response, ...) never surfaces an error to the CMDR and never stops
+    Auto Pilot - it's simply dropped and logged (category `Companion`,
+    §12).
+97. Stopping Auto Pilot normally (button click, or the route reaching
+    Complete) marks the current companion session `completed`; a
+    panic-mode stop marks it `panicked` instead - visible on the
+    companion site's own session status. Re-engaging Auto Pilot afterward
+    always starts a brand-new session (a fresh id, a fresh QR code), never
+    reuses a previous run's session.
 
 ---
 
@@ -2798,11 +2843,12 @@ window itself (§3.8, only while it's open).
   Error; Warn/Error entries may carry an exception's type and message.
   Categories group related events (`Http`, `Journal`, `AutoPilot`,
   `Roles`, `Track`, `Route`, `Macro`, `Update`, `Settings`, `Config`,
-  `Edsm`, `Spansh`, `Scan`, `App`).
+  `Edsm`, `Spansh`, `Companion`, `Scan`, `App`).
 - **HTTP requests**: every outbound HTTP request this app makes directly
-  (EDSM's coordinate/star-type lookups, §4.9, and the Spansh dialog's own
-  search/route-calculation/poll requests, §4.12 - the app's only two
-  direct-HttpClient integrations) is logged on both the way out (method +
+  (EDSM's coordinate/star-type lookups, §4.9; the Spansh dialog's own
+  search/route-calculation/poll requests, §4.12; and the companion site's
+  Firestore REST calls, §13 - the app's only three direct-HttpClient
+  integrations) is logged on both the way out (method +
   URL) and the way back (status code + elapsed time), or as a warning if
   it fails outright. Velopack's own internal update-check HTTP calls aren't
   individually visible this way (Velopack owns its own HTTP stack with no
@@ -2844,3 +2890,111 @@ window itself (§3.8, only while it's open).
   than crashing the app or interrupting whatever triggered the log call -
   the same "nothing persisted rather than a hard failure" philosophy
   `AppSettingsStore`/`AppConfigStore` already use for their own I/O (§7).
+
+---
+
+## 13. Companion Site
+
+A small, mobile-friendly companion website (Angular, statically hosted via
+GitHub Pages alongside the docs site - `docs/` at `/docs`, the companion
+app at `/app`, both built and deployed together by
+`.github/workflows/pages.yml`) that shows a live, read-only feed of an
+in-progress Auto Pilot run (§4.7), so the CMDR can check in from a phone
+without needing to keep watching the desktop app closely.
+
+- **Base URL**: the QR code/link is built as
+  `{CompanionSiteBaseUrl}/#/session/{sessionId}`, where
+  `CompanionSiteBaseUrl` is a hand-editable `routejumper.conf` setting
+  (§5.2/§7's own convention) defaulting to the real deployed GitHub Pages
+  site — pointed instead at a local `ng serve` address (e.g.
+  `http://localhost:4200`) while developing/testing the Angular app
+  itself, with no rebuild of the desktop app required. Re-read fresh
+  every time Auto Pilot is engaged, so a hand-edit takes effect on the
+  very next engage.
+- **Privacy model**: deliberately just an unguessable session id (a UUID)
+  embedded in the URL - not real authentication. Anyone with the exact
+  link can view that one session; the underlying Firestore collection can
+  never be listed/enumerated (`app/firestore.rules`), so simply having
+  network access is not enough to discover a session id you weren't
+  given. No sign-in of any kind exists on either side - the .NET app
+  writes via plain, unauthenticated HTTPS calls to the Firestore REST
+  API, and the Angular app reads the same way via the public `firebase`
+  JS SDK.
+- **Trigger**: a QR-code/link button appears next to the Route tab's Auto
+  Pilot button (§4.2) the instant a companion session starts successfully
+  - which happens automatically the moment Auto Pilot is engaged, never
+  as a separate opt-in step. Hidden the rest of the time, including if
+  the session failed to start (logged rather than shown as an error - a
+  companion-site failure is a non-critical, cosmetic feature, never worth
+  interrupting the CMDR over). Clicking it opens a small popup with the
+  QR code and a "Copy Link" button (the same clipboard-copy-with-
+  confirmation-sound convention as the Route tab's row click-to-copy,
+  §4.6, and the Roles tab's journal filename click-to-copy, §5.3).
+- **Session lifecycle**: a brand-new session (a fresh UUID, a fresh QR
+  code) is created every time Auto Pilot is engaged - never reused across
+  runs, even a re-engage moments later. A session's header doc tracks a
+  `status` of `active` while Auto Pilot is running against it, `completed`
+  once Auto Pilot stops itself normally (a manual Stop, or the whole
+  route reaching Complete), or `panicked` if a panic-mode stop (§4.7)
+  ended it instead - shown on the companion site's own page so a viewer
+  can tell a session has ended, rather than it simply going quiet with no
+  explanation.
+- **Housekeeping**: a completed/panicked session is retained for
+  `CompanionSessionRetentionHours` (`routejumper.conf`, §5.2/§7's own
+  convention, default 72 hours) after it ends, then deleted - self-managed
+  by the desktop app itself (`CompanionSessionPublisher`/
+  `CompanionSessionStore`), not Firestore's own TTL feature: TTL turned
+  out to require the paid Blaze plan even for a single delete (no free
+  allowance at all, unlike an ordinary client-triggered delete, which the
+  free Spark plan does cover), a poor fit for a project that's
+  deliberately free/card-free. Instead, `EndSession` records a finished
+  session locally (SQLite, `routejumper.db` - the desktop app is the
+  *only* writer, so the only thing that can ever know which sessions
+  exist) as due once its retention window passes; once per app launch,
+  every session actually due is deleted via plain Firestore `delete`
+  calls (covered by the ordinary free daily quota) and only then forgotten
+  locally - a failed attempt simply retries in full on the next launch.
+  This window only ever starts once a session actually ends - a
+  still-running session is never recorded at all, so it's never at risk
+  of being cleaned up out from under itself no matter how long the real
+  route takes. A session abandoned mid-run (app crash, force-quit,
+  `EndSession` never called) is simply never recorded and so never
+  auto-deletes - an accepted trade-off for keeping this genuinely free and
+  free of any background/server component, and a handful of tiny
+  documents at worst. Deleting a session's header doc does not cascade to
+  its own events (a genuine Firestore behaviour) - cleanup deletes every
+  event doc first, then the header, and only counts the session as fully
+  cleaned up (removing it from local tracking) once both succeed.
+- **Published events**: exactly four kinds, each a best-effort, fire-and-
+  forget publish that never blocks or measurably delays Auto Pilot or
+  route tracking either way (a dropped publish - Firestore unreachable, a
+  non-success response - is simply logged, category `Companion`, §12,
+  never retried and never surfaced to the CMDR):
+  - **Plotted** - a jump was plotted (`RowEventKind.Plotted`).
+  - **Arrived** - the carrier arrived at a system (`RowEventKind.Arrived`).
+  - **Refueled** - the Engineer's refuel macro completed and a fresh
+    deposit was confirmed (`AutoPilotController.EngineerRefuelSucceeded`).
+  - **Panic** - Auto Pilot's panic mode stopped the run
+    (`AutoPilotController.PanicOccurred`), carrying the same message
+    shown in the desktop app's own warning banner.
+- **Architecture constraint**: the publisher (`CompanionSessionPublisher`,
+  `RouteJumper/Services/Companion/`) is wired entirely from
+  `MainViewModel`, as an independent subscriber to the same
+  `IRowEventTrigger.RowTriggered` stream `RouteSequencer` itself consumes
+  (for Plotted/Arrived) and to two dedicated `AutoPilotController` events
+  (for Refueled/Panic) - it never touches `Sequencing/` itself, and
+  `Sequencing/`'s own event-driven design (CLAUDE.md's non-negotiable
+  rule: no `Task.Delay`/`Thread.Sleep` in that logic) is entirely
+  unaffected by any of this.
+- **The Angular app** (`/app` at the repo root) is a fully separate
+  deployable with its own tooling (Node/npm/Angular CLI) - not part of
+  the WPF app's own build or release pipeline (`.github/workflows/
+  release.yml`). It fetches a session's header doc and live-subscribes to
+  its events subcollection (newest first), showing the header (start/end
+  system, status) fixed at the top and the event feed, styled distinctly
+  per event kind, below. Routed with `HashLocationStrategy`
+  (`/app/#/session/<uuid>`) so a deep link works on a static host with no
+  server-side rewrite needed - a `session/:sessionId` route plus a
+  landing route (no session id given) and a wildcard not-found route, set
+  up ready for whatever else might be added here later, per the app's own
+  general-purpose routing setup.

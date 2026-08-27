@@ -26,12 +26,16 @@ namespace RouteJumper.Services
     public class AppConfigStore
     {
         private const string JournalDirectoryKey = "JournalDirectory";
+        private const string CompanionSiteBaseUrlKey = "CompanionSiteBaseUrl";
+        private const string CompanionSessionRetentionHoursKey = "CompanionSessionRetentionHours";
         private const string LogRetentionDaysKey = "LogRetentionDays";
         private const string LogMaxFileSizeMbKey = "LogMaxFileSizeMB";
         private const string LogMaxTotalSizeMbKey = "LogMaxTotalSizeMB";
         private const string EdsmUnresolvedRetryHoursKey = "EdsmUnresolvedRetryHours";
         private const string EdsmCoordinatesBatchSizeKey = "EdsmCoordinatesBatchSize";
         private const string SpanshAutocompleteDebounceMsKey = "SpanshAutocompleteDebounceMs";
+
+        private const int DefaultCompanionSessionRetentionHours = 72;
 
         private const int DefaultLogRetentionDays = 7;
         private const int DefaultLogMaxFileSizeMb = 10;
@@ -78,6 +82,42 @@ namespace RouteJumper.Services
         private static string DefaultJournalDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "Saved Games", "Frontier Developments", "Elite Dangerous");
+
+        /// <summary>
+        /// The companion site's base URL (SPEC §13) - the QR code/link MainViewModel builds
+        /// points at "{CompanionSiteBaseUrl}/#/session/{sessionId}". Defaults to the real deployed
+        /// GitHub Pages site; hand-editable here to something like "http://localhost:4200" while
+        /// running the Angular app locally via `ng serve` (app/), so the QR/link points at that
+        /// instead - the point of exposing this at all. Any trailing slash is stripped so both
+        /// forms behave identically. Re-read fresh every time Auto Pilot is engaged (not cached),
+        /// the same "takes effect without a restart" convention every other setting here follows.
+        /// </summary>
+        public string CompanionSiteBaseUrl
+        {
+            get
+            {
+                var values = ReadOrCreateDefault();
+                var url = values.TryGetValue(CompanionSiteBaseUrlKey, out var raw) && !string.IsNullOrWhiteSpace(raw)
+                    ? raw
+                    : DefaultCompanionSiteBaseUrl;
+                return url.TrimEnd('/');
+            }
+        }
+
+        private const string DefaultCompanionSiteBaseUrl = "https://haggisandchips.github.io/RouteJumper/app";
+
+        /// <summary>
+        /// How long a companion session (its header doc and every one of its events) is kept
+        /// around after Auto Pilot actually stops - completed or panicked - before the desktop
+        /// app's own housekeeping deletes it (SPEC §13; CompanionSessionPublisher/
+        /// CompanionSessionStore - self-managed, not Firestore's built-in TTL feature, which
+        /// requires the paid Blaze plan even for a single delete). Recorded on
+        /// CompanionSessionPublisher.EndSession, not before - a still-active session (however long
+        /// it legitimately runs for) is never recorded at all, so it's never at risk of being
+        /// cleaned up out from under itself. Actual deletion happens once per app launch
+        /// (CleanUpExpiredSessionsAsync), not on a background timer.
+        /// </summary>
+        public int CompanionSessionRetentionHours => ReadIntOrDefault(CompanionSessionRetentionHoursKey, DefaultCompanionSessionRetentionHours);
 
         /// <summary>How many days' worth of Logs\routejumper-*.log files FileLogSink keeps before deleting them - hand-editable here like JournalDirectory, "can revisit these later" defaults per SPEC.</summary>
         public int LogRetentionDays => ReadIntOrDefault(LogRetentionDaysKey, DefaultLogRetentionDays);
@@ -137,6 +177,13 @@ namespace RouteJumper.Services
                         "# ED:FC Auto Pilot configuration - safe to hand-edit while the app is closed",
                         "# (or running - config is re-read on every Roles tab refresh).",
                         $"{JournalDirectoryKey}={DefaultJournalDirectory}",
+                        "# Companion site base URL (SPEC §13) - the QR code/link's own base;",
+                        "# point this at e.g. http://localhost:4200 while testing the Angular app",
+                        "# locally via `ng serve` (app/) instead of the real deployed site.",
+                        $"{CompanionSiteBaseUrlKey}={DefaultCompanionSiteBaseUrl}",
+                        "# Hours to keep a companion session (and its events) around after Auto",
+                        "# Pilot actually stops, before the app deletes it on a later launch.",
+                        $"{CompanionSessionRetentionHoursKey}={DefaultCompanionSessionRetentionHours}",
                         "# Log housekeeping (Logs\\routejumper-*.log) - takes effect within the next 30",
                         "# minutes, or on the next log file rollover, without a restart required.",
                         $"{LogRetentionDaysKey}={DefaultLogRetentionDays}",
@@ -202,6 +249,8 @@ namespace RouteJumper.Services
         private static Dictionary<string, string> GetAllDefaults() => new()
         {
             [JournalDirectoryKey] = DefaultJournalDirectory,
+            [CompanionSiteBaseUrlKey] = DefaultCompanionSiteBaseUrl,
+            [CompanionSessionRetentionHoursKey] = DefaultCompanionSessionRetentionHours.ToString(),
             [LogRetentionDaysKey] = DefaultLogRetentionDays.ToString(),
             [LogMaxFileSizeMbKey] = DefaultLogMaxFileSizeMb.ToString(),
             [LogMaxTotalSizeMbKey] = DefaultLogMaxTotalSizeMb.ToString(),

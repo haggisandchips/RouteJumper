@@ -1,0 +1,87 @@
+.empty {
+  padding: 24px 16px;
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+  text-align: center;
+}
+
+.feed {
+  list-style: none;
+  margin: 0;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+// A CSS animation plays once, on element creation - since events are only
+// ever prepended (newest first) and existing rows keep their DOM identity
+// via `track event.id`, this naturally highlights just the new arrival,
+// with no extra Angular animation plumbing needed.
+@keyframes event-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.event {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border-left: 4px solid var(--mat-sys-outline);
+  background: var(--mat-sys-surface-container-low);
+  animation: event-enter 0.35s ease-out;
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  &__message {
+    font-weight: 500;
+    overflow-wrap: break-word;
+  }
+
+  &__time {
+    font-size: 0.8rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  &--plotted {
+    border-left-color: var(--mat-sys-primary);
+    mat-icon {
+      color: var(--mat-sys-primary);
+    }
+  }
+
+  &--arrived {
+    border-left-color: var(--mat-sys-tertiary);
+    mat-icon {
+      color: var(--mat-sys-tertiary);
+    }
+  }
+
+  &--refueled {
+    border-left-color: var(--mat-sys-tertiary);
+    mat-icon {
+      color: var(--mat-sys-tertiary);
+    }
+  }
+
+  &--panic {
+    border-left-color: var(--mat-sys-error);
+    background: var(--mat-sys-error-container);
+    mat-icon {
+      color: var(--mat-sys-error);
+    }
+  }
+}

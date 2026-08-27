@@ -1,0 +1,97 @@
+name: Deploy Pages
+
+# Builds and deploys docs/ (Jekyll, served at /docs) and app/ (Angular, the
+# ED:FC Auto Pilot companion site, served at /app) together as a single
+# GitHub Pages site. Independent of release.yml (which builds/publishes the
+# WPF app itself on a version tag) - this one runs whenever either of those
+# two sites' own sources change.
+#
+# One-time manual step this workflow depends on: repo Settings > Pages >
+# Source must be set to "GitHub Actions" (not "Deploy from a branch") -
+# see SPEC.md §13.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'app/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: docs
+
+      - name: Build Jekyll docs site
+        working-directory: docs
+        run: bundle exec jekyll build --destination ../_site_out/docs
+        env:
+          JEKYLL_ENV: production
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Angular app dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Build Angular companion app
+        working-directory: app
+        run: npx ng build --configuration production --base-href /RouteJumper/app/ --output-path ../_site_out/app
+
+      - name: Add root redirect page
+        # Neither docs/ nor app/ owns the bare site root any more now that both
+        # live under their own subpath - this sends it straight to the docs.
+        run: |
+          cat > _site_out/index.html <<'EOF'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <title>ED:FC Auto Pilot</title>
+              <meta http-equiv="refresh" content="0; url=/RouteJumper/docs/" />
+            </head>
+            <body>
+              <p>Redirecting to the <a href="/RouteJumper/docs/">ED:FC Auto Pilot documentation</a>&hellip;</p>
+            </body>
+          </html>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site_out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -22,7 +22,7 @@ Developments plc.
 📖 **For everything beyond installation — both tracking modes, macro
 scripting, sample scripts, data locations, development, and
 troubleshooting — see the full
-[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).**
+[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/docs/).**
 
 Questions, feedback, or support? Join the
 [Discord server](https://discord.gg/GeF3AVjcUd).
@@ -78,7 +78,7 @@ open source projects, and this note will be updated once that's in place.
    dotnet run --project RouteJumper/RouteJumper.csproj
    ```
 
-See the [development docs](https://haggisandchips.github.io/RouteJumper/development.html)
+See the [development docs](https://haggisandchips.github.io/RouteJumper/docs/development.html)
 for running the test suite and the project layout. Pull requests are
 welcome.
 
@@ -88,7 +88,7 @@ welcome.
 
 This is the Fleet Carrier + Auto Pilot flow (the default mode). For Ship
 mode's simpler, passive-tracking-only setup, see the
-[Track tab section](https://haggisandchips.github.io/RouteJumper/#track-tab)
+[Track tab section](https://haggisandchips.github.io/RouteJumper/docs/#track-tab)
 in the docs.
 
 1. **Route tab** — paste your route (one system per line) and click
@@ -96,7 +96,7 @@ in the docs.
 2. **Controls tab** — create the macros Auto Pilot will play: a
    jump-plotting script for the Captain, and (optionally) a refuelling
    script for the Engineer. Use the
-   [sample scripts](https://haggisandchips.github.io/RouteJumper/macro-scripting.html#sample-scripts)
+   [sample scripts](https://haggisandchips.github.io/RouteJumper/docs/macro-scripting.html#sample-scripts)
    in the docs as a starting point if you like. Before using any script,
    make sure **Key Bindings** here match Elite Dangerous's own keyboard
    controls for UI navigation — the defaults (arrow keys, Space, Del,
@@ -116,7 +116,7 @@ you hear one, keep your hands off the mouse/keyboard, since real input
 is about to be sent to the game.
 
 For a full walkthrough of every tab, see the
-[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/).
+[ED:FC Auto Pilot documentation](https://haggisandchips.github.io/RouteJumper/docs/).
 
 ---
 

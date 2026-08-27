@@ -1,0 +1,43 @@
+// Firestore security rules for the ED:FC Auto Pilot companion site.
+//
+// This is a reference copy for version control - there is no Firebase CLI
+// project wired up in this repo, so applying it is a manual, one-time step:
+// Firebase Console > (your project) > Firestore Database > Rules > paste
+// this in > Publish. See SPEC.md §13 and the plan this was implemented
+// from for the full design rationale.
+//
+// Privacy model: a session id (UUID) is unguessable obscurity, not real
+// authentication - there is no Firebase Auth involved on either the .NET
+// publisher or the Angular reader. These rules implement that model
+// directly: a session's own doc and its events are readable/writable by
+// anyone who already knows its exact path (`get`, and `list`/`create`
+// scoped to that one session's `events` subcollection), but the top-level
+// `sessions` collection itself can never be listed/enumerated - so simply
+// having API access is not enough to discover a session id you weren't
+// given.
+//
+// Housekeeping (SPEC §13) is self-managed by the desktop app, not
+// Firestore's built-in TTL feature - TTL turned out to require the paid
+// Blaze plan even for a single delete (no free allowance at all, unlike
+// ordinary client-triggered deletes, which the Spark/free plan does cover),
+// a poor fit for a project that's deliberately free/card-free. Instead,
+// CompanionSessionPublisher.EndSession records a finished session locally
+// (SQLite - it's the only writer, so the only thing that can ever know
+// which sessions exist), and CleanUpExpiredSessionsAsync deletes whatever's
+// actually due once per app launch via plain `delete` calls below - no
+// TTL policy, no console step beyond publishing these rules.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /sessions/{sessionId} {
+      allow get: if true;
+      allow create, update, delete: if true;
+      allow list: if false; // top-level collection is never enumerable
+
+      match /events/{eventId} {
+        // create/delete only - nothing ever updates an existing event doc.
+        allow get, list, create, delete: if true; // scoped by the parent path itself
+      }
+    }
+  }
+}

@@ -118,6 +118,12 @@ namespace RouteJumper.Services
         private readonly Action<string> _speak;
         private readonly ManualRowEventTrigger _routeEventTrigger;
 
+        /// <summary>Raised immediately after a confirmed carrier fuel deposit is observed (see TriggerEngineerRefuelAsync's own success branch) - carries the new fuel level - lets MainViewModel notify the companion site publisher (SPEC §13) without AutoPilotController needing a reference to it directly (same decoupling principle as RouteViewModel.AutoPilotRunningChanged).</summary>
+        public event EventHandler<int?>? EngineerRefuelSucceeded;
+
+        /// <summary>Raised at the top of Panic (see its own doc comment), carrying the same message reported via _reportError - lets MainViewModel notify the companion site publisher of a panic stop (SPEC §13), same decoupling principle as EngineerRefuelSucceeded above.</summary>
+        public event EventHandler<string>? PanicOccurred;
+
         private CancellationTokenSource? _cts;
         private RouteRowViewModel? _captainTriggeredForRow;
         private RouteRowViewModel? _pendingCooldownRow;
@@ -476,6 +482,7 @@ namespace RouteJumper.Services
                     else
                     {
                         Log.Info("AutoPilot", $"Engineer macro completed - carrier fuel {fuelBefore?.ToString() ?? "unknown"}t -> {fuelAfter}t.");
+                        EngineerRefuelSucceeded?.Invoke(this, fuelAfter);
                     }
                 }
             }
@@ -494,6 +501,7 @@ namespace RouteJumper.Services
         private void Panic(string message)
         {
             Log.Warn("AutoPilot", message);
+            PanicOccurred?.Invoke(this, message);
             _reportError(message);
             _stopAutoPilot();
         }

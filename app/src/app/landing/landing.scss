@@ -1,0 +1,19 @@
+.landing {
+  max-width: 480px;
+  margin: 15dvh auto 0;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--mat-sys-on-surface);
+
+  &__icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    color: var(--mat-sys-primary);
+  }
+
+  p {
+    color: var(--mat-sys-on-surface-variant);
+    line-height: 1.5;
+  }
+}

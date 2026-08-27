@@ -54,7 +54,7 @@ namespace RouteJumper.ViewModels
         /// </summary>
         private const int MaxRefuelScriptDurationMs = (4 * 60 + 45) * 1000;
 
-        private const string SampleScriptsUrl = "https://haggisandchips.github.io/RouteJumper/macro-scripting.html#sample-scripts";
+        private const string SampleScriptsUrl = "https://haggisandchips.github.io/RouteJumper/docs/macro-scripting.html#sample-scripts";
 
         private readonly AppSettingsStore _settings;
         private readonly EliteInstanceScanner _scanner;

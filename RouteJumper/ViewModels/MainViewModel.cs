@@ -3,6 +3,7 @@ using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Sequencing;
 using RouteJumper.Services;
+using RouteJumper.Services.Companion;
 
 namespace RouteJumper.ViewModels
 {
@@ -42,13 +43,14 @@ namespace RouteJumper.ViewModels
         private const int TrackTabIndex = 3;
 
         private readonly AppSettingsStore _settings;
+        private readonly AppConfigStore _config;
         private TrackingMode _mode;
         private int _selectedTabIndex = RouteTabIndex;
 
         public MainViewModel()
         {
             _settings = new AppSettingsStore();
-            var config = new AppConfigStore();
+            _config = new AppConfigStore();
             var routeEventTrigger = new ManualRowEventTrigger();
 
             SpeechAnnouncer = new SpeechAnnouncer(_settings, new SapiSpeechEngine());
@@ -60,7 +62,7 @@ namespace RouteJumper.ViewModels
             // DataSeeded subscription (its live-refresh debounce - see its own constructor) actually
             // observes seeds made through RolesViewModel's/TrackViewModel's own CarrierRouteJournalWatcher/
             // ShipRouteJournalWatcher, which write through this same object rather than a separate one.
-            var starSystemLookupService = new EdsmStarSystemLookupService(config);
+            var starSystemLookupService = new EdsmStarSystemLookupService(_config);
 
             // The RolesViewModel/ControlsViewModel property dereferences below are guaranteed
             // safe despite still being unassigned at this exact statement - these closures are
@@ -75,19 +77,19 @@ namespace RouteJumper.ViewModels
                 () => _mode == TrackingMode.Ship
                     ? TrackViewModel!.Instances.FirstOrDefault(i => i.IsTracked)?.CurrentSystem
                     : RolesViewModel!.CaptainInstance?.CurrentSystem,
-                () => config.JournalDirectory,
+                () => _config.JournalDirectory,
                 () => RolesViewModel!.CaptainInstance != null,
                 () => RolesViewModel!.CaptainInstance?.CarrierSystem);
             RolesViewModel = new RolesViewModel(
                 routeEventTrigger,
                 _settings,
-                new EliteInstanceScanner(config),
+                new EliteInstanceScanner(_config),
                 () => ControlsViewModel!.Macros,
                 starSystemLookupService);
-            TrackViewModel = new TrackViewModel(routeEventTrigger, _settings, new EliteInstanceScanner(config), starSystemLookupService);
+            TrackViewModel = new TrackViewModel(routeEventTrigger, _settings, new EliteInstanceScanner(_config), starSystemLookupService);
             ControlsViewModel = new ControlsViewModel(
                 _settings,
-                new EliteInstanceScanner(config),
+                new EliteInstanceScanner(_config),
                 () => RouteViewModel.Rows.FirstOrDefault(r => r.Icon == RowIcon.InProgress)?.SystemText,
                 () => RolesViewModel.EngineerInstance,
                 RolesViewModel.RefreshAsync);
@@ -143,6 +145,63 @@ namespace RouteJumper.ViewModels
                 }
             };
 
+            // Companion site (SPEC §13): publishes Auto Pilot's key events to Firestore so the
+            // Angular app under /app can show a live, read-only feed. A third, independent
+            // subscriber to routeEventTrigger.RowTriggered - alongside RouteSequencer's own
+            // AttachRowTrigger and RouteViewModel's own OnLiveCarrierLocation subscription -
+            // never touches Sequencing/ itself (CLAUDE.md). Every publish call is best-effort and
+            // fire-and-forget; nothing here is ever awaited on Auto Pilot's own critical path.
+            var companionPublisher = new CompanionSessionPublisher(() => _config.CompanionSessionRetentionHours);
+
+            // Self-managed housekeeping (SPEC §13) - Firestore's own TTL feature turned out to
+            // require the paid Blaze plan even for a single delete, so instead the desktop app
+            // (the only writer, and so the only thing that ever knows which sessions exist)
+            // deletes whatever it locally recorded as due once per launch. Fire-and-forget: never
+            // blocks startup, and a failed attempt just retries in full next launch.
+            _ = companionPublisher.CleanUpExpiredSessionsAsync();
+
+            autoPilotController.EngineerRefuelSucceeded += (_, fuelLevel) =>
+                companionPublisher.PublishEvent(
+                    CompanionEventKind.Refueled,
+                    RolesViewModel.CaptainInstance?.CarrierSystem ?? string.Empty,
+                    $"Refueled - {(fuelLevel is { } level ? $"{level}t" : "unknown level")}");
+
+            autoPilotController.PanicOccurred += (_, message) =>
+            {
+                companionPublisher.PublishEvent(CompanionEventKind.Panic, string.Empty, message);
+                companionPublisher.EndSession(panicked: true);
+            };
+
+            routeEventTrigger.RowTriggered += (_, e) =>
+            {
+                switch (e.Kind)
+                {
+                    case RowEventKind.Plotted:
+                        companionPublisher.PublishEvent(CompanionEventKind.Plotted, e.SystemName, $"Jump plotted to {e.SystemName}");
+                        break;
+                    case RowEventKind.Arrived:
+                        companionPublisher.PublishEvent(CompanionEventKind.Arrived, e.SystemName, $"Arrived at {e.SystemName}");
+                        break;
+                }
+            };
+
+            RouteViewModel.AutoPilotRunningChanged += (_, running) =>
+            {
+                if (running)
+                {
+                    _ = StartCompanionSessionAsync(companionPublisher);
+                }
+                else
+                {
+                    // Already a no-op if PanicOccurred (above) already ended this same session as
+                    // panicked - EndSession clears CurrentSessionId synchronously before this can
+                    // ever run, since Panic() raises PanicOccurred before calling _stopAutoPilot
+                    // (which is what raises this event in the first place).
+                    companionPublisher.EndSession(panicked: false);
+                    RouteViewModel.SetCompanionSession(null, null);
+                }
+            };
+
             // Restores the persisted TrackingMode (default FleetCarrier) and applies it - must
             // run before RestoreFromSettings below, so RouteViewModel's Auto Pilot button
             // visibility and whichever of Roles/Track is active are correct *before* a restored
@@ -175,6 +234,38 @@ namespace RouteJumper.ViewModels
         {
             await (_mode == TrackingMode.Ship ? TrackViewModel.InitialScanTask : RolesViewModel.InitialScanTask);
             RouteViewModel.RefreshEnrichment();
+        }
+
+        /// <summary>
+        /// Starts a fresh companion session (SPEC §13) the moment Auto Pilot is engaged, named
+        /// after the currently-saved route's own first/last row (not the CMDR's live origin
+        /// position - a simpler, always-available summary of "this route", the same pair a phone
+        /// user glancing at the companion site would expect to see) - then renders and shows the
+        /// QR code once the session id comes back. Never blocks Auto Pilot itself: this runs as a
+        /// detached fire-and-forget task from the AutoPilotRunningChanged handler above, and a
+        /// failed/slow start here has no bearing on Auto Pilot actually starting to drive the
+        /// route.
+        /// </summary>
+        private async Task StartCompanionSessionAsync(CompanionSessionPublisher publisher)
+        {
+            if (RouteViewModel.Rows.Count == 0)
+            {
+                return;
+            }
+
+            var startSystem = RouteViewModel.Rows[0].SystemText;
+            var endSystem = RouteViewModel.Rows[^1].SystemText;
+
+            if (await publisher.StartSessionAsync(startSystem, endSystem) is not { } sessionId)
+            {
+                return;
+            }
+
+            // _config.CompanionSiteBaseUrl is read fresh here (not cached) so a hand-edit to
+            // routejumper.conf - e.g. pointing it at a local `ng serve` instance for testing -
+            // takes effect on the next Auto Pilot engage with no restart required.
+            var url = new Uri($"{_config.CompanionSiteBaseUrl}/#/session/{sessionId}");
+            RouteViewModel.SetCompanionSession(url, QrCodeImageFactory.Generate(url.ToString()));
         }
 
         public RouteViewModel RouteViewModel { get; }
