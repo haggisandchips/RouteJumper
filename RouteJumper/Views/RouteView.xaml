@@ -576,13 +576,19 @@
                                      than scanning it, e.g. while testing against a local
                                      `ng serve` instance (CompanionSiteBaseUrl, §13). A bare,
                                      template-stripped Button - not MaterialDesignFlatButton -
-                                     since that style's Material chrome (min-size padding,
-                                     corner rounding, ripple overlay) clips/distorts the QR
-                                     image's own square, corner-sensitive pattern; a ContentPresenter-only
-                                     template keeps the click behavior with none of that chrome. -->
+                                     since MaterialDesignThemes' own implicit (un-styled) Button
+                                     default already sets a fixed Height/MinHeight/MinWidth via
+                                     its base style - a ContentPresenter-only template alone still
+                                     inherits those Setters (only Template itself was overridden),
+                                     clamping the image's rendered height and clipping most of the
+                                     QR code away. Height/MinHeight/MinWidth are set as local values
+                                     here specifically to win over that inherited style. -->
                                 <Button Command="{Binding OpenCompanionSiteCommand}"
                                         Padding="0"
                                         Margin="0"
+                                        Height="Auto"
+                                        MinHeight="0"
+                                        MinWidth="0"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Cursor="Hand"
