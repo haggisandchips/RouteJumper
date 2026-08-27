@@ -7,6 +7,30 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.4] - 2026-08-27
+
+### Changed
+
+- Companion session ids no longer reset on every Auto Pilot re-engage —
+  reactivating on an unchanged route reuses the same link/QR code
+  (handy for a route spanning several days); a route edit or an app
+  restart still gets a fresh one.
+
+### Added
+
+- Companion site: a **Delete** button on each feed event, permanently
+  removing it for every viewer of that session's link.
+
+### Fixed
+
+- Companion site: event timestamps (previously silently blank) now
+  display correctly, including the date, so a route spanning several
+  days stays legible.
+- Companion site: the event feed's leading icon no longer clips on a
+  narrow/mobile viewport when a long message (typically a panic stop)
+  squeezes the row.
+- Companion site favicon now matches the desktop app's rocket icon.
+
 ## [2.0.0] - 2026-08-18
 
 ### Added
