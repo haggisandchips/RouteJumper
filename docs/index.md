@@ -61,7 +61,9 @@ there instead. Below the table:
 - **Auto Pilot** (Fleet Carrier mode only) — drives the whole route by
   playing the Captain's macro to plot each jump and the Engineer's to
   refuel each cooldown, stopping itself once the route completes, if you
-  click it again, or if its "panic mode" trips (see below).
+  click it again, or if its "panic mode" trips (see below). A QR-code
+  button appears beside it the moment it starts — see
+  [Companion site](#companion-site).
 - **Edit** — go back to the text box to change the route. For a Neutron/
   Galaxy Plotter route, this asks you to confirm first, since it converts
   the route back to a plain one and loses the extra columns above.
@@ -159,6 +161,42 @@ immediately.
 
 ---
 
+## Companion site
+
+While **Auto Pilot** is engaged (Fleet Carrier mode), a QR-code button
+appears beside it on the Route tab. Scan it with your phone (or click
+**Copy Link** in the popup) to open a small, mobile-friendly page showing
+a live feed of that run: each jump plotted, each arrival, each refuel,
+and any panic-mode stop — newest first, updating automatically with no
+refresh needed.
+
+It's read-only and requires no login — the link itself is the only
+"key", so treat it like any other unlisted link (don't post it somewhere
+public if you'd rather keep your route private). A fresh link/QR code is
+generated every time you engage Auto Pilot; the previous run's link
+still works afterward, just showing that it finished (or stopped early).
+
+Old runs don't hang around forever — once a run finishes, its page stays
+reachable for `CompanionSessionRetentionHours` (default 72 hours), then
+gets cleaned up automatically the next time you launch ED:FC Auto Pilot.
+That window only starts once the run actually ends, so a run that's
+still going stays visible for however long it takes, no matter how long
+that is.
+
+If the button never appears, or the page stays empty, this feature
+simply isn't configured yet on this installation — see
+[companion site setup](https://github.com/haggisandchips/RouteJumper/blob/main/app/README.md)
+for what's needed (a Firebase project). It's entirely best-effort: a
+missing/misconfigured companion site never blocks or affects Auto Pilot
+itself, it just means no QR code shows up.
+
+Testing the companion site itself against a local build (`ng serve`)
+instead of the real deployed one? Point `CompanionSiteBaseUrl` in
+`routejumper.conf` at your local address (e.g. `http://localhost:4200`)
+— see [Data & configuration locations](#data--configuration-locations).
+
+---
+
 ## Logs
 
 **Help > Logs** opens a live viewer for everything ED:FC Auto Pilot logs
@@ -180,7 +218,7 @@ ED:FC Auto Pilot stores its state in `%LocalAppData%\EDFCAutoPilot\`:
 | File | Contents |
 |---|---|
 | `routejumper.db` | SQLite store — route text, window bounds, role/macro assignment, key bindings, recorded macros, options, EDSM lookup cache |
-| `routejumper.conf` | Plain-text, hand-editable config — `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping, EDSM retry/batch settings, Spansh autocomplete debounce |
+| `routejumper.conf` | Plain-text, hand-editable config — `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping, EDSM retry/batch settings, Spansh autocomplete debounce, `CompanionSiteBaseUrl` (the [companion site](#companion-site)'s base link, e.g. for pointing it at a local `ng serve` instance while testing), `CompanionSessionRetentionHours` (how long a finished run's companion page stays reachable before it's cleaned up, default 72) |
 | `Logs\routejumper-yyyy-MM-dd.log` | Date-stamped log files, size/age-capped automatically |
 
 Not persisted: per-row route progress (re-derived from the journal on
@@ -221,3 +259,8 @@ opens blank; click **Open Logs Folder** in that window (or browse to
   couldn't be reached; the status message explains why. Calculate stays
   disabled until Source/Destination are picked from the autocomplete,
   not just typed.
+- **No QR-code button appears next to Auto Pilot** — this installation's
+  companion site isn't configured (no Firebase project set up yet), or
+  the session failed to start; either way, Help > Logs (category
+  `Companion`) has the detail, and Auto Pilot itself is unaffected
+  either way. See [Companion site](#companion-site).

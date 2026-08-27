@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using RouteJumper.Common;
 using RouteJumper.Models;
@@ -163,6 +164,13 @@ namespace RouteJumper.ViewModels
             CancelCommand = new RelayCommand(Cancel);
             EditCommand = new RelayCommand(Edit, () => IsSaved && !IsAutoPilotRunning);
             AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => ShowAutoPilotButton && IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
+            OpenCompanionSiteCommand = new RelayCommand(() =>
+            {
+                if (CompanionUrl is { } url)
+                {
+                    BrowserLauncher.Open(url.ToString());
+                }
+            });
             CopySystemCommand = new RelayCommand<RouteRowViewModel>(CopySystemToClipboard);
             SetNextSystemCommand = new RelayCommand<RouteRowViewModel>(SetNextSystem);
             DismissUnresolvedSystemsBannerCommand = new RelayCommand(DismissUnresolvedSystemsBanner);
@@ -360,6 +368,44 @@ namespace RouteJumper.ViewModels
         /// </summary>
         public event EventHandler<bool>? AutoPilotRunningChanged;
 
+        private Uri? _companionUrl;
+        private BitmapImage? _companionQrImage;
+
+        /// <summary>The companion site link for the run currently in progress (SPEC §13) - null whenever there is none (Auto Pilot idle, or the session failed to start).</summary>
+        public Uri? CompanionUrl
+        {
+            get => _companionUrl;
+            private set
+            {
+                if (SetProperty(ref _companionUrl, value))
+                {
+                    OnPropertyChanged(nameof(HasCompanionSession));
+                }
+            }
+        }
+
+        public BitmapImage? CompanionQrImage
+        {
+            get => _companionQrImage;
+            private set => SetProperty(ref _companionQrImage, value);
+        }
+
+        /// <summary>Drives the QR/link button's own visibility on the Route tab - shown only while a companion session is actually live.</summary>
+        public bool HasCompanionSession => CompanionUrl != null;
+
+        /// <summary>
+        /// Called externally (via MainViewModel, once CompanionSessionPublisher.StartSessionAsync
+        /// resolves, and again with both arguments null once Auto Pilot stops) to push the
+        /// companion site's QR/link state into this tab's own bindable properties - RouteViewModel
+        /// has no reference to CompanionSessionPublisher itself, the same decoupling principle as
+        /// AutoPilotRunningChanged/RaiseAutoPilotEligibilityChanged above.
+        /// </summary>
+        internal void SetCompanionSession(Uri? url, BitmapImage? qrImage)
+        {
+            CompanionUrl = url;
+            CompanionQrImage = qrImage;
+        }
+
         public RelayCommand SaveCommand { get; }
 
         public RelayCommand CancelCommand { get; }
@@ -369,6 +415,9 @@ namespace RouteJumper.ViewModels
 
         /// <summary>Toggles IsAutoPilotRunning, flipping the button's label between "Auto Pilot" and "Stop".</summary>
         public RelayCommand AutoPilotCommand { get; }
+
+        /// <summary>Opens the companion site link (CompanionUrl) in the default browser - clicking the QR code itself in its popup, a quicker way to open the page locally than scanning it, e.g. while testing against a local `ng serve` instance (CompanionSiteBaseUrl, §13).</summary>
+        public RelayCommand OpenCompanionSiteCommand { get; }
 
         /// <summary>Called (via MainViewModel wiring RolesViewModel.AutoPilotEligibilityChanged) whenever role/macro assignment on the Roles tab changes, so this button's enabled state stays in sync without waiting for an incidental UI event to re-query it.</summary>
         public void RaiseAutoPilotEligibilityChanged() => AutoPilotCommand.RaiseCanExecuteChanged();

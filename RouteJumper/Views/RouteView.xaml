@@ -544,7 +544,56 @@
                             Command="{Binding AutoPilotCommand}"
                             Visibility="{Binding ShowAutoPilotButton, Converter={StaticResource BoolToVisibilityConverter}}"
                             Width="90"
-                            Padding="4" />
+                            Padding="4"
+                            Margin="0,0,8,0" />
+
+                    <!-- Companion site QR code (SPEC §13) - shown only while a companion session
+                         is actually live (HasCompanionSession, set the instant Auto Pilot engages
+                         and a session was started successfully). A ToggleButton driving a Popup
+                         directly, no code-behind needed for open/close - only "Copy Link" below
+                         needs one, the same clipboard-copy-with-confirmation-sound convention
+                         already used for row click-to-copy (§4.6) and the Roles tab's journal
+                         filename click-to-copy (§5.3). -->
+                    <ToggleButton x:Name="CompanionToggle"
+                                  Style="{StaticResource MaterialDesignIconButton}"
+                                  Visibility="{Binding HasCompanionSession, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  ToolTip="Show companion site QR code">
+                        <materialDesign:PackIcon Kind="Qrcode" />
+                    </ToggleButton>
+                    <Popup PlacementTarget="{Binding ElementName=CompanionToggle}"
+                           Placement="Bottom"
+                           StaysOpen="False"
+                           IsOpen="{Binding IsChecked, ElementName=CompanionToggle, Mode=TwoWay}">
+                        <materialDesign:Card Padding="16" UniformCornerRadius="8">
+                            <StackPanel Width="220" HorizontalAlignment="Center">
+                                <TextBlock Text="Scan to follow along on your phone"
+                                           FontWeight="Medium"
+                                           TextWrapping="Wrap"
+                                           TextAlignment="Center"
+                                           Margin="0,0,0,8" />
+                                <!-- Clicking the QR code itself opens the link directly in the
+                                     default browser - a quicker way to open the page locally
+                                     than scanning it, e.g. while testing against a local
+                                     `ng serve` instance (CompanionSiteBaseUrl, §13). -->
+                                <Button Command="{Binding OpenCompanionSiteCommand}"
+                                        Style="{StaticResource MaterialDesignFlatButton}"
+                                        Padding="0"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Cursor="Hand"
+                                        ToolTip="Open in browser"
+                                        HorizontalAlignment="Center">
+                                    <Image Source="{Binding CompanionQrImage}"
+                                           Width="180"
+                                           Height="180" />
+                                </Button>
+                                <Button Content="Copy Link"
+                                        Click="OnCopyCompanionLinkClick"
+                                        Margin="0,8,0,0"
+                                        HorizontalAlignment="Stretch" />
+                            </StackPanel>
+                        </materialDesign:Card>
+                    </Popup>
                 </StackPanel>
                 <!-- IsEnabled (not Command) - see RouteView.xaml.cs.OnEditClick's own doc
                      comment for why a maybe-cancel confirmation dialog can't live behind a bound

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using RouteJumper.Common;
 using RouteJumper.Models;
 using RouteJumper.Services;
 using RouteJumper.ViewModels;
@@ -204,6 +205,12 @@ namespace RouteJumper.Views
                         "Trim for FC", MessageBoxButton.OK, MessageBoxImage.Warning);
                     break;
             }
+        }
+
+        /// <summary>Companion site QR popup's "Copy Link" - same clipboard-copy-with-confirmation-sound convention as row click-to-copy (§4.6) and the Roles tab's journal filename click-to-copy (§5.3).</summary>
+        private void OnCopyCompanionLinkClick(object sender, RoutedEventArgs e)
+        {
+            ClipboardCopyHelper.CopyWithPing(((RouteViewModel)DataContext).CompanionUrl?.ToString());
         }
     }
 }

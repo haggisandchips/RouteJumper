@@ -1,0 +1,16 @@
+@if (session(); as s) {
+  <div class="header">
+    <div class="route">
+      <span class="system">{{ s.startSystem }}</span>
+      <mat-icon>arrow_forward</mat-icon>
+      <span class="system">{{ s.endSystem }}</span>
+    </div>
+    <mat-chip-set>
+      <mat-chip [class]="'status-' + s.status" [highlighted]="s.status === 'active'">
+        {{ statusLabel() }}
+      </mat-chip>
+    </mat-chip-set>
+  </div>
+} @else {
+  <div class="header header--loading">Loading route&hellip;</div>
+}

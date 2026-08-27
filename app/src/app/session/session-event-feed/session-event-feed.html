@@ -1,0 +1,15 @@
+@if (events().length === 0) {
+  <p class="empty">No events yet - they'll appear here the moment Auto Pilot does something.</p>
+} @else {
+  <ul class="feed">
+    @for (event of events(); track event.id) {
+      <li class="event" [class]="'event--' + event.kind">
+        <mat-icon>{{ iconFor(event.kind) }}</mat-icon>
+        <div class="event__body">
+          <span class="event__message">{{ event.message }}</span>
+          <span class="event__time">{{ timeLabel(event.clientUtc) }}</span>
+        </div>
+      </li>
+    }
+  </ul>
+}

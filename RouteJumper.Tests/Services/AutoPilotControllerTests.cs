@@ -572,5 +572,119 @@ namespace RouteJumper.Tests.Services
 
             Assert.Equal(TimeSpan.FromSeconds(2), delay);
         }
+
+        // ===================== Companion site events (SPEC §13) =====================
+
+        [Fact]
+        public async Task EngineerRefuel_FreshDepositObserved_RaisesEngineerRefuelSucceededWithNewFuelLevel()
+        {
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            EliteInstanceViewModel currentEngineerInstance = Instance(carrierFuelLevel: 500);
+            int? raisedFuelLevel = null;
+            var raised = false;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => currentEngineerInstance,
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () =>
+                {
+                    currentEngineerInstance = Instance(carrierFuelLevel: 620, carrierLastDepositUtc: DateTime.UtcNow);
+                    return Task.CompletedTask;
+                },
+                () => { },
+                () => { },
+                _ => { },
+                _ => { },
+                new ManualRowEventTrigger());
+            controller.EngineerRefuelSucceeded += (_, fuelLevel) =>
+            {
+                raised = true;
+                raisedFuelLevel = fuelLevel;
+            };
+
+            controller.Start();
+            for (var i = 0; i < 20 && !raised; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(raised);
+            Assert.Equal(620, raisedFuelLevel);
+        }
+
+        [Fact]
+        public async Task EngineerRefuel_NoDepositObserved_DoesNotRaiseEngineerRefuelSucceeded()
+        {
+            var rows = RowsWithJumpingFirstRow();
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            var stopped = false;
+            var raised = false;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => null,
+                () => null,
+                () => macro,
+                () => Instance(carrierFuelLevel: 500), // refreshed instance still carries no fresh deposit
+                () => 0,
+                (_, _) => Task.FromResult(true),
+                () => Task.CompletedTask,
+                () => { },
+                () => stopped = true,
+                _ => { },
+                _ => { },
+                new ManualRowEventTrigger());
+            controller.EngineerRefuelSucceeded += (_, _) => raised = true;
+
+            controller.Start();
+            for (var i = 0; i < 20 && !stopped; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.True(stopped);
+            Assert.False(raised);
+        }
+
+        [Fact]
+        public async Task CaptainPlot_MacroDidNotRunToCompletion_RaisesPanicOccurredWithTheReportedMessage()
+        {
+            var row = new RouteRowViewModel { SystemText = "Sol", Icon = RowIcon.InProgress };
+            var rows = new ObservableCollection<RouteRowViewModel>(new[] { row });
+            var macro = new RecordedMacroViewModel(new RecordedMacro { Id = Guid.NewGuid(), Name = "M", ScriptText = "UP" });
+            string? reportedError = null;
+            string? raisedMessage = null;
+
+            var controller = new AutoPilotController(
+                rows,
+                () => macro,
+                () => Instance(),
+                () => null,
+                () => null,
+                () => 0,
+                (_, _) => Task.FromResult(false), // never reached the end
+                () => Task.CompletedTask,
+                () => { },
+                () => { },
+                msg => reportedError = msg,
+                _ => { },
+                new ManualRowEventTrigger());
+            controller.PanicOccurred += (_, message) => raisedMessage = message;
+
+            controller.Start();
+            for (var i = 0; i < 20 && reportedError is null; i++)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.NotNull(reportedError);
+            Assert.Equal(reportedError, raisedMessage);
+        }
     }
 }

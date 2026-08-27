@@ -1,0 +1,23 @@
+:host {
+  display: block;
+  height: 100dvh;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  &__header {
+    flex: none;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  &__feed {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
