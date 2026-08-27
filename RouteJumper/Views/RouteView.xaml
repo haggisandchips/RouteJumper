@@ -548,22 +548,26 @@
                             Margin="0,0,8,0" />
 
                     <!-- Companion site QR code (SPEC §13) - shown only while a companion session
-                         is actually live (HasCompanionSession, set the instant Auto Pilot engages
-                         and a session was started successfully). A ToggleButton driving a Popup
-                         directly, no code-behind needed for open/close - only "Copy Link" below
-                         needs one, the same clipboard-copy-with-confirmation-sound convention
-                         already used for row click-to-copy (§4.6) and the Roles tab's journal
-                         filename click-to-copy (§5.3). -->
+                         is actually live (set the instant Auto Pilot engages and a session was
+                         started successfully) AND no macro is currently executing
+                         (ShowCompanionButton) - hidden, not just disabled, for the duration of a
+                         macro run since clicking "Open in browser" mid-script risks stealing focus
+                         from the target Elite Dangerous window (§4.7's panic mode). A ToggleButton
+                         driving a Popup directly, no code-behind needed for open/close - only
+                         "Copy Link" below needs one, the same clipboard-copy-with-confirmation-sound
+                         convention already used for row click-to-copy (§4.6) and the Roles tab's
+                         journal filename click-to-copy (§5.3). -->
                     <ToggleButton x:Name="CompanionToggle"
                                   Style="{StaticResource MaterialDesignIconButton}"
-                                  Visibility="{Binding HasCompanionSession, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  Visibility="{Binding ShowCompanionButton, Converter={StaticResource BoolToVisibilityConverter}}"
+                                  IsChecked="{Binding IsCompanionPopupOpen, Mode=TwoWay}"
                                   ToolTip="Show companion site QR code">
                         <materialDesign:PackIcon Kind="Qrcode" />
                     </ToggleButton>
                     <Popup PlacementTarget="{Binding ElementName=CompanionToggle}"
                            Placement="Bottom"
                            StaysOpen="False"
-                           IsOpen="{Binding IsChecked, ElementName=CompanionToggle, Mode=TwoWay}">
+                           IsOpen="{Binding IsCompanionPopupOpen, Mode=TwoWay}">
                         <materialDesign:Card Padding="16" UniformCornerRadius="8">
                             <StackPanel Width="220" HorizontalAlignment="Center">
                                 <TextBlock Text="Scan to follow along on your phone"

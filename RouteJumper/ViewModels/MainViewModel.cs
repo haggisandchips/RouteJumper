@@ -119,6 +119,20 @@ namespace RouteJumper.ViewModels
             };
             ControlsViewModel.MacroDeleted += (_, macro) => RolesViewModel.OnMacroDeleted(macro);
 
+            // Hides the Route tab's companion QR/link button for the duration of any macro
+            // execution (Auto Pilot's own Captain plot/Engineer refuel, or a manual Play/Step
+            // from the Controls tab - all three run through the same ControlsViewModel.PlayMacro/
+            // MacroPlayer channel, §4.7) - clicking "Open in browser" mid-script risks stealing
+            // focus from the target Elite Dangerous window, which MacroPlayer treats as a
+            // playback failure (panic mode).
+            ControlsViewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName is nameof(ControlsViewModel.IsPlaying) or nameof(ControlsViewModel.IsStepping))
+                {
+                    RouteViewModel.SetMacroExecuting(ControlsViewModel.IsPlaying || ControlsViewModel.IsStepping);
+                }
+            };
+
             var autoPilotController = new AutoPilotController(
                 RouteViewModel.Rows,
                 () => RolesViewModel.CaptainMacro,

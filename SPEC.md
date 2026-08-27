@@ -1570,8 +1570,9 @@ section for the full mechanism/exact timing/wording.
     confirmation; reverting to Plain re-enables the chip without
     auto-switching modes (§3.4).
 94. The companion QR/link button shows only while Auto Pilot is running
-    with a session actually started; a start failure is logged, not
-    surfaced (§13).
+    with a session actually started, and hides again for as long as any
+    macro is executing (closing its popup if open); a start failure is
+    logged, not surfaced (§13).
 95. All four companion event kinds (Plotted/Arrived/Refueled/Panic)
     appear in the live feed shortly after the in-app event, without
     delaying Auto Pilot (§13).
@@ -1670,9 +1671,16 @@ so the CMDR can check in from a phone.
 - **Trigger**: a QR-code/link button appears beside Auto Pilot the
   instant a session starts successfully — automatic on engaging Auto
   Pilot, never a separate opt-in. Hidden otherwise, including a failed
-  start (logged, not surfaced — cosmetic, non-critical feature). Clicking
-  it opens a popup with the QR code and a "Copy Link" button (same
-  copy-with-confirmation-sound convention as §4.6/§5.3).
+  start (logged, not surfaced — cosmetic, non-critical feature), and
+  hidden (not merely disabled) for the duration of any macro execution —
+  Auto Pilot's own Captain plot/Engineer refuel, or a manual Play/Step
+  from the Controls tab, since all three share the same playback channel
+  (§4.7) — because clicking "Open in browser" mid-script risks stealing
+  focus from the target Elite Dangerous window, which counts as a
+  playback failure there. An already-open popup closes automatically the
+  instant the button would hide. Clicking it opens a popup with the QR
+  code and a "Copy Link" button (same copy-with-confirmation-sound
+  convention as §4.6/§5.3).
 - **Session lifecycle**: a brand-new session (fresh UUID, fresh QR code)
   every Auto Pilot engage, never reused. A session's header doc tracks
   `status`: `active` while running, `completed` on a normal stop (manual

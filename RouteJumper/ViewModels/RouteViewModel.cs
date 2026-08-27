@@ -370,6 +370,8 @@ namespace RouteJumper.ViewModels
 
         private Uri? _companionUrl;
         private BitmapImage? _companionQrImage;
+        private bool _isMacroExecuting;
+        private bool _isCompanionPopupOpen;
 
         /// <summary>The companion site link for the run currently in progress (SPEC §13) - null whenever there is none (Auto Pilot idle, or the session failed to start).</summary>
         public Uri? CompanionUrl
@@ -380,6 +382,7 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _companionUrl, value))
                 {
                     OnPropertyChanged(nameof(HasCompanionSession));
+                    OnCompanionButtonVisibilityChanged();
                 }
             }
         }
@@ -390,8 +393,61 @@ namespace RouteJumper.ViewModels
             private set => SetProperty(ref _companionQrImage, value);
         }
 
-        /// <summary>Drives the QR/link button's own visibility on the Route tab - shown only while a companion session is actually live.</summary>
+        /// <summary>True whenever a session exists at all - not itself bound to anything in the view; see ShowCompanionButton for the button's actual visibility.</summary>
         public bool HasCompanionSession => CompanionUrl != null;
+
+        /// <summary>
+        /// True while a macro is actively executing - Auto Pilot's own Captain plot/Engineer
+        /// refuel, or a manual Play/Step started from the Controls tab, since all three run
+        /// through the same single ControlsViewModel.PlayMacro/MacroPlayer channel (§4.7). Set
+        /// externally via SetMacroExecuting - RouteViewModel has no reference to ControlsViewModel
+        /// itself, the same decoupling principle as AutoPilotRunningChanged/SetCompanionSession.
+        /// </summary>
+        public bool IsMacroExecuting
+        {
+            get => _isMacroExecuting;
+            private set
+            {
+                if (SetProperty(ref _isMacroExecuting, value))
+                {
+                    OnCompanionButtonVisibilityChanged();
+                }
+            }
+        }
+
+        internal void SetMacroExecuting(bool executing) => IsMacroExecuting = executing;
+
+        /// <summary>
+        /// Drives the QR/link button's own visibility on the Route tab - shown only while a
+        /// companion session is actually live AND no macro is currently executing. Hidden (not
+        /// merely disabled) for the duration of a macro run because clicking "Open in browser"
+        /// mid-script risks stealing focus from the target Elite Dangerous window, which
+        /// MacroPlayer treats as a playback failure (§4.7's panic mode).
+        /// </summary>
+        public bool ShowCompanionButton => HasCompanionSession && !IsMacroExecuting;
+
+        /// <summary>
+        /// Backs the QR popup's own open/closed state - a VM-owned property (bound to both the
+        /// toggle button's IsChecked and the Popup's own IsOpen in RouteView.xaml) rather than a
+        /// raw ToggleButton.IsChecked/Popup.IsOpen ElementName binding, so it can be forced closed
+        /// the instant ShowCompanionButton itself goes false (a macro starting to execute, or the
+        /// session ending) instead of leaving an orphaned popup open behind its own now-hidden
+        /// anchor button.
+        /// </summary>
+        public bool IsCompanionPopupOpen
+        {
+            get => _isCompanionPopupOpen;
+            set => SetProperty(ref _isCompanionPopupOpen, value && ShowCompanionButton);
+        }
+
+        private void OnCompanionButtonVisibilityChanged()
+        {
+            OnPropertyChanged(nameof(ShowCompanionButton));
+            if (!ShowCompanionButton)
+            {
+                IsCompanionPopupOpen = false;
+            }
+        }
 
         /// <summary>
         /// Called externally (via MainViewModel, once CompanionSessionPublisher.StartSessionAsync
