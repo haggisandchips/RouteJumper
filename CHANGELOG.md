@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-27
+
+### Added
+
+- About dialog: the installed version now also shows its real GitHub
+  release date and time (fetched from GitHub's own release data), in
+  place of just the bare version number.
+
 ## [2.1.4] - 2026-08-27
 
 ### Changed

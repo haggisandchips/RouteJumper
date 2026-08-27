@@ -6,12 +6,13 @@ namespace RouteJumper.Services.Logging
     /// <summary>
     /// Logs every outbound HTTP request/response (or failure) this app makes through it - EDSM's
     /// coordinates/star-type lookups (EdsmStarSystemLookupService), Spansh's route calculations
-    /// (SpanshRouteService), and the companion site's Firestore REST calls
-    /// (CompanionSessionPublisher, category "Companion" - see SPEC.md §13), currently the app's
-    /// only direct HttpClient usages (see SPEC.md's Network section). Velopack's own internal
-    /// update-check HTTP calls aren't visible here - Velopack owns its own HttpClient internally
-    /// with no handler-injection seam - so those are covered instead by the Info/Warn calls
-    /// already around UpdateService's own check.
+    /// (SpanshRouteService), the companion site's Firestore REST calls
+    /// (CompanionSessionPublisher, category "Companion" - see SPEC.md §13), and UpdateService's own
+    /// direct GitHub API call for a release's real date (category "Update") - the app's only direct
+    /// HttpClient usages (see SPEC.md's Network section). Velopack's own internal update-check HTTP
+    /// calls aren't visible here - Velopack owns its own HttpClient internally with no
+    /// handler-injection seam - so those are covered instead by the Info/Warn calls already around
+    /// UpdateService's own check.
     /// </summary>
     internal sealed class LoggingHttpMessageHandler : DelegatingHandler
     {

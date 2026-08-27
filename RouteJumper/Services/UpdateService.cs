@@ -1,3 +1,5 @@
+using System.Net.Http;
+using System.Text.Json;
 using RouteJumper.Services.Logging;
 using Velopack;
 using Velopack.Sources;
@@ -25,6 +27,10 @@ namespace RouteJumper.Services
     public static class UpdateService
     {
         private const string RepoUrl = "https://github.com/haggisandchips/RouteJumper";
+        private const string GithubApiRepoUrl = "https://api.github.com/repos/haggisandchips/RouteJumper";
+        private const string Category = "Update";
+
+        private static readonly HttpClient GithubApiHttpClient = CreateGithubApiHttpClient();
 
         public static async Task CheckForUpdatesAsync()
         {
@@ -33,15 +39,21 @@ namespace RouteJumper.Services
 
         public static Task<UpdateCheckOutcome> CheckForUpdatesManuallyAsync() => CheckForUpdatesCoreAsync();
 
-        /// <summary>The installed app's release number (e.g. "Version 1.2.2"), or a fallback label for an unpackaged build - shown on the About dialog.</summary>
-        public static string GetCurrentVersionDisplay()
+        /// <summary>The installed app's release number and its actual GitHub release date/time (e.g. "Version 1.2.2 (15 Aug 2026 09:05)"), or a fallback label for an unpackaged build - shown on the About dialog.</summary>
+        public static async Task<string> GetCurrentVersionDisplayAsync()
         {
             try
             {
                 var manager = new UpdateManager(new GithubSource(RepoUrl, accessToken: null, prerelease: false));
-                return manager.IsInstalled && manager.CurrentVersion is { } version
-                    ? $"Version {version}"
-                    : "Development build";
+                if (!manager.IsInstalled || manager.CurrentVersion is not { } version)
+                {
+                    return "Development build";
+                }
+
+                var releaseDate = await GetReleaseDateAsync(version.ToString());
+                return releaseDate is { } date
+                    ? $"Version {version} ({date.ToLocalTime():dd MMM yyyy HH:mm})"
+                    : $"Version {version}";
             }
             catch (Exception)
             {
@@ -49,7 +61,46 @@ namespace RouteJumper.Services
             }
         }
 
-        private const string Category = "Update";
+        /// <summary>
+        /// Looks up this version's own GitHub release (tagged v{version} per .github/workflows/release.yml)
+        /// via the public REST API and reads its real <c>published_at</c> instant - the only way to get
+        /// the actual release date/time, since Velopack itself exposes no such metadata and a locally
+        /// installed file's own timestamp reflects install/extraction, not release (can be off by weeks
+        /// or more). Best-effort: this is the app's fourth direct outbound HTTP integration (SPEC.md §9),
+        /// used only on demand when the About dialog opens, never blocking anything else.
+        /// </summary>
+        private static async Task<DateTimeOffset?> GetReleaseDateAsync(string version)
+        {
+            try
+            {
+                using var response = await GithubApiHttpClient.GetAsync($"{GithubApiRepoUrl}/releases/tags/v{version}");
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var doc = await JsonDocument.ParseAsync(stream);
+                return doc.RootElement.TryGetProperty("published_at", out var publishedAt)
+                    ? publishedAt.GetDateTimeOffset()
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(Category, "Failed to fetch release date from GitHub.", ex);
+                return null;
+            }
+        }
+
+        private static HttpClient CreateGithubApiHttpClient()
+        {
+            // LoggingHttpMessageHandler wraps the real transport so every GitHub API request/response
+            // is logged the same way as EDSM/Spansh/Companion (category "Update", matching this
+            // service's other log lines). The GitHub API rejects requests with no User-Agent.
+            var client = new HttpClient(new LoggingHttpMessageHandler(new HttpClientHandler(), Category)) { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("RouteJumper");
+            return client;
+        }
 
         private static async Task<UpdateCheckOutcome> CheckForUpdatesCoreAsync()
         {

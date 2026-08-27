@@ -133,10 +133,15 @@ window (§3.4).
 
 ### 3.6 About dialog
 Modal (Help > About), purely informational: app icon, "ED:FC Auto
-Pilot", installed version (§3.7) or "Development build" for an
-unpackaged run, a one-line description, the fan-made/not-affiliated
-disclaimer, a GitHub repo link (default browser), copyright/license line.
-Single **Close** button.
+Pilot", installed version plus its real GitHub release date/time
+(`dd MMM yyyy HH:mm`, local time, fetched on demand from the GitHub API
+per §9's Network section) or "Development build" for an unpackaged run,
+a one-line description, the fan-made/not-affiliated disclaimer, a GitHub
+repo link (default browser), copyright/license line. Single **Close**
+button. The version line starts blank and fills in once the release-date
+lookup resolves (or immediately for a "Development build", which needs
+no lookup); a failed/slow lookup falls back to showing just the version
+number, never blocking the dialog opening.
 
 ### 3.7 Automatic updates
 - On every launch, silently checks GitHub Releases for a newer version
@@ -1306,8 +1311,14 @@ mode is switched on.
   commander-identifying. The companion site's Firestore REST calls
   (§13) are the third — unauthenticated, sending only route/row system
   names, status text, and timestamps — never commander/journal data.
-  Every call here is best-effort/fire-and-forget; a failure never blocks
-  Auto Pilot or tracking, only logged (category `Companion`, §12).
+  The fourth is a direct call to GitHub's own REST API (§3.6) to read
+  the installed release's real `published_at` date/time for the About
+  dialog — unauthenticated, on demand only (when About is opened), never
+  on launch, sending nothing but the version tag being looked up; this is
+  separate from Velopack's own internal GitHub Releases polling (§3.7),
+  which has no such metadata seam. Every call here is
+  best-effort/fire-and-forget; a failure never blocks Auto Pilot or
+  tracking, only logged (category `Companion`/`Update`, §12).
 
 ---
 
@@ -1612,7 +1623,8 @@ and the Logs window (§3.8, only while open).
   `Update`, `Settings`, `Config`, `Edsm`, `Spansh`, `Companion`, `Scan`,
   `App`.
 - **HTTP requests**: every direct outbound call (EDSM, Spansh, companion
-  Firestore — the app's only three direct-HttpClient integrations) logs
+  Firestore, and UpdateService's own GitHub API release-date lookup,
+  §3.6/§9 — the app's only four direct-HttpClient integrations) logs
   method+URL out and status+elapsed time back (or a warning on outright
   failure). Velopack's own internal update-check calls aren't
   individually visible (no logging seam) — covered instead by an

@@ -10,7 +10,12 @@ namespace RouteJumper.Views
         public AboutWindow()
         {
             InitializeComponent();
-            VersionText.Text = UpdateService.GetCurrentVersionDisplay();
+            _ = LoadVersionAsync();
+        }
+
+        private async Task LoadVersionAsync()
+        {
+            VersionText.Text = await UpdateService.GetCurrentVersionDisplayAsync();
         }
 
         private void OnRepositoryLinkClick(object sender, RoutedEventArgs e) =>
