@@ -170,9 +170,11 @@ plotted, each arrival, each refuel, and any panic-mode stop — updating
 automatically.
 
 No login needed — the link itself is the only "key", so treat it like
-any other unlisted link. A fresh link/QR code is generated each time you
-engage Auto Pilot; a finished run's page stays reachable for about an
-hour afterward, then is cleaned up automatically.
+any other unlisted link. The same link/QR code keeps working across a
+Stop/re-engage on the same route (handy for a route spanning days) — a
+route edit or restarting the app gets you a fresh one. A finished run's
+page stays reachable for about an hour afterward, then is cleaned up
+automatically unless you've since re-engaged on that same route.
 
 If the button never appears, or the page stays empty, check Help > Logs
 (category `Companion`) for why — Auto Pilot itself is never affected

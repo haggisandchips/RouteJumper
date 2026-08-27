@@ -2,6 +2,7 @@ import { Service } from '@angular/core';
 import { initializeApp } from 'firebase/app';
 import {
   collection,
+  deleteDoc,
   doc,
   DocumentData,
   Firestore as FirestoreDb,
@@ -61,6 +62,15 @@ export class Firestore {
       );
       return unsubscribe;
     });
+  }
+
+  /**
+   * Deletes one event doc from a session's feed. Permitted by firestore.rules the same as every
+   * other operation here (the session id itself is the only "auth") - deliberately no
+   * confirmation/undo at this layer, that's the caller's job.
+   */
+  deleteEvent(sessionId: string, eventId: string): Promise<void> {
+    return deleteDoc(doc(db, 'sessions', sessionId, 'events', eventId));
   }
 }
 

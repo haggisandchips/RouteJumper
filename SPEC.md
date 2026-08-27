@@ -40,7 +40,7 @@ automation, since the CMDR must plot and fly every jump themselves.
 | A top-level **Spansh** menu (§3.4) holding **Fleet Carrier…**/**Neutron Plotter…**/**Galaxy Plotter…** (§4.12): calculate a route between two systems via Spansh's own route-plotting API and import it straight into the Route tab, available in both tracking modes - the Galaxy Plotter tab additionally uses the CMDR's own real ship build (re-read from that instance's journal in the background) to plot an exact route accounting for fuel usage and supercharge/injection options | Proper on-screen credit for EDSM specifically (§4.9) — a planned future enhancement, not built yet. (Spansh, §4.12, already carries its own in-dialog credit.) |
 | Material Design styling | |
 | Importing whatever route is currently plotted in-game ("Import Current Route", §4.10), unconditionally, in both tracking modes; trimming a saved route down to a max-500ly-per-hop series of jumps (§4.11, "Trim for FC", Fleet Carrier mode only) - both apply immediately after a Yes/No confirmation, with no in-between review step | |
-| A companion site (§13): a QR code/link next to the Auto Pilot button opens a small, mobile-friendly Angular site (hosted alongside the docs via GitHub Pages) showing a live, read-only feed of an in-progress Auto Pilot run - route/jump plotted, arrived in system, refueled, panic-mode stop | Any authentication beyond a session's own unguessable URL, and any companion-site feature beyond the live event feed itself (e.g. two-way control) - a planned future enhancement, not built yet |
+| A companion site (§13): a QR code/link next to the Auto Pilot button opens a small, mobile-friendly Angular site (hosted alongside the docs via GitHub Pages) showing a live feed of an in-progress Auto Pilot run - route/jump plotted, arrived in system, refueled, panic-mode stop - plus a per-event Delete button to permanently remove a clutter/unwanted event | Any authentication beyond a session's own unguessable URL, and any companion-site control over Auto Pilot itself (e.g. remotely starting/stopping/plotting) - a planned future enhancement, not built yet |
 
 ---
 
@@ -1579,7 +1579,12 @@ section for the full mechanism/exact timing/wording.
 96. A companion publish failure never surfaces to the CMDR and never
     stops Auto Pilot — logged only (§13).
 97. Stopping Auto Pilot marks the session `completed` or `panicked`
-    correctly; re-engaging always starts a brand-new session (§13).
+    correctly; re-engaging on the same route reactivates that same
+    session (unchanged id, `status` back to `active`, prior events kept),
+    while a route edit or app restart starts a genuinely new one (§13).
+98. Clicking an event's Delete button on the companion site removes it
+    permanently from Firestore with no confirmation prompt; every other
+    viewer of the same session link sees it disappear live (§13).
 
 ---
 
@@ -1644,8 +1649,13 @@ and the Logs window (§3.8, only while open).
 A small, mobile-friendly companion website (Angular, statically hosted
 via GitHub Pages alongside the docs — `docs/` at `/docs`, the companion
 app at `/app`, both deployed together by `.github/workflows/pages.yml`)
-showing a live, read-only feed of an in-progress Auto Pilot run (§4.7),
-so the CMDR can check in from a phone.
+showing a live feed of an in-progress Auto Pilot run (§4.7), so the CMDR
+can check in from a phone - read-only apart from a per-event **Delete**
+button (a plain `mat-icon-button` on each feed row, no confirmation)
+that permanently removes that event doc from Firestore, letting the
+CMDR tidy an event they don't want cluttering the feed; every other
+viewer of the same link sees the removal live via the same
+`onSnapshot` subscription that shows new events.
 
 - **A single, shared Firebase project**: every install publishes to, and
   every site visit reads from, the same Firestore project — no
@@ -1681,11 +1691,19 @@ so the CMDR can check in from a phone.
   instant the button would hide. Clicking it opens a popup with the QR
   code and a "Copy Link" button (same copy-with-confirmation-sound
   convention as §4.6/§5.3).
-- **Session lifecycle**: a brand-new session (fresh UUID, fresh QR code)
-  every Auto Pilot engage, never reused. A session's header doc tracks
-  `status`: `active` while running, `completed` on a normal stop (manual
-  or route-complete), `panicked` on a panic-mode stop (§4.7) — shown on
-  the companion site so a viewer can tell a session ended.
+- **Session lifecycle**: the session id is deterministic, not a fresh
+  random UUID every engage — derived from a UUID generated once when the
+  app starts plus a hash of the route's own system names. Re-engaging
+  Auto Pilot on an unchanged route reuses the same id (so the same QR
+  code/link keeps working across a Stop/re-engage cycle — useful since
+  these routes can take days), reactivating the header doc's `status`
+  back to `active` and leaving any previously-published events in place,
+  so the feed reads as one continuous history for that route. A route
+  edit (a different hash) or an app restart (a fresh startup UUID)
+  always produces a fresh session/QR code. A session's header doc
+  tracks `status`: `active` while running, `completed` on a normal stop
+  (manual or route-complete), `panicked` on a panic-mode stop (§4.7) —
+  shown on the companion site so a viewer can tell a session ended.
 - **Housekeeping**: retention is deliberately short — self-managed by the
   desktop app (`CompanionSessionPublisher`/`CompanionSessionStore`), not
   Firestore's own TTL (which needs the paid Blaze plan even for a single

@@ -37,4 +37,19 @@ describe('SessionEventFeed', () => {
     expect(rows[0].textContent).toContain('Arrived at Deciat');
     expect(rows[0].className).toContain('event--arrived');
   });
+
+  it('emits deleteEvent with the clicked row\'s id, with no confirmation', async () => {
+    fixture.componentRef.setInput('events', [
+      { id: 'evt-1', kind: 'arrived', systemName: 'Deciat', message: 'Arrived at Deciat', clientUtc: new Date().toISOString() },
+    ]);
+    await fixture.whenStable();
+
+    let emitted: string | undefined;
+    component.deleteEvent.subscribe((id) => (emitted = id));
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector('.event__delete') as HTMLButtonElement;
+    button.click();
+
+    expect(emitted).toBe('evt-1');
+  });
 });

@@ -1,4 +1,5 @@
-import { Component, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { SessionEvent, SessionEventKind } from '../../core/models/session-event.model';
 
@@ -11,12 +12,15 @@ const ICONS: Record<SessionEventKind, string> = {
 
 @Component({
   selector: 'app-session-event-feed',
-  imports: [MatIconModule],
+  imports: [MatButtonModule, MatIconModule],
   templateUrl: './session-event-feed.html',
   styleUrl: './session-event-feed.scss',
 })
 export class SessionEventFeed {
   events = input.required<SessionEvent[]>();
+
+  /** Emits the id of an event the viewer clicked delete on. */
+  deleteEvent = output<string>();
 
   iconFor(kind: SessionEventKind): string {
     return ICONS[kind];

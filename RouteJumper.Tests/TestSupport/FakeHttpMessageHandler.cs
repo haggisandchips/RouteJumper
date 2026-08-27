@@ -15,6 +15,9 @@ namespace RouteJumper.Tests.TestSupport
         /// <summary>The request body (e.g. a POST's form-encoded content) for each request in RequestedUrls, in the same order - empty string for a request with no content (e.g. a GET).</summary>
         public List<string> RequestedBodies { get; } = new();
 
+        /// <summary>The HTTP method (GET/POST/PATCH/DELETE) for each request in RequestedUrls, in the same order.</summary>
+        public List<string> RequestedMethods { get; } = new();
+
         /// <summary>Called once per request; returns the (status, body) to answer with. Defaults to an empty 200 JSON array.</summary>
         public Func<string, (HttpStatusCode StatusCode, string Body)> Respond { get; set; } =
             _ => (HttpStatusCode.OK, "[]");
@@ -26,6 +29,7 @@ namespace RouteJumper.Tests.TestSupport
             var url = request.RequestUri!.OriginalString;
             RequestedUrls.Add(url);
             RequestedBodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));
+            RequestedMethods.Add(request.Method.Method);
 
             var (statusCode, body) = Respond(url);
             var response = new HttpResponseMessage(statusCode)

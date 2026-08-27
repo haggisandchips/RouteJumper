@@ -251,8 +251,9 @@ namespace RouteJumper.ViewModels
         }
 
         /// <summary>
-        /// Starts a fresh companion session (SPEC §13) the moment Auto Pilot is engaged, named
-        /// after the currently-saved route's own first/last row (not the CMDR's live origin
+        /// Starts (or, on an unchanged route, reactivates - see CompanionSessionPublisher's own
+        /// doc comment) the companion session (SPEC §13) the moment Auto Pilot is engaged, header
+        /// named after the currently-saved route's own first/last row (not the CMDR's live origin
         /// position - a simpler, always-available summary of "this route", the same pair a phone
         /// user glancing at the companion site would expect to see) - then renders and shows the
         /// QR code once the session id comes back. Never blocks Auto Pilot itself: this runs as a
@@ -267,10 +268,9 @@ namespace RouteJumper.ViewModels
                 return;
             }
 
-            var startSystem = RouteViewModel.Rows[0].SystemText;
-            var endSystem = RouteViewModel.Rows[^1].SystemText;
+            var routeSystems = RouteViewModel.Rows.Select(row => row.SystemText).ToList();
 
-            if (await publisher.StartSessionAsync(startSystem, endSystem) is not { } sessionId)
+            if (await publisher.StartSessionAsync(routeSystems) is not { } sessionId)
             {
                 return;
             }

@@ -9,6 +9,15 @@
           <span class="event__time">{{ timeLabel(event.clientUtc) }}</span>
           <span class="event__message">{{ event.message }}</span>
         </div>
+        <button
+          mat-icon-button
+          class="event__delete"
+          type="button"
+          [attr.aria-label]="'Delete: ' + event.message"
+          (click)="deleteEvent.emit(event.id)"
+        >
+          <mat-icon>delete_outline</mat-icon>
+        </button>
       </li>
     }
   </ul>

@@ -4,8 +4,9 @@ import { TestBed } from '@angular/core/testing';
 // hoists `vi.mock` factory registration above ordinary module code - a
 // factory that closes over a not-yet-hoisted variable would see it as
 // undefined the first time the mocked module is evaluated.
-const { onSnapshotMock, FakeTimestamp } = vi.hoisted(() => ({
+const { onSnapshotMock, deleteDocMock, FakeTimestamp } = vi.hoisted(() => ({
   onSnapshotMock: vi.fn(),
+  deleteDocMock: vi.fn(() => Promise.resolve()),
   // A minimal stand-in for the real SDK's Timestamp - only `instanceof` and
   // `toDate()` are ever used by firestore.ts, so that's all this fakes.
   FakeTimestamp: class {
@@ -27,6 +28,7 @@ vi.mock('firebase/firestore', () => ({
   query: vi.fn((ref) => ref),
   orderBy: vi.fn(),
   onSnapshot: onSnapshotMock,
+  deleteDoc: deleteDocMock,
   Timestamp: FakeTimestamp,
 }));
 
@@ -117,6 +119,15 @@ describe('Firestore', () => {
     service.watchSession('abc-123').subscribe((session) => (received = session));
 
     expect((received as { createdUtc: string }).createdUtc).toBe(startedAt.toISOString());
+  });
+
+  it('deleteEvent deletes the exact event doc', async () => {
+    deleteDocMock.mockClear();
+
+    await service.deleteEvent('abc-123', 'evt-1');
+
+    expect(deleteDocMock).toHaveBeenCalledTimes(1);
+    expect(deleteDocMock).toHaveBeenCalledWith({ path: 'sessions/abc-123/events/evt-1' });
   });
 
   it('unsubscribing the Observable calls the Firestore unsubscribe function', () => {

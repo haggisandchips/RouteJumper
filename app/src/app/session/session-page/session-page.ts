@@ -20,6 +20,8 @@ export class SessionPage {
     map((params) => params.get('sessionId')!),
   );
 
+  private readonly sessionId = toSignal(this.sessionId$, { initialValue: '' });
+
   session = toSignal(this.sessionId$.pipe(switchMap((id) => this.firestore.watchSession(id))), {
     initialValue: null,
   });
@@ -27,4 +29,15 @@ export class SessionPage {
   events = toSignal(this.sessionId$.pipe(switchMap((id) => this.firestore.watchEvents(id))), {
     initialValue: [],
   });
+
+  onDeleteEvent(eventId: string): void {
+    // Best-effort, same as every other companion write - a failed delete just leaves the event
+    // in place (Firestore's own offline-write rollback means a rejected delete flashes the row
+    // away and straight back, via the same live watchEvents subscription that shows new events).
+    // Logged rather than silently swallowed so a rules/permission problem is actually diagnosable
+    // from the browser console.
+    this.firestore
+      .deleteEvent(this.sessionId(), eventId)
+      .catch((err) => console.error('Failed to delete companion event', err));
+  }
 }

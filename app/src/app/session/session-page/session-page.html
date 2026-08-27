@@ -1,6 +1,6 @@
 <div class="page">
   <app-session-header class="page__header" [session]="session()" />
   <div class="page__feed">
-    <app-session-event-feed [events]="events()" />
+    <app-session-event-feed [events]="events()" (deleteEvent)="onDeleteEvent($event)" />
   </div>
 </div>

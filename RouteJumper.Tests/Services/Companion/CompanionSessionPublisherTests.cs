@@ -34,20 +34,21 @@ namespace RouteJumper.Tests.Services.Companion
         // ===================== StartSessionAsync / PublishEvent =====================
 
         [Fact]
-        public async Task StartSessionAsync_PostsHeaderDocToExpectedUrlWithExpectedFields()
+        public async Task StartSessionAsync_PatchesHeaderDocToExpectedUrlWithExpectedFields()
         {
             using var dir = new TempDirectory();
             var (publisher, handler, _) = Create(dir.Path);
 
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             Assert.NotNull(sessionId);
             Assert.Equal(sessionId, publisher.CurrentSessionId);
 
             var url = Assert.Single(handler.RequestedUrls);
             Assert.Equal(
-                $"https://firestore.googleapis.com/v1/projects/{ProjectId}/databases/(default)/documents/sessions?documentId={sessionId}",
+                $"https://firestore.googleapis.com/v1/projects/{ProjectId}/databases/(default)/documents/sessions/{sessionId}",
                 url);
+            Assert.Equal("PATCH", Assert.Single(handler.RequestedMethods));
 
             var body = Assert.Single(handler.RequestedBodies);
             Assert.Contains("\"startSystem\"", body);
@@ -58,6 +59,67 @@ namespace RouteJumper.Tests.Services.Companion
         }
 
         [Fact]
+        public async Task StartSessionAsync_SameRouteTwice_ReturnsTheSameSessionId()
+        {
+            // The whole point of a deterministic id (§13, per the user's own request to stop the
+            // QR code/link changing on every engage): re-engaging on an unchanged route within the
+            // same app run must resolve to the same session doc.
+            using var dir = new TempDirectory();
+            var (publisher, _, _) = Create(dir.Path);
+
+            var first = await publisher.StartSessionAsync(new[] { "Sol", "Deciat", "Colonia" });
+            publisher.EndSession(panicked: false);
+            var second = await publisher.StartSessionAsync(new[] { "Sol", "Deciat", "Colonia" });
+
+            Assert.Equal(first, second);
+        }
+
+        [Fact]
+        public async Task StartSessionAsync_DifferentRoute_ReturnsADifferentSessionId()
+        {
+            using var dir = new TempDirectory();
+            var (publisher, _, _) = Create(dir.Path);
+
+            var first = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
+            publisher.EndSession(panicked: false);
+            var second = await publisher.StartSessionAsync(new[] { "Sol", "Deciat", "Colonia" });
+
+            Assert.NotEqual(first, second);
+        }
+
+        [Fact]
+        public async Task StartSessionAsync_DifferentPublisherInstance_ReturnsADifferentSessionIdForTheSameRoute()
+        {
+            // Simulates an app restart (a fresh appInstanceId) - the same route text should still
+            // get a fresh session, never picking up a previous run's stale/deleted doc.
+            using var dir = new TempDirectory();
+            var (publisherA, _, _) = Create(dir.Path);
+            var (publisherB, _, _) = Create(dir.Path);
+
+            var idFromA = await publisherA.StartSessionAsync(new[] { "Sol", "Colonia" });
+            var idFromB = await publisherB.StartSessionAsync(new[] { "Sol", "Colonia" });
+
+            Assert.NotEqual(idFromA, idFromB);
+        }
+
+        [Fact]
+        public async Task StartSessionAsync_ReEngagingAfterEndSession_ReactivatesStatusToActive()
+        {
+            using var dir = new TempDirectory();
+            var (publisher, handler, _) = Create(dir.Path);
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
+            publisher.EndSession(panicked: true);
+            await WaitForRequestCountAsync(handler, 2);
+
+            await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
+
+            var reactivateBody = handler.RequestedBodies[2];
+            Assert.Equal(sessionId, publisher.CurrentSessionId);
+            Assert.Contains("\"status\"", reactivateBody);
+            Assert.Contains("active", reactivateBody);
+        }
+
+        [Fact]
         public async Task StartSessionAsync_RecordsSessionLocallyWithTheAbsoluteMaxAgeBackstop()
         {
             // Covers a session that's later abandoned (app crash, force-quit, EndSession never
@@ -65,7 +127,7 @@ namespace RouteJumper.Tests.Services.Companion
             using var dir = new TempDirectory();
             var (publisher, _, store) = Create(dir.Path);
 
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             Assert.DoesNotContain(sessionId!.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow));
             Assert.Contains(sessionId.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow.AddHours(AbsoluteMaxAgeHours + 1)));
@@ -78,7 +140,7 @@ namespace RouteJumper.Tests.Services.Companion
             var (publisher, handler, _) = Create(dir.Path);
             handler.Respond = _ => (HttpStatusCode.InternalServerError, string.Empty);
 
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             Assert.Null(sessionId);
             Assert.Null(publisher.CurrentSessionId);
@@ -101,7 +163,7 @@ namespace RouteJumper.Tests.Services.Companion
         {
             using var dir = new TempDirectory();
             var (publisher, handler, _) = Create(dir.Path);
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             publisher.PublishEvent(CompanionEventKind.Arrived, "Deciat", "Arrived at Deciat");
             await WaitForRequestCountAsync(handler, 2);
@@ -121,7 +183,7 @@ namespace RouteJumper.Tests.Services.Companion
         {
             using var dir = new TempDirectory();
             var (publisher, handler, _) = Create(dir.Path);
-            await publisher.StartSessionAsync("Sol", "Colonia");
+            await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
             handler.Respond = _ => (HttpStatusCode.InternalServerError, string.Empty);
 
             var exception = Record.Exception(() => publisher.PublishEvent(CompanionEventKind.Panic, string.Empty, "boom"));
@@ -137,7 +199,7 @@ namespace RouteJumper.Tests.Services.Companion
         {
             using var dir = new TempDirectory();
             var (publisher, handler, _) = Create(dir.Path);
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             publisher.EndSession(panicked: true);
             await WaitForRequestCountAsync(handler, 2);
@@ -156,7 +218,7 @@ namespace RouteJumper.Tests.Services.Companion
         {
             using var dir = new TempDirectory();
             var (publisher, handler, store) = Create(dir.Path, retentionHours: 48);
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             publisher.EndSession(panicked: false);
             await WaitForRequestCountAsync(handler, 2);
@@ -170,7 +232,7 @@ namespace RouteJumper.Tests.Services.Companion
         {
             using var dir = new TempDirectory();
             var (publisher, handler, store) = Create(dir.Path, retentionHours: 500);
-            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+            var sessionId = await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
 
             publisher.EndSession(panicked: false);
             await WaitForRequestCountAsync(handler, 2);
@@ -200,7 +262,7 @@ namespace RouteJumper.Tests.Services.Companion
             // must never publish into a session that's already been marked completed/panicked.
             using var dir = new TempDirectory();
             var (publisher, handler, _) = Create(dir.Path);
-            await publisher.StartSessionAsync("Sol", "Colonia");
+            await publisher.StartSessionAsync(new[] { "Sol", "Colonia" });
             publisher.EndSession(panicked: false);
             await WaitForRequestCountAsync(handler, 2);
             var countAfterEnd = handler.RequestedUrls.Count;

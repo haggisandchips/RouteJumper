@@ -2,6 +2,8 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using RouteJumper.Services.Logging;
 
@@ -24,8 +26,16 @@ namespace RouteJumper.Services.Companion
     /// (MainViewModel) - the QR code can't be rendered before a session id exists - but even then,
     /// Auto Pilot itself is never blocked waiting on it (see MainViewModel's own wiring).
     ///
-    /// A fresh session (and so a fresh QR code) is created every time Auto Pilot is engaged - see
-    /// StartSessionAsync - never reused across runs.
+    /// The session id is deterministic, not a fresh random UUID every engage: it's derived from a
+    /// UUID generated once when this publisher is constructed (i.e. once per app run) plus a hash
+    /// of the route's own system names (see StartSessionAsync/ComputeSessionId). So the same QR
+    /// code/link keeps working across repeated Stop/re-engage cycles on an unchanged route within
+    /// one running instance of the app - handy since these routes can take days - while a route
+    /// edit or an app restart naturally produces a fresh id. Firestore writes to the header doc
+    /// use PATCH (create-or-fully-replace), never POST's create-only semantics, so re-engaging an
+    /// id that already exists (e.g. after a Stop) just reactivates it rather than conflicting; any
+    /// events already published under that id are deliberately left in place, so the feed reads as
+    /// one continuous history for the route rather than resetting on every engage.
     ///
     /// Housekeeping (SPEC §13) is self-managed, not Firestore's built-in TTL: TTL turned out to
     /// require the paid Blaze plan even for a single delete (unlike ordinary client-triggered
@@ -77,6 +87,14 @@ namespace RouteJumper.Services.Companion
         private readonly Func<int> _getRetentionHours;
         private readonly CompanionSessionStore _sessionStore;
 
+        /// <summary>
+        /// Generated once when this publisher is constructed - i.e. once per app run - and mixed
+        /// into every session id this instance computes (see ComputeSessionId). Never persisted:
+        /// a fresh one every launch is exactly what makes a route resumed after a restart get a
+        /// fresh session rather than picking up wherever a previous run's feed left off.
+        /// </summary>
+        private readonly Guid _appInstanceId;
+
         public CompanionSessionPublisher(Func<int> getRetentionHours)
             : this(ProjectId, SharedHttpClient, getRetentionHours, new CompanionSessionStore())
         {
@@ -89,6 +107,7 @@ namespace RouteJumper.Services.Companion
             _baseUrl = $"https://firestore.googleapis.com/v1/projects/{projectId}/databases/(default)/documents";
             _getRetentionHours = getRetentionHours;
             _sessionStore = sessionStore;
+            _appInstanceId = Guid.NewGuid();
         }
 
         /// <summary>The session Auto Pilot is currently publishing to, if any - null before the first StartSessionAsync call and after EndSession.</summary>
@@ -102,13 +121,21 @@ namespace RouteJumper.Services.Companion
         }
 
         /// <summary>
-        /// Creates a fresh session header doc (sessions/{uuid}) for a newly-engaged Auto Pilot
-        /// run. Returns the new session id, or null if the request failed - a failure here just
-        /// means no QR/link is shown for this run, logged rather than thrown.
+        /// Creates or reactivates the session header doc (sessions/{uuid}) for a newly-engaged
+        /// Auto Pilot run - the id is deterministic (ComputeSessionId), so re-engaging on the same
+        /// route within the same app run reuses the same doc/QR code rather than minting a new
+        /// one. The write is a PATCH with no updateMask, so it fully replaces the doc regardless
+        /// of whether it already existed - reactivating status to "active" either way - while any
+        /// previously-published events under this id are left alone (PublishEvent only ever adds
+        /// to the events subcollection, never clears it). Returns the session id, or null if the
+        /// request failed - a failure here just means no QR/link is shown for this run, logged
+        /// rather than thrown.
         /// </summary>
-        public async Task<Guid?> StartSessionAsync(string startSystem, string endSystem, CancellationToken cancellationToken = default)
+        public async Task<Guid?> StartSessionAsync(IReadOnlyList<string> routeSystems, CancellationToken cancellationToken = default)
         {
-            var sessionId = Guid.NewGuid();
+            var sessionId = ComputeSessionId(_appInstanceId, routeSystems);
+            var startSystem = routeSystems.Count > 0 ? routeSystems[0] : string.Empty;
+            var endSystem = routeSystems.Count > 0 ? routeSystems[^1] : string.Empty;
             try
             {
                 var body = new JsonObject
@@ -122,15 +149,19 @@ namespace RouteJumper.Services.Companion
                     }
                 };
 
-                var url = $"{_baseUrl}/sessions?documentId={sessionId}";
+                var url = $"{_baseUrl}/sessions/{sessionId}";
                 using var content = JsonContent.Create(body);
-                using var response = await _httpClient.PostAsync(url, content, cancellationToken);
+                using var request = new HttpRequestMessage(HttpMethod.Patch, url) { Content = content };
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
                 response.EnsureSuccessStatusCode();
 
                 CurrentSessionId = sessionId;
 
                 // Recorded immediately, not just on EndSession - see this class's own doc comment
                 // on why an abandoned session (never reaching EndSession) still needs a backstop.
+                // An upsert (CompanionSessionStore.RecordPendingDeletion), so reactivating an id
+                // that a previous EndSession had already shortened correctly pushes its deletion
+                // deadline back out to the full backstop while it's active again.
                 _sessionStore.RecordPendingDeletion(sessionId, DateTime.UtcNow.AddHours(AbsoluteMaxAgeHours));
 
                 Log.Info(Category, $"Companion session {sessionId} started ({startSystem} -> {endSystem}).");
@@ -145,6 +176,20 @@ namespace RouteJumper.Services.Companion
                 Log.Warn(Category, "Failed to start companion session.", ex);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Deterministic session id: stable for a given (app run, route) pair so re-engaging Auto
+        /// Pilot on an unchanged route reuses the same session/QR code, while a route edit or an
+        /// app restart (a fresh appInstanceId) naturally produces a different one. Not a
+        /// spec-compliant UUID v5 (no version/variant bit fixup) - nothing here depends on RFC 4122
+        /// compliance, only on the id being stable and effectively unique per input.
+        /// </summary>
+        private static Guid ComputeSessionId(Guid appInstanceId, IReadOnlyList<string> routeSystems)
+        {
+            var input = appInstanceId.ToString("N") + "|" + string.Join("|", routeSystems);
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+            return new Guid(hash[..16]);
         }
 
         /// <summary>Fire-and-forget - never throws, never awaited by the caller. No-op if no session is currently open. A dropped publish just stays dropped, the same best-effort philosophy as EDSM's own lookups (SPEC §4.9).</summary>
@@ -189,8 +234,10 @@ namespace RouteJumper.Services.Companion
         /// completed/panicked, shortens its local deletion deadline from the fixed
         /// AbsoluteMaxAgeHours backstop down to AppConfigStore.CompanionSessionRetentionHours
         /// (clamped to never exceed AbsoluteMaxAgeHours regardless - see this class's own doc
-        /// comment), and clears CurrentSessionId so a later Auto Pilot re-engage starts a
-        /// genuinely fresh session. No-op if no session is currently open.
+        /// comment), and clears CurrentSessionId (so PublishEvent goes back to no-op'ing until the
+        /// next StartSessionAsync). A later Auto Pilot re-engage on the *same* route recomputes the
+        /// same deterministic id and reactivates this same doc rather than starting a fresh one -
+        /// see StartSessionAsync/ComputeSessionId. No-op if no session is currently open.
         /// </summary>
         public void EndSession(bool panicked)
         {
