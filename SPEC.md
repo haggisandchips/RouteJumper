@@ -2902,6 +2902,18 @@ app at `/app`, both built and deployed together by
 in-progress Auto Pilot run (§4.7), so the CMDR can check in from a phone
 without needing to keep watching the desktop app closely.
 
+- **A single, shared Firebase project**: every installation of ED:FC Auto
+  Pilot publishes to, and every visit to the deployed companion site
+  reads from, the same Firestore project - there is no per-user/per-
+  install project to create or configure. Its public web config is
+  already committed (`app/src/environments/environment*.ts`, and the
+  matching `ProjectId` constant in `CompanionSessionPublisher.cs`), safe
+  to commit since it identifies the project rather than granting access
+  on its own (see the Privacy model bullet below). Isolation between
+  CMDRs is entirely by each session's own unguessable id, not by
+  separate projects. Only relevant to swap out when forking this project
+  to run an independent companion site instance against a different
+  Firebase project (`app/README.md`).
 - **Base URL**: the QR code/link is built as
   `{CompanionSiteBaseUrl}/#/session/{sessionId}`, where
   `CompanionSiteBaseUrl` is a hand-editable `routejumper.conf` setting

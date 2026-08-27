@@ -1,11 +1,13 @@
-// Same Firebase project as environment.ts - there is only one, no separate
-// dev/prod Firebase project. Kept as a distinct file purely so the
-// production build config (angular.json's fileReplacements) has somewhere
-// to point, ready for the two to diverge later if that's ever needed.
+// Same Firebase project as environment.ts - there is only one shared
+// project, used by every installation, not a separate dev/prod Firebase
+// project. Kept as a distinct file purely so the production build config
+// (angular.json's fileReplacements) has somewhere to point, ready for the
+// two to diverge later if that's ever needed.
 //
-// TODO: replace these placeholder values with your own Firebase project's
-// web app config (Firebase Console > Project Settings > General > "Your
-// apps" > Web app) before deploying.
+// Only relevant if you're forking this project to run your own, separate
+// companion site instance: swap these for your own Firebase project's web
+// app config (Firebase Console > Project Settings > General > "Your apps"
+// > Web app) - see app/README.md.
 export const environment = {
   production: true,
   firebase: {

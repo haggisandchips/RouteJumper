@@ -1,11 +1,15 @@
-// Firebase's public web config - safe to commit. It identifies the project,
-// it does not grant access on its own; access is governed entirely by the
-// Firestore security rules (see docs/development.md's companion-site
-// section / SPEC.md §13).
+// Firebase's public web config for the single, shared project every
+// installation of ED:FC Auto Pilot (and its companion site) talks to -
+// there is no per-user/per-install Firebase project, so this is committed
+// as-is rather than left as a placeholder. Safe to commit either way: it
+// identifies the project, it does not grant access on its own - access is
+// governed entirely by the Firestore security rules (see
+// docs/development.md's companion-site section / SPEC.md §13).
 //
-// TODO: replace these placeholder values with your own Firebase project's
-// web app config (Firebase Console > Project Settings > General > "Your
-// apps" > Web app) before deploying.
+// Only relevant if you're forking this project to run your own, separate
+// companion site instance: swap these for your own Firebase project's web
+// app config (Firebase Console > Project Settings > General > "Your apps"
+// > Web app) - see app/README.md.
 export const environment = {
   production: false,
   firebase: {

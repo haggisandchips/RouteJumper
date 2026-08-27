@@ -183,12 +183,12 @@ That window only starts once the run actually ends, so a run that's
 still going stays visible for however long it takes, no matter how long
 that is.
 
-If the button never appears, or the page stays empty, this feature
-simply isn't configured yet on this installation — see
-[companion site setup](https://github.com/haggisandchips/RouteJumper/blob/main/app/README.md)
-for what's needed (a Firebase project). It's entirely best-effort: a
-missing/misconfigured companion site never blocks or affects Auto Pilot
-itself, it just means no QR code shows up.
+If the button never appears, or the page stays empty, that's a real
+failure worth a look (a network issue, or the shared companion service
+being briefly unreachable) — check Help > Logs (category `Companion`)
+for what happened. It's entirely best-effort either way: a companion-site
+failure never blocks or affects Auto Pilot itself, it just means no QR
+code shows up (or the page doesn't update) that time.
 
 Testing the companion site itself against a local build (`ng serve`)
 instead of the real deployed one? Point `CompanionSiteBaseUrl` in
@@ -259,8 +259,8 @@ opens blank; click **Open Logs Folder** in that window (or browse to
   couldn't be reached; the status message explains why. Calculate stays
   disabled until Source/Destination are picked from the autocomplete,
   not just typed.
-- **No QR-code button appears next to Auto Pilot** — this installation's
-  companion site isn't configured (no Firebase project set up yet), or
-  the session failed to start; either way, Help > Logs (category
-  `Companion`) has the detail, and Auto Pilot itself is unaffected
-  either way. See [Companion site](#companion-site).
+- **No QR-code button appears next to Auto Pilot** — the companion
+  session failed to start (a network issue, or the shared service being
+  briefly unreachable); Help > Logs (category `Companion`) has the
+  detail, and Auto Pilot itself is unaffected either way. See
+  [Companion site](#companion-site).

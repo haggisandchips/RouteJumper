@@ -46,10 +46,13 @@ namespace RouteJumper.Services.Companion
     {
         private const string Category = "Companion";
 
-        // TODO: replace with your own Firebase project's id (Firebase Console > Project Settings
-        // > General) once you've created the project and published app/firestore.rules - see
-        // SPEC.md §13. Until then, every publish call below fails harmlessly (logged, never
-        // thrown) and no QR code is ever shown.
+        // The single, shared Firebase project every installation of ED:FC Auto Pilot publishes
+        // to - there is no per-user/per-install project, so every CMDR's companion sessions live
+        // in the same Firestore database, isolated from each other only by their own unguessable
+        // session id (see SPEC.md §13's privacy model). Only relevant to change if you're forking
+        // this project to run your own, separate companion site instance against your own
+        // Firebase project instead (see app/README.md) - matching app/src/environments/
+        // environment*.ts's own projectId.
         private const string ProjectId = "haggisandchips-routejumper";
 
         private static readonly HttpClient SharedHttpClient = CreateHttpClient();
