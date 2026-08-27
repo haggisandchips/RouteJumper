@@ -66,7 +66,8 @@ namespace RouteJumper.Services
         /// via the public REST API and reads its real <c>published_at</c> instant - the only way to get
         /// the actual release date/time, since Velopack itself exposes no such metadata and a locally
         /// installed file's own timestamp reflects install/extraction, not release (can be off by weeks
-        /// or more). Best-effort: this is the app's fourth direct outbound HTTP integration (SPEC.md §9),
+        /// or more). Best-effort: this is the app's fourth direct outbound HTTP integration
+        /// (specs/non-functional.md §9),
         /// used only on demand when the About dialog opens, never blocking anything else.
         /// </summary>
         private static async Task<DateTimeOffset?> GetReleaseDateAsync(string version)

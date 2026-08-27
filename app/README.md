@@ -4,8 +4,8 @@ A small Angular SPA that shows a live, read-only feed of an in-progress
 [ED:FC Auto Pilot](../README.md) Auto Pilot run (route/jump plotted,
 arrived in system, refueled, panic-mode stop) - reached by scanning the
 QR code the desktop app shows next to its Auto Pilot button. See
-SPEC.md's [§13 "Companion Site"](../SPEC.md#13-companion-site) for the
-full design.
+[§13 "Companion Site"](../specs/companion-site.md#13-companion-site) for
+the full design.
 
 This is a fully separate deployable from the WPF app - its own `npm`
 tooling, its own build, deployed together with `docs/` (at `/docs`, this
@@ -18,8 +18,8 @@ Every installation shares a single Firebase project -
 `src/environments/environment.ts`/`environment.prod.ts` already carry its
 real (public, safe-to-commit) web config, matching the `ProjectId` in
 `CompanionSessionPublisher.cs`. Nothing to set up to build, run, or
-develop against it. See [SPEC §13](../SPEC.md#13-companion-site) for the
-privacy/retention design.
+develop against it. See [§13](../specs/companion-site.md#13-companion-site)
+for the privacy/retention design.
 
 ### Running your own fork with a separate Firebase project
 

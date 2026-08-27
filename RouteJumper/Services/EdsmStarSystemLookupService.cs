@@ -17,7 +17,8 @@ namespace RouteJumper.Services
     /// (EDDN market data, not general system metadata).
     ///
     /// This is the app's first-ever outbound network call to a third-party service (aside from
-    /// Velopack's own internal update-check HTTP calls) - see SPEC.md's NFR section. Every call
+    /// Velopack's own internal update-check HTTP calls) - see specs/non-functional.md's Network
+    /// section. Every call
     /// sends only a system name, never any commander/journal data.
     ///
     /// A single bulk endpoint does the real work: `api-v1/systems` (plural) accepts multiple

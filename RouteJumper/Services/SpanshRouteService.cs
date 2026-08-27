@@ -12,7 +12,7 @@ namespace RouteJumper.Services
     /// internal API endpoints, used here with the express permission of Spansh's own author,
     /// Gareth Harper (see the Spansh dialog's own thank-you note). This is the app's second-ever
     /// outbound network call to a third-party service, after EdsmStarSystemLookupService - see
-    /// SPEC.md's Network section.
+    /// specs/non-functional.md's Network section.
     ///
     /// All three endpoints' shapes below were confirmed directly against real responses (curl),
     /// not guessed:

@@ -21,7 +21,7 @@ import { SessionEvent } from './models/session-event.model';
 // no SDK sign-in step) - privacy is UUID-obscurity in the URL, not real
 // auth. Security rules allow `get`/nested `read` on an exact known session
 // path but never `list` the top-level `sessions` collection, so a session
-// id is required to read anything at all. See SPEC.md §13.
+// id is required to read anything at all. See specs/companion-site.md §13.
 const firebaseApp = initializeApp(environment.firebase);
 const db: FirestoreDb = getFirestore(firebaseApp);
 

@@ -98,7 +98,7 @@ namespace RouteJumper.Services
         /// PROVISIONAL - the real post-jump FSD cooldown for a player-flown ship has not yet been
         /// measured in-game (confirmed to be a real cooldown, not merely cosmetic, but the exact
         /// duration is unknown as of writing). This is a placeholder guess only - replace it once
-        /// the real duration is known (see SPEC.md's Ship mode section).
+        /// the real duration is known (see specs/track-tab.md's Ship mode section).
         /// </summary>
         // TODO(ship-cooldown): replace with a measured value.
         public static readonly TimeSpan ProvisionalCooldownDuration = TimeSpan.FromSeconds(10);

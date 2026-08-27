@@ -16,7 +16,8 @@ namespace RouteJumper.Services.Companion
     /// API directly via plain HttpClient - no Firebase SDK, and deliberately no auth: privacy is
     /// UUID-obscurity in the session id, not real authentication (see app/firestore.rules), so
     /// there is nothing to sign in as. This is the app's third outbound network integration,
-    /// after EdsmStarSystemLookupService and SpanshRouteService (SPEC.md's Network section).
+    /// after EdsmStarSystemLookupService and SpanshRouteService (specs/non-functional.md's Network
+    /// section).
     ///
     /// Every publish call is best-effort and fire-and-forget: a session/event/status update that
     /// fails to reach Firestore is simply dropped and logged (category "Companion") - never
@@ -74,7 +75,7 @@ namespace RouteJumper.Services.Companion
         // The single, shared Firebase project every installation of ED:FC Auto Pilot publishes
         // to - there is no per-user/per-install project, so every CMDR's companion sessions live
         // in the same Firestore database, isolated from each other only by their own unguessable
-        // session id (see SPEC.md §13's privacy model). Only relevant to change if you're forking
+        // session id (see specs/companion-site.md §13's privacy model). Only relevant to change if you're forking
         // this project to run your own, separate companion site instance against your own
         // Firebase project instead (see app/README.md) - matching app/src/environments/
         // environment*.ts's own projectId.

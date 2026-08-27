@@ -73,8 +73,8 @@ every installation. That project's config is already committed
 `CompanionSessionPublisher.cs`), so there's nothing to set up just to
 build, run, or develop against it. See `app/README.md` if you're forking
 this repo to run an independent instance against your own Firebase
-project instead, and [§13](../SPEC.md#13-companion-site) for the full
-design (including housekeeping/retention).
+project instead, and [§13](../specs/companion-site.md#13-companion-site)
+for the full design (including housekeeping/retention).
 
 While iterating on the Angular app, point the desktop app's
 `CompanionSiteBaseUrl` setting (`routejumper.conf`) at

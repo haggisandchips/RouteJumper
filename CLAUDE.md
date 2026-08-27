@@ -1,6 +1,8 @@
 # CLAUDE.md
 
-See @SPEC.md for the full functional/technical specification.
+See @SPEC.md for the full functional/technical specification — it's an
+index into the numbered sub-specs under `specs/`, with section numbers
+(§N) preserved across files.
 
 ## Non-negotiable architecture rule
 The route-progress logic (Sequencing/) is event-driven by design: RouteSequencer

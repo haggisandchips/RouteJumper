@@ -11,6 +11,18 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		CLAUDE.md = CLAUDE.md
 		README.md = README.md
 		SPEC.md = SPEC.md
+		specs\acceptance-criteria.md = specs\acceptance-criteria.md
+		specs\companion-site.md = specs\companion-site.md
+		specs\controls-tab.md = specs\controls-tab.md
+		specs\logging.md = specs\logging.md
+		specs\non-functional.md = specs\non-functional.md
+		specs\overview.md = specs\overview.md
+		specs\persistence.md = specs\persistence.md
+		specs\roles-tab.md = specs\roles-tab.md
+		specs\route-tab.md = specs\route-tab.md
+		specs\styling.md = specs\styling.md
+		specs\track-tab.md = specs\track-tab.md
+		specs\window-and-menus.md = specs\window-and-menus.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RouteJumper.Tests", "RouteJumper.Tests\RouteJumper.Tests.csproj", "{9A2B3C4D-5E6F-4A7B-8C9D-1E2F3A4B5C6E}"

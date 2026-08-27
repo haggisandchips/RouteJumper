@@ -3,7 +3,7 @@
 // This is a reference copy for version control - there is no Firebase CLI
 // project wired up in this repo, so applying it is a manual, one-time step:
 // Firebase Console > (your project) > Firestore Database > Rules > paste
-// this in > Publish. See SPEC.md §13 and the plan this was implemented
+// this in > Publish. See specs/companion-site.md §13 and the plan this was implemented
 // from for the full design rationale.
 //
 // Privacy model: a session id (UUID) is unguessable obscurity, not real

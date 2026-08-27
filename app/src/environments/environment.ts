@@ -4,7 +4,7 @@
 // as-is rather than left as a placeholder. Safe to commit either way: it
 // identifies the project, it does not grant access on its own - access is
 // governed entirely by the Firestore security rules (see
-// docs/development.md's companion-site section / SPEC.md §13).
+// docs/development.md's companion-site section / specs/companion-site.md §13).
 //
 // Only relevant if you're forking this project to run your own, separate
 // companion site instance: swap these for your own Firebase project's web
