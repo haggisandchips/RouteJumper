@@ -30,21 +30,36 @@ namespace RouteJumper.Services.Companion
     /// Housekeeping (SPEC §13) is self-managed, not Firestore's built-in TTL: TTL turned out to
     /// require the paid Blaze plan even for a single delete (unlike ordinary client-triggered
     /// deletes, which do have a free daily quota) - a poor fit for a "genuinely free, no card"
-    /// hobby project. Instead, EndSession records the session (in <see cref="CompanionSessionStore"/>,
-    /// a local SQLite table - the desktop app is the *only* writer, so it's the only thing that can
-    /// ever know which sessions exist) as due for deletion once
-    /// AppConfigStore.CompanionSessionRetentionHours has passed since it ended; every app launch,
-    /// <see cref="CleanUpExpiredSessionsAsync"/> deletes whatever's actually due via plain Firestore
-    /// REST DELETE calls. Nothing is ever recorded (or deleted) for a still-active session - however
-    /// long a real run legitimately takes, it's never at risk of being cleaned up out from under
-    /// itself, since the retention window only ever starts counting once EndSession actually runs.
-    /// A session abandoned mid-run (app crash, force-quit, EndSession never called) is simply never
-    /// recorded at all and so never auto-deletes - an accepted trade-off for keeping this genuinely
-    /// free and free of any background/server component; it's a handful of tiny documents at worst.
+    /// hobby project. These records aren't kept for posterity - a completed run is of no further
+    /// interest to anyone once its final state has actually been seen, so both retention windows
+    /// below are deliberately short, not a generous archive:
+    /// - <see cref="StartSessionAsync"/> immediately records the new session (in
+    ///   <see cref="CompanionSessionStore"/>, a local SQLite table - the desktop app is the *only*
+    ///   writer, so it's the only thing that can ever know which sessions exist) as due for
+    ///   deletion after <see cref="AbsoluteMaxAgeHours"/> - a fixed, unconditional backstop that
+    ///   applies no matter what, covering a session abandoned mid-run (app crash, force-quit,
+    ///   EndSession never called) that would otherwise never be recorded as due at all.
+    /// - <see cref="EndSession"/> then shortens that same record to
+    ///   AppConfigStore.CompanionSessionRetentionHours (default far shorter than the fixed
+    ///   backstop - just enough to be fairly confident the run's final state has actually been
+    ///   seen on the companion site) once the run actually ends, clamped to never exceed
+    ///   <see cref="AbsoluteMaxAgeHours"/> regardless of how that setting is configured.
+    /// Every app launch, <see cref="CleanUpExpiredSessionsAsync"/> deletes whatever's actually due
+    /// via plain Firestore REST DELETE calls (covered by the ordinary free delete quota) and only
+    /// then forgets it locally.
     /// </summary>
     public sealed class CompanionSessionPublisher
     {
         private const string Category = "Companion";
+
+        /// <summary>
+        /// The fixed, unconditional maximum age any companion session (and its events) is ever
+        /// kept - not configurable, and not something AppConfigStore.CompanionSessionRetentionHours
+        /// can push past regardless of how it's set. Applied immediately at StartSessionAsync (so
+        /// even a session that's abandoned mid-run and never reaches EndSession still eventually
+        /// gets cleaned up), and used to clamp whatever EndSession later shortens it to.
+        /// </summary>
+        private const int AbsoluteMaxAgeHours = 72;
 
         // The single, shared Firebase project every installation of ED:FC Auto Pilot publishes
         // to - there is no per-user/per-install project, so every CMDR's companion sessions live
@@ -113,6 +128,11 @@ namespace RouteJumper.Services.Companion
                 response.EnsureSuccessStatusCode();
 
                 CurrentSessionId = sessionId;
+
+                // Recorded immediately, not just on EndSession - see this class's own doc comment
+                // on why an abandoned session (never reaching EndSession) still needs a backstop.
+                _sessionStore.RecordPendingDeletion(sessionId, DateTime.UtcNow.AddHours(AbsoluteMaxAgeHours));
+
                 Log.Info(Category, $"Companion session {sessionId} started ({startSystem} -> {endSystem}).");
                 return sessionId;
             }
@@ -166,8 +186,9 @@ namespace RouteJumper.Services.Companion
 
         /// <summary>
         /// Fire-and-forget, same contract as PublishEvent. Marks the current session
-        /// completed/panicked, records it locally as due for deletion once
-        /// AppConfigStore.CompanionSessionRetentionHours has passed (see this class's own doc
+        /// completed/panicked, shortens its local deletion deadline from the fixed
+        /// AbsoluteMaxAgeHours backstop down to AppConfigStore.CompanionSessionRetentionHours
+        /// (clamped to never exceed AbsoluteMaxAgeHours regardless - see this class's own doc
         /// comment), and clears CurrentSessionId so a later Auto Pilot re-engage starts a
         /// genuinely fresh session. No-op if no session is currently open.
         /// </summary>
@@ -201,7 +222,7 @@ namespace RouteJumper.Services.Companion
                 using var response = await _httpClient.SendAsync(request);
                 response.EnsureSuccessStatusCode();
 
-                var retentionHours = Math.Max(1, _getRetentionHours());
+                var retentionHours = Math.Clamp(_getRetentionHours(), 1, AbsoluteMaxAgeHours);
                 _sessionStore.RecordPendingDeletion(sessionId, DateTime.UtcNow.AddHours(retentionHours));
 
                 Log.Info(Category, $"Companion session {sessionId} ended ({status}) - will be deleted after {retentionHours}h.");

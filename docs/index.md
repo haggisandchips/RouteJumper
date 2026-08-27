@@ -176,12 +176,15 @@ public if you'd rather keep your route private). A fresh link/QR code is
 generated every time you engage Auto Pilot; the previous run's link
 still works afterward, just showing that it finished (or stopped early).
 
-Old runs don't hang around forever — once a run finishes, its page stays
-reachable for `CompanionSessionRetentionHours` (default 72 hours), then
-gets cleaned up automatically the next time you launch ED:FC Auto Pilot.
-That window only starts once the run actually ends, so a run that's
-still going stays visible for however long it takes, no matter how long
-that is.
+These pages aren't kept around for posterity — once a run finishes, its
+page stays reachable for `CompanionSessionRetentionHours` (default 1
+hour, just long enough to be confident you've actually seen the final
+result), then gets cleaned up automatically the next time you launch
+ED:FC Auto Pilot. That window only starts once the run actually ends, so
+a run that's still going stays visible for however long it takes. A
+fixed 72-hour maximum age applies unconditionally on top of that, mainly
+as a backstop for a run that never got a clean ending (e.g. the app was
+closed mid-route).
 
 If the button never appears, or the page stays empty, that's a real
 failure worth a look (a network issue, or the shared companion service
@@ -218,7 +221,7 @@ ED:FC Auto Pilot stores its state in `%LocalAppData%\EDFCAutoPilot\`:
 | File | Contents |
 |---|---|
 | `routejumper.db` | SQLite store — route text, window bounds, role/macro assignment, key bindings, recorded macros, options, EDSM lookup cache |
-| `routejumper.conf` | Plain-text, hand-editable config — `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping, EDSM retry/batch settings, Spansh autocomplete debounce, `CompanionSiteBaseUrl` (the [companion site](#companion-site)'s base link, e.g. for pointing it at a local `ng serve` instance while testing), `CompanionSessionRetentionHours` (how long a finished run's companion page stays reachable before it's cleaned up, default 72) |
+| `routejumper.conf` | Plain-text, hand-editable config — `JournalDirectory` (defaults to Frontier's standard `Saved Games\Frontier Developments\Elite Dangerous` folder), log housekeeping, EDSM retry/batch settings, Spansh autocomplete debounce, `CompanionSiteBaseUrl` (the [companion site](#companion-site)'s base link, e.g. for pointing it at a local `ng serve` instance while testing), `CompanionSessionRetentionHours` (how long a finished run's companion page stays reachable before it's cleaned up, default 1 - a fixed 72-hour maximum applies regardless) |
 | `Logs\routejumper-yyyy-MM-dd.log` | Date-stamped log files, size/age-capped automatically |
 
 Not persisted: per-row route progress (re-derived from the journal on

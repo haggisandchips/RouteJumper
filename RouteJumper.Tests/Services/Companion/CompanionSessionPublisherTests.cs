@@ -9,7 +9,8 @@ namespace RouteJumper.Tests.Services.Companion
     public class CompanionSessionPublisherTests
     {
         private const string ProjectId = "test-project";
-        private const int DefaultRetentionHours = 72;
+        private const int DefaultRetentionHours = 1;
+        private const int AbsoluteMaxAgeHours = 72;
 
         private static (CompanionSessionPublisher Publisher, FakeHttpMessageHandler Handler, CompanionSessionStore Store) Create(
             string tempDir, int retentionHours = DefaultRetentionHours)
@@ -54,6 +55,20 @@ namespace RouteJumper.Tests.Services.Companion
             Assert.Contains("Colonia", body);
             Assert.Contains("\"status\"", body);
             Assert.Contains("active", body);
+        }
+
+        [Fact]
+        public async Task StartSessionAsync_RecordsSessionLocallyWithTheAbsoluteMaxAgeBackstop()
+        {
+            // Covers a session that's later abandoned (app crash, force-quit, EndSession never
+            // called) - without this, it would never be recorded as due for deletion at all.
+            using var dir = new TempDirectory();
+            var (publisher, _, store) = Create(dir.Path);
+
+            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+
+            Assert.DoesNotContain(sessionId!.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow));
+            Assert.Contains(sessionId.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow.AddHours(AbsoluteMaxAgeHours + 1)));
         }
 
         [Fact]
@@ -148,6 +163,21 @@ namespace RouteJumper.Tests.Services.Companion
 
             Assert.DoesNotContain(sessionId!.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow));
             Assert.Contains(sessionId.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow.AddHours(49)));
+        }
+
+        [Fact]
+        public async Task EndSession_RetentionHoursConfiguredBeyondTheAbsoluteMax_IsClampedToIt()
+        {
+            using var dir = new TempDirectory();
+            var (publisher, handler, store) = Create(dir.Path, retentionHours: 500);
+            var sessionId = await publisher.StartSessionAsync("Sol", "Colonia");
+
+            publisher.EndSession(panicked: false);
+            await WaitForRequestCountAsync(handler, 2);
+
+            // Still due once the fixed 72h backstop has passed - never pushed out to 500h.
+            Assert.Contains(sessionId!.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow.AddHours(AbsoluteMaxAgeHours + 1)));
+            Assert.DoesNotContain(sessionId.Value, store.GetSessionsDueForDeletion(DateTime.UtcNow.AddHours(AbsoluteMaxAgeHours - 1)));
         }
 
         [Fact]

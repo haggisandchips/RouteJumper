@@ -1854,7 +1854,7 @@ Source/Destination autocomplete debounce (`SpanshAutocompleteDebounceMs`,
 hand-editable to a local `ng serve` address while testing the Angular app
 itself), and how long a finished companion session is retained before
 the desktop app's own housekeeping deletes it
-(`CompanionSessionRetentionHours`, §13, default 72 hours) — rather than
+(`CompanionSessionRetentionHours`, §13, default 1 hour) — rather than
 internal app state like the table below.
 
 | What | Persisted when | Restored when |
@@ -1865,7 +1865,7 @@ internal app state like the table below.
 | Route table column widths (icon, `#`, `System`, `Distance`, `Jumps`, `Refuel`, `Inject`, `Neutron`, `Star Type` — not `Status`, §4.2) | Window closing | App startup, per column — falling back to that column's default width until first resized |
 | Journal/Spansh-seeded system coordinates/star type that fill a confirmed EDSM gap, in `ResolvedLookups` (§4.9, §4.12) | First seed of that system after EDSM has already confirmed it has no record of it | Every later Save/restore referencing it, indefinitely — never re-fetched from EDSM once cached. A value EDSM itself resolves, or a seed that isn't filling a confirmed gap, is cached only for the running session and isn't written here at all — see §4.9. System address (id64) is likewise session-only, not persisted, until a feature that consumes it exists |
 | EDSM unresolved-lookup cooldown, by system name and kind (§4.9) | Every lookup EDSM confirms has no record | Every later lookup of that system/kind, until `EdsmUnresolvedRetryHours` lapses — cleared immediately once that system actually resolves |
-| Companion session id + its own delete-after instant, in `CompanionSessions` (§13) | Every `EndSession` call, once Auto Pilot actually stops | Every app launch — a session whose delete-after instant has already passed is deleted from Firestore and forgotten locally; one not yet due is left alone |
+| Companion session id + its own delete-after instant, in `CompanionSessions` (§13) | Every `StartSessionAsync` call (a fixed, unconditional 72h-from-creation deadline), shortened by every `EndSession` call (`CompanionSessionRetentionHours` after the run actually ends, clamped to that same 72h ceiling) | Every app launch — a session whose delete-after instant has already passed is deleted from Firestore and forgotten locally; one not yet due is left alone |
 | Captain/Engineer role, by commander FID | Assigned/explicitly unassigned | Every Roles tab refresh, while currently unassigned in memory |
 | Captain/Engineer role macro, by macro Id (§5.5) | Selected/cleared | Every Roles tab refresh, while currently unselected in memory |
 | Controls tab options (Auto Pilot delay, Auto wait) | Every change | App startup, falling back to their 5000ms/300ms defaults until first changed |
@@ -2951,31 +2951,39 @@ without needing to keep watching the desktop app closely.
   ended it instead - shown on the companion site's own page so a viewer
   can tell a session has ended, rather than it simply going quiet with no
   explanation.
-- **Housekeeping**: a completed/panicked session is retained for
-  `CompanionSessionRetentionHours` (`routejumper.conf`, §5.2/§7's own
-  convention, default 72 hours) after it ends, then deleted - self-managed
-  by the desktop app itself (`CompanionSessionPublisher`/
-  `CompanionSessionStore`), not Firestore's own TTL feature: TTL turned
-  out to require the paid Blaze plan even for a single delete (no free
-  allowance at all, unlike an ordinary client-triggered delete, which the
-  free Spark plan does cover), a poor fit for a project that's
-  deliberately free/card-free. Instead, `EndSession` records a finished
-  session locally (SQLite, `routejumper.db` - the desktop app is the
-  *only* writer, so the only thing that can ever know which sessions
-  exist) as due once its retention window passes; once per app launch,
-  every session actually due is deleted via plain Firestore `delete`
-  calls (covered by the ordinary free daily quota) and only then forgotten
-  locally - a failed attempt simply retries in full on the next launch.
-  This window only ever starts once a session actually ends - a
-  still-running session is never recorded at all, so it's never at risk
-  of being cleaned up out from under itself no matter how long the real
-  route takes. A session abandoned mid-run (app crash, force-quit,
-  `EndSession` never called) is simply never recorded and so never
-  auto-deletes - an accepted trade-off for keeping this genuinely free and
-  free of any background/server component, and a handful of tiny
-  documents at worst. Deleting a session's header doc does not cascade to
-  its own events (a genuine Firestore behaviour) - cleanup deletes every
-  event doc first, then the header, and only counts the session as fully
+- **Housekeeping**: these records aren't kept for posterity - a completed
+  run is of no further interest to anyone once its final state has
+  actually been seen, so retention is deliberately short, not a generous
+  archive. Self-managed by the desktop app itself
+  (`CompanionSessionPublisher`/`CompanionSessionStore`), not Firestore's
+  own TTL feature: TTL turned out to require the paid Blaze plan even for
+  a single delete (no free allowance at all, unlike an ordinary
+  client-triggered delete, which the free Spark plan does cover), a poor
+  fit for a project that's deliberately free/card-free. Two windows, both
+  tracked in the same local record (SQLite, `routejumper.db` - the
+  desktop app is the *only* writer, so the only thing that can ever know
+  which sessions exist):
+  - The instant a session is created, `StartSessionAsync` records it as
+    due for deletion after a **fixed, unconditional 72 hours** - not
+    configurable, and applying regardless of whether the run ever
+    properly ends. This is what covers a session abandoned mid-run (app
+    crash, force-quit, `EndSession` never reached), which would otherwise
+    never be recorded at all and so never get cleaned up.
+  - Once a run actually ends, `EndSession` shortens that same record to
+    `CompanionSessionRetentionHours` (`routejumper.conf`, §5.2/§7's own
+    convention, default **1 hour** - just long enough to be fairly
+    confident the run's final state has actually been seen on the
+    companion site, not a deliberately generous window), clamped so this
+    setting can never push the deadline past the fixed 72-hour maximum
+    above no matter how it's configured.
+
+  Once per app launch, every session actually due (by whichever of the
+  two windows currently applies) is deleted via plain Firestore `delete`
+  calls (covered by the ordinary free daily quota) and only then
+  forgotten locally - a failed attempt simply retries in full on the next
+  launch. Deleting a session's header doc does not cascade to its own
+  events (a genuine Firestore behaviour) - cleanup deletes every event
+  doc first, then the header, and only counts the session as fully
   cleaned up (removing it from local tracking) once both succeed.
 - **Published events**: exactly four kinds, each a best-effort, fire-and-
   forget publish that never blocks or measurably delays Auto Pilot or

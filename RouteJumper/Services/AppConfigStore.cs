@@ -35,7 +35,7 @@ namespace RouteJumper.Services
         private const string EdsmCoordinatesBatchSizeKey = "EdsmCoordinatesBatchSize";
         private const string SpanshAutocompleteDebounceMsKey = "SpanshAutocompleteDebounceMs";
 
-        private const int DefaultCompanionSessionRetentionHours = 72;
+        private const int DefaultCompanionSessionRetentionHours = 1;
 
         private const int DefaultLogRetentionDays = 7;
         private const int DefaultLogMaxFileSizeMb = 10;
@@ -111,10 +111,18 @@ namespace RouteJumper.Services
         /// around after Auto Pilot actually stops - completed or panicked - before the desktop
         /// app's own housekeeping deletes it (SPEC §13; CompanionSessionPublisher/
         /// CompanionSessionStore - self-managed, not Firestore's built-in TTL feature, which
-        /// requires the paid Blaze plan even for a single delete). Recorded on
-        /// CompanionSessionPublisher.EndSession, not before - a still-active session (however long
-        /// it legitimately runs for) is never recorded at all, so it's never at risk of being
-        /// cleaned up out from under itself. Actual deletion happens once per app launch
+        /// requires the paid Blaze plan even for a single delete). These records aren't kept for
+        /// posterity - the default of 1 hour is simply enough time to be fairly confident the CMDR
+        /// (or whoever they shared the link with) has actually seen the run's final state on the
+        /// companion site, not a deliberately generous archive window. Applied on
+        /// CompanionSessionPublisher.EndSession, and clamped to never exceed the fixed 72-hour
+        /// absolute maximum age every session (and its events) is unconditionally deleted at
+        /// regardless of this setting or whether EndSession was ever even reached (an abandoned
+        /// session - app crash, force-quit - still gets swept up within that same 72 hours).
+        /// A still-active session is never at risk of being cleaned up out from under itself by
+        /// *this* setting specifically, since it's only ever applied once the run actually ends -
+        /// but the fixed 72-hour ceiling applies regardless, unconditionally, even to a run still
+        /// technically in progress. Actual deletion happens once per app launch
         /// (CleanUpExpiredSessionsAsync), not on a background timer.
         /// </summary>
         public int CompanionSessionRetentionHours => ReadIntOrDefault(CompanionSessionRetentionHoursKey, DefaultCompanionSessionRetentionHours);
@@ -182,7 +190,10 @@ namespace RouteJumper.Services
                         "# locally via `ng serve` (app/) instead of the real deployed site.",
                         $"{CompanionSiteBaseUrlKey}={DefaultCompanionSiteBaseUrl}",
                         "# Hours to keep a companion session (and its events) around after Auto",
-                        "# Pilot actually stops, before the app deletes it on a later launch.",
+                        "# Pilot actually stops, before the app deletes it on a later launch - not",
+                        "# for posterity, just long enough to be confident it's actually been seen.",
+                        "# A fixed, unconditional 72-hour maximum age applies on top of this",
+                        "# regardless (covers a session that's abandoned and never properly ends).",
                         $"{CompanionSessionRetentionHoursKey}={DefaultCompanionSessionRetentionHours}",
                         "# Log housekeeping (Logs\\routejumper-*.log) - takes effect within the next 30",
                         "# minutes, or on the next log file rollover, without a restart required.",
