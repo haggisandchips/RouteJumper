@@ -3,11 +3,13 @@ import { initializeApp } from 'firebase/app';
 import {
   collection,
   doc,
+  DocumentData,
   Firestore as FirestoreDb,
   getFirestore,
   onSnapshot,
   orderBy,
   query,
+  Timestamp,
 } from 'firebase/firestore';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
@@ -22,6 +24,14 @@ import { SessionEvent } from './models/session-event.model';
 const firebaseApp = initializeApp(environment.firebase);
 const db: FirestoreDb = getFirestore(firebaseApp);
 
+// The JS SDK hands back `timestampValue` fields as `Timestamp` instances, not the RFC3339
+// strings the desktop app writes over the REST API - `Session`/`SessionEvent` are typed as
+// plain ISO strings for every consumer downstream, so the conversion happens once, here, at
+// the boundary where the raw snapshot data comes in.
+function toIsoString(value: Timestamp | string): string {
+  return value instanceof Timestamp ? value.toDate().toISOString() : value;
+}
+
 @Service()
 export class Firestore {
   /** Live updates to a session's header doc - null once/if it's deleted or was never found. */
@@ -30,7 +40,7 @@ export class Firestore {
       const ref = doc(db, 'sessions', sessionId);
       const unsubscribe = onSnapshot(
         ref,
-        (snap) => subscriber.next(snap.exists() ? (snap.data() as Session) : null),
+        (snap) => subscriber.next(snap.exists() ? toSession(snap.data()) : null),
         (err) => subscriber.error(err),
       );
       return unsubscribe;
@@ -46,13 +56,18 @@ export class Firestore {
       );
       const unsubscribe = onSnapshot(
         eventsQuery,
-        (snap) =>
-          subscriber.next(
-            snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<SessionEvent, 'id'>) })),
-          ),
+        (snap) => subscriber.next(snap.docs.map((d) => toSessionEvent(d.id, d.data()))),
         (err) => subscriber.error(err),
       );
       return unsubscribe;
     });
   }
+}
+
+function toSession(data: DocumentData): Session {
+  return { ...data, createdUtc: toIsoString(data['createdUtc']) } as Session;
+}
+
+function toSessionEvent(id: string, data: DocumentData): SessionEvent {
+  return { id, ...data, clientUtc: toIsoString(data['clientUtc']) } as SessionEvent;
 }

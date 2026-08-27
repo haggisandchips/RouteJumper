@@ -6,8 +6,8 @@
       <li class="event" [class]="'event--' + event.kind">
         <mat-icon>{{ iconFor(event.kind) }}</mat-icon>
         <div class="event__body">
-          <span class="event__message">{{ event.message }}</span>
           <span class="event__time">{{ timeLabel(event.clientUtc) }}</span>
+          <span class="event__message">{{ event.message }}</span>
         </div>
       </li>
     }

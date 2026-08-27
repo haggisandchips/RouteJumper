@@ -24,6 +24,12 @@ export class SessionEventFeed {
 
   timeLabel(clientUtc: string): string {
     const date = new Date(clientUtc);
-    return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString();
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+    // A route can run for days, so the date matters too - a named month
+    // (rather than a locale-ambiguous numeric one) avoids any US/UK mix-up.
+    const datePart = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return `${datePart}, ${date.toLocaleTimeString()}`;
   }
 }
