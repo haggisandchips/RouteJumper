@@ -67,21 +67,16 @@ npm run build        # ng build
 ```
 
 It talks to [Firestore](https://firebase.google.com/docs/firestore)
-directly from the browser - no backend of its own - against a single,
-shared Firebase project every installation of ED:FC Auto Pilot uses.
-That project's config is already committed
+directly from the browser, against a single Firebase project shared by
+every installation. That project's config is already committed
 (`app/src/environments/environment*.ts`, and the matching `ProjectId` in
-`RouteJumper/Services/Companion/CompanionSessionPublisher.cs`), so
-there's nothing to set up just to build, run, or develop against it -
-only swap in your own Firebase project if you're forking this repo to
-run an independent companion site instance of your own; see
-`app/README.md` for those steps. Housekeeping (deleting finished sessions after their
-retention window) is handled by the desktop app itself, not a
-Firestore/console feature (Firestore's own TTL turned out to require the
-paid Blaze plan even for a single delete) - see
-[§13 "Companion Site"](../SPEC.md#13-companion-site) for the retention
-design. While iterating on the
-Angular app itself, point the desktop app's `CompanionSiteBaseUrl`
-setting (`routejumper.conf`) at `http://localhost:4200` so its QR/link
-opens your local `ng serve` instance instead of the deployed site - see
-the [user guide](index.md#data--configuration-locations).
+`CompanionSessionPublisher.cs`), so there's nothing to set up just to
+build, run, or develop against it. See `app/README.md` if you're forking
+this repo to run an independent instance against your own Firebase
+project instead, and [§13](../SPEC.md#13-companion-site) for the full
+design (including housekeeping/retention).
+
+While iterating on the Angular app, point the desktop app's
+`CompanionSiteBaseUrl` setting (`routejumper.conf`) at
+`http://localhost:4200` so its QR/link opens your local `ng serve`
+instance instead of the deployed site.
