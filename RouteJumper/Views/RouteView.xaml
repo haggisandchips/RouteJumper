@@ -574,15 +574,25 @@
                                 <!-- Clicking the QR code itself opens the link directly in the
                                      default browser - a quicker way to open the page locally
                                      than scanning it, e.g. while testing against a local
-                                     `ng serve` instance (CompanionSiteBaseUrl, §13). -->
+                                     `ng serve` instance (CompanionSiteBaseUrl, §13). A bare,
+                                     template-stripped Button - not MaterialDesignFlatButton -
+                                     since that style's Material chrome (min-size padding,
+                                     corner rounding, ripple overlay) clips/distorts the QR
+                                     image's own square, corner-sensitive pattern; a ContentPresenter-only
+                                     template keeps the click behavior with none of that chrome. -->
                                 <Button Command="{Binding OpenCompanionSiteCommand}"
-                                        Style="{StaticResource MaterialDesignFlatButton}"
                                         Padding="0"
+                                        Margin="0"
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Cursor="Hand"
                                         ToolTip="Open in browser"
                                         HorizontalAlignment="Center">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <ContentPresenter />
+                                        </ControlTemplate>
+                                    </Button.Template>
                                     <Image Source="{Binding CompanionQrImage}"
                                            Width="180"
                                            Height="180" />

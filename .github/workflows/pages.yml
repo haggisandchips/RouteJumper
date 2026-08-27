@@ -62,6 +62,15 @@ jobs:
         working-directory: app
         run: npx ng build --configuration production --base-href /RouteJumper/app/ --output-path ../_site_out/app
 
+      - name: Flatten Angular build output
+        # @angular/build:application (the default builder since Angular 17) nests
+        # its browser bundle under an extra browser/ subfolder even with no SSR
+        # configured - without this, GitHub Pages 404s at /RouteJumper/app/ since
+        # index.html actually lands at /RouteJumper/app/browser/index.html instead.
+        run: |
+          mv _site_out/app/browser/* _site_out/app/
+          rmdir _site_out/app/browser
+
       - name: Add root redirect page
         # Neither docs/ nor app/ owns the bare site root any more now that both
         # live under their own subpath - this sends it straight to the docs.
