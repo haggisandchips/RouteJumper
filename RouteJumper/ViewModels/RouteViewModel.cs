@@ -162,6 +162,7 @@ namespace RouteJumper.ViewModels
 
             SaveCommand = new RelayCommand(Save, () => !string.IsNullOrWhiteSpace(RouteText));
             CancelCommand = new RelayCommand(Cancel);
+            ReverseCommand = new RelayCommand(Reverse, () => !string.IsNullOrWhiteSpace(RouteText));
             EditCommand = new RelayCommand(Edit, () => IsSaved && !IsAutoPilotRunning);
             AutoPilotCommand = new RelayCommand(ToggleAutoPilot, () => ShowAutoPilotButton && IsSaved && Rows.Count > 0 && _canEngageAutoPilot());
             OpenCompanionSiteCommand = new RelayCommand(() =>
@@ -213,6 +214,7 @@ namespace RouteJumper.ViewModels
                 if (SetProperty(ref _routeText, value))
                 {
                     SaveCommand.RaiseCanExecuteChanged();
+                    ReverseCommand.RaiseCanExecuteChanged();
                 }
             }
         }
@@ -465,6 +467,9 @@ namespace RouteJumper.ViewModels
         public RelayCommand SaveCommand { get; }
 
         public RelayCommand CancelCommand { get; }
+
+        /// <summary>Reverses the order of the lines currently typed in the text box, in place - stays in Edit state, no confirmation.</summary>
+        public RelayCommand ReverseCommand { get; }
 
         /// <summary>Returns to the text box (with its contents unchanged) to revise the route.</summary>
         public RelayCommand EditCommand { get; }
@@ -935,6 +940,21 @@ namespace RouteJumper.ViewModels
         private void Edit()
         {
             IsSaved = false;
+        }
+
+        /// <summary>
+        /// Reverses the order of the lines currently in the text box - a one-off convenience for
+        /// flipping a pasted route's direction before Saving, not a route mutation itself
+        /// (nothing here touches Rows/settings). Stays in Edit state; no confirmation, per the
+        /// same "purely mechanical, nothing to review" reasoning ImportFromNavRoute/
+        /// TrimToJumpRange give for skipping one, except this doesn't even Save - the CMDR can
+        /// still Cancel out of it.
+        /// </summary>
+        private void Reverse()
+        {
+            var lines = RouteText.Replace("\r\n", "\n").Split('\n');
+            Array.Reverse(lines);
+            RouteText = string.Join("\n", lines);
         }
 
         /// <summary>

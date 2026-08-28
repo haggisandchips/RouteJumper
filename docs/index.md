@@ -46,9 +46,10 @@ with spoken lead-time announcements before each action.
 ### Route tab
 
 Starts in **Edit** — paste a route, one system per line, and click
-**Save** to build the table. The table shows each row's status, `#`,
-`System`, `Distance`, `Star Type`, and status text. A route calculated
-via **Spansh > Neutron Plotter…** additionally shows a `Jumps` column
+**Save** to build the table. **Reverse** flips the order of the pasted
+lines. The table shows each row's status, `#`, `System`, `Distance`,
+`Star Type`, and status text. A route calculated via
+**Spansh > Neutron Plotter…** additionally shows a `Jumps` column
 right of `Distance` (ordinary hops since the previous waypoint); one via
 **Spansh > Galaxy Plotter…** shows `Refuel`/`Inject`/`Neutron` columns
 there instead. Below the table:

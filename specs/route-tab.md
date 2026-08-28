@@ -16,6 +16,9 @@ Two mutually exclusive states: **Edit** and **Table**.
   `Rows` — the table (icon/status/tracked progress) is left exactly as
   it was. If nothing has ever been saved, just clears the box and stays
   in Edit state.
+- **Reverse** (enabled once non-whitespace text exists): reverses the
+  order of the text box's lines in place. Stays in Edit state; no
+  confirmation, no Save.
 
 ### 4.2 Table state (after Save)
 Read-only `DataGrid`, columns:
